@@ -1,0 +1,73 @@
+{
+	"name": "@steve02081504/fount-p2p",
+	"version": "0.0.0",
+	"description": "fount federation P2P layer — link, trust graph, mailbox, DAG, EVFS.",
+	"categories": [
+		"network",
+		"p2p",
+		"fount",
+		"AI"
+	],
+	"type": "module",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/steve02081504/fount-p2p.git",
+		"directory": "."
+	},
+	"engines": {
+		"node": ">=20"
+	},
+	"scripts": {
+		"test": "node --test --test-concurrency=1 --test-force-exit test/pure/*.test.mjs test/integration/*.test.mjs",
+		"test:live": "node --test --test-concurrency=1 --test-force-exit test/live/*.test.mjs",
+		"test:sim": "node --test --test-concurrency=1 --test-force-exit sim/test/*.test.mjs"
+	},
+	"files": [
+		"**/*.mjs",
+		"**/*.json",
+		"!test/**",
+		"!sim/**",
+		"!scripts/**"
+	],
+	"exports": {
+		".": "./index.mjs",
+		"./core/*": "./core/*.mjs",
+		"./crypto": "./crypto/crypto.mjs",
+		"./crypto/*": "./crypto/*.mjs",
+		"./wire/*": "./wire/*.mjs",
+		"./schemas/*": "./schemas/*.mjs",
+		"./node/*": "./node/*.mjs",
+		"./discovery": "./discovery/index.mjs",
+		"./discovery/*": "./discovery/*.mjs",
+		"./link/*": "./link/*.mjs",
+		"./transport/*": "./transport/*.mjs",
+		"./rooms/*": "./rooms/*.mjs",
+		"./overlay": "./overlay/index.mjs",
+		"./overlay/*": "./overlay/*.mjs",
+		"./entity/*": "./entity/*.mjs",
+		"./entity/files/*": "./entity/files/*.mjs",
+		"./trust_graph/*": "./trust_graph/*.mjs",
+		"./mailbox/*": "./mailbox/*.mjs",
+		"./dag": "./dag/index.mjs",
+		"./dag/*": "./dag/*.mjs",
+		"./timeline/*": "./timeline/*.mjs",
+		"./files/*": "./files/*.mjs",
+		"./federation/*": "./federation/*.mjs",
+		"./governance/*": "./governance/*.mjs",
+		"./registries/*": "./registries/*.mjs",
+		"./permissions": "./permissions/index.mjs",
+		"./reputation/*": "./reputation/*.mjs",
+		"./utils/*": "./utils/*.mjs"
+	},
+	"dependencies": {
+		"@noble/curves": "^1.9.0",
+		"node-datachannel": "^0.11.0"
+	},
+	"devDependencies": {
+		"@steve02081504/exec": "file:../../exec"
+	},
+	"optionalDependencies": {
+		"@stoprocent/bleno": "^0.11.0",
+		"@stoprocent/noble": "^1.9.0"
+	}
+}
