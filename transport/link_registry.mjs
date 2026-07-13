@@ -235,11 +235,11 @@ export function createLinkRegistry(opts = {}) {
 			const providerIds = new Set(listDiscoveryProviders().map(provider => provider.id))
 			if (!providerIds.has('mdns'))
 				registerDiscoveryProvider(createMdnsDiscoveryProvider())
-			if (!providerIds.has('bt'))
-				await import('@stoprocent/noble')
-					.then(() => import('../discovery/bt.mjs'))
-					.then(bt => registerDiscoveryProvider(bt.createBluetoothDiscoveryProvider()))
-					.catch(() => { })
+			if (!providerIds.has('bt')) {
+				const bt = await import('../discovery/bt.mjs').catch(() => null)
+				if (await bt?.canUseBluetoothDiscovery?.())
+					registerDiscoveryProvider(bt.createBluetoothDiscoveryProvider())
+			}
 			if (!providerIds.has('nostr'))
 				// 测试通过 initNode({ signaling: { relayOverride } }) 注入共享 loopback relay；生产则回落到用户 relay + 默认公网 relay。
 				// 新 discovery 栈也必须尊重这层 runtime override，否则 live 双节点测试会各打各的公网 relay。

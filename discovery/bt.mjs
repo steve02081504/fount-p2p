@@ -39,6 +39,35 @@ async function loadBleno() {
 }
 
 /**
+ * 等待 BLE 运行时进入 poweredOn（兼容 noble v1/v2 与 bleno）。
+ * @param {*} runtime noble 或 bleno 实例
+ * @param {number} [timeout] 超时毫秒
+ * @returns {Promise<void>}
+ */
+export async function waitPoweredOn(runtime, timeout) {
+	const wait = runtime.waitForPoweredOnAsync ?? runtime.waitForPoweredOn
+	if (typeof wait !== 'function')
+		throw new Error('p2p: bluetooth runtime missing waitForPoweredOn(Async)')
+	return wait.call(runtime, timeout)
+}
+
+/**
+ * 探测本机 noble 运行时是否具备 BT 扫描所需 API。
+ * @returns {Promise<boolean>}
+ */
+export async function canUseBluetoothDiscovery() {
+	try {
+		const noble = await loadNoble()
+		if (typeof noble.startScanningAsync !== 'function') return false
+		const wait = noble.waitForPoweredOnAsync ?? noble.waitForPoweredOn
+		return typeof wait === 'function'
+	}
+	catch {
+		return false
+	}
+}
+
+/**
  * 将 advert 映射序列化为可读 characteristic blob。
  * @param {Map<string, Uint8Array>} adverts topic → payload 映射
  * @returns {Buffer} JSON 序列化后的 advert blob
@@ -144,7 +173,7 @@ export function createBluetoothDiscoveryProvider() {
 				}
 			},
 		})
-		await bleno.waitForPoweredOnAsync(5_000)
+		await waitPoweredOn(bleno, 5_000)
 		await bleno.setServicesAsync([
 			new bleno.PrimaryService({
 				uuid: BT_SERVICE_UUID,
@@ -218,7 +247,7 @@ export function createBluetoothDiscoveryProvider() {
 	async function ensureScanRuntime() {
 		if (scanningStarted) return
 		const noble = await loadNoble()
-		await noble.waitForPoweredOnAsync()
+		await waitPoweredOn(noble, 5_000)
 		noble.on('discover', peripheral => {
 			void inspectPeripheral(peripheral).catch(() => { })
 		})
