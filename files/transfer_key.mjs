@@ -24,8 +24,7 @@ export async function resolveContentKey(descriptor, manifest, deps = {}) {
 		return null
 
 	if (type === 'file-master-key-wrap') {
-		const groupId = descriptor.groupId
-		const fileId = descriptor.fileId
+		const { groupId, fileId } = descriptor
 		if (!groupId || !fileId || !descriptor.wrappedKey || !deps.getGroupFileMasterKey) return null
 		const groupKey = await deps.getGroupFileMasterKey(String(groupId), descriptor.keyGeneration)
 		if (!groupKey) return null
@@ -33,8 +32,7 @@ export async function resolveContentKey(descriptor, manifest, deps = {}) {
 	}
 
 	if (type === 'vault-wrap') {
-		const entityHash = descriptor.entityHash
-		const fileId = descriptor.fileId
+		const { entityHash, fileId } = descriptor
 		if (!entityHash || !fileId || !descriptor.wrappedKey || !deps.getVaultMasterKey) return null
 		const vaultKey = await deps.getVaultMasterKey(String(entityHash))
 		if (!vaultKey) return null

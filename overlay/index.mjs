@@ -25,7 +25,7 @@ function routeSignBytes(reqId, path) {
 export function createOverlayRouter(registry, ttl = 3) {
 	const selfNodeHash = registry.localIdentity.nodeHash
 	const selfPubKey = registry.localIdentity.nodePubKey
-	const secretKey = registry.localIdentity.secretKey
+	const { secretKey } = registry.localIdentity
 	const seenReqs = createLruMap(4096)
 	/** @type {Map<string, { resolve: (path: string[]) => void, reject: (err: Error) => void, timer: number }>} */
 	const pendingRoutes = new Map()

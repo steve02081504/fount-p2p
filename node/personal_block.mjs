@@ -1,5 +1,5 @@
 /**
- * 按实体的个人列表（Chat 与 Social 共享）。
+ * 按实体的个人列表。
  * **block**：对外联邦公开拉黑（timeline block 事件 + personal_block 索引）；
  * **hide**：纯本地隐藏（personal_hide.json，永不联邦）。
  */

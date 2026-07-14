@@ -44,7 +44,8 @@ Root contains only the facade and package metadata; all modules live in layered 
 ## Tests
 
 ```bash
-npm test              # pure + integration (--test-force-exit: node-datachannel leaves native handles)
+npm test              # package pure + integration (Node)
+npm run test:fount    # cross-repo bridge (Deno; requires fount on PATH)
 npm run test:live     # RTC / link smoke (requires node-datachannel)
 npm run test:sim      # tunables co-evolution sim (dev only, not published; --social-tunables to write back)
 ```

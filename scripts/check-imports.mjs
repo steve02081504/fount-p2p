@@ -43,7 +43,7 @@ const broken = []
 for (const file of walk(ROOT)) {
 	if (file.includes(`${join('node_modules', '')}`)) continue
 	const text = readFileSync(file, 'utf8')
-	for (const m of text.matchAll(/(?:from|import)\s*(?:\(\s*)?['"](\.[^'"]+)['"]/g)) {
+	for (const m of text.matchAll(/(?:from|import)\s*(?:\(\s*)?["'](\.[^"']+)["']/g)) {
 		const spec = m[1]
 		if (!spec.endsWith('.mjs') && !spec.endsWith('.json')) continue
 		const target = resolveSpec(file, spec)

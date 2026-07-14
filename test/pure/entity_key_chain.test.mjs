@@ -1,19 +1,16 @@
-
-
 import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 import { test } from 'node:test'
-
 
 import { keyPairFromSeed } from '../../crypto/crypto.mjs'
 import {
 	activeSenderHashFromPubKeyHex,
 	createGenesisKeyHistory,
-	foldOperatorKeyHistoryFromEvents,
+	foldEntityKeyHistoryFromEvents,
 	isRecoverySender,
 	isValidActiveSender,
 	recoverySubjectHashFromPubKeyHex,
-} from '../../federation/operator_key_chain.mjs'
+} from '../../federation/entity_key_chain.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 
 test('recovery subject anchors entity identity', () => {
@@ -27,15 +24,15 @@ test('recovery subject anchors entity identity', () => {
 	assertEquals(isValidActiveSender(createGenesisKeyHistory(recoveryHex, activeHex), recoveryHex, activeSenderHashFromPubKeyHex(activeHex)), true)
 })
 
-test('foldOperatorKeyHistoryFromEvents tracks rotate', () => {
+test('foldEntityKeyHistoryFromEvents tracks rotate', () => {
 	const recovery = keyPairFromSeed(randomBytes(32))
 	const active = keyPairFromSeed(randomBytes(32))
 	const recoveryHex = Buffer.from(recovery.publicKey).toString('hex')
 	const activeHex = Buffer.from(active.publicKey).toString('hex')
 	const events = [
-		{ type: 'operator_key_rotate', content: { generation: 0, activePubKeyHex: activeHex }, hlc: { wall: 1 }, timestamp: 1 },
+		{ type: 'entity_key_rotate', content: { generation: 0, activePubKeyHex: activeHex }, hlc: { wall: 1 }, timestamp: 1 },
 	]
-	const folded = foldOperatorKeyHistoryFromEvents(events)
+	const folded = foldEntityKeyHistoryFromEvents(events)
 	assertEquals(folded.recoveryPubKeyHex, null)
-	assertEquals(folded.operatorKeyHistory.length, 1)
+	assertEquals(folded.entityKeyHistory.length, 1)
 })

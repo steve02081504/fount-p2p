@@ -53,7 +53,7 @@ export async function waitPoweredOn(runtime, timeout) {
 
 /**
  * 探测本机 noble 运行时是否具备 BT 扫描所需 API。
- * @returns {Promise<boolean>}
+ * @returns {Promise<boolean>} noble 可加载且具备 startScanningAsync 与 waitForPoweredOn(Async) 时为 true
  */
 export async function canUseBluetoothDiscovery() {
 	try {

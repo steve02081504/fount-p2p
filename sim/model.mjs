@@ -465,7 +465,7 @@ function runFriendlyBehavior(simulationContext, peer, observer, side, round, tun
  * @returns {{ reach: number, cost: number, overload: number }} 可达率、成本比、带宽超载率
  */
 function simulateMailbox(obs, nodes, tunables, scoreOf, offlineSet = new Set()) {
-	const maxHop = tunables.mailbox.maxHop
+	const { maxHop } = tunables.mailbox
 	const online = nodes.filter(n => !offlineSet.has(n.id))
 	const fanout = resolveMailboxRelayFanout(online.length, tunables.mailbox)
 	const wantFanout = resolveMailboxWantFanout(online.length, tunables.mailbox)
@@ -793,13 +793,13 @@ export function runSimulation(scenario, seed, tunables, attackGenome) {
 		for (const obs of observers) {
 			const transport = simulationContext.transportByObserver?.get(obs.id)
 			if (!transport) continue
-			const throttleOk = transportMetrics(
+			const { throttleOk } = transportMetrics(
 				transport,
 				obs.id,
 				onlineFriendlyIds,
 				id => obs.reputation.byNodeHash[id]?.score ?? 0,
 				simulationContext.now,
-			).throttleOk
+			)
 			simulationContext.throttleOkAccum = (simulationContext.throttleOkAccum ?? 0) + throttleOk
 			simulationContext.throttleRounds = (simulationContext.throttleRounds ?? 0) + 1
 		}
@@ -946,7 +946,7 @@ function collectSnapshot(observers, nodes, tunables, groupSize, simulationContex
 		fanoutCost += top.length / Math.max(1, honest.length)
 
 		const friendlyIds = onlineNodes.filter(n => n.kind === 'honest' || n.kind === 'relay' || n.kind === 'lurker').map(n => n.id)
-		const maxHop = tunables.mailbox.maxHop
+		const { maxHop } = tunables.mailbox
 		const cleanReach = discoveryReach(simulationContext.discovery, obs.id, friendlyIds, scoreOf, maxHop, true)
 		const discReach = discoveryReach(simulationContext.discovery, obs.id, friendlyIds, scoreOf, maxHop, false)
 		const observerReachHarm = Math.max(0, cleanReach - discReach)

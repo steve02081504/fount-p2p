@@ -76,6 +76,6 @@ export function normalizePartpath(value) {
  */
 export function isPartInvoke(value) {
 	if (!isPlainObject(value)) return false
-	const kind = value.kind
+	const { kind } = value
 	return typeof kind === 'string' && kind.length > 0
 }

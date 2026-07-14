@@ -20,6 +20,6 @@ export function normalizeDtlsFingerprint(value) {
  * @returns {string | null} 规范化 fingerprint，未找到时返回 null
  */
 export function extractDtlsFingerprint(sdp) {
-	const line = String(sdp || '').match(/^a=fingerprint:sha-256\s+([0-9A-Fa-f:]+)$/mu)?.[1]
+	const line = String(sdp || '').match(/^a=fingerprint:sha-256\s+([\d:A-Fa-f]+)$/mu)?.[1]
 	return normalizeDtlsFingerprint(line)
 }

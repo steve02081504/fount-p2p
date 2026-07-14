@@ -326,7 +326,7 @@ export async function createLink(opts) {
 	 * @returns {boolean} 应重新入队则 true
 	 */
 	function shouldRetryQueuedIce(error) {
-		return /without ICE transport/i.test(String(error?.message ?? error ?? ''))
+		return /without ice transport/i.test(String(error?.message ?? error ?? ''))
 	}
 
 	/**

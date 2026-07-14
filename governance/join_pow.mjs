@@ -101,7 +101,7 @@ export function verifyJoinPow(powSolution, opts) {
 	if (!powSolution || typeof powSolution !== 'object') return { ok: false, achievedBits: 0 }
 
 	const anchorRef = String(powSolution.anchorRef ?? '').trim()
-	const nonce = powSolution.nonce
+	const { nonce } = powSolution
 	const epoch = Number(powSolution.epoch)
 	const joinerNodeHash = String(powSolution.joinerNodeHash ?? opts.senderNodeHash ?? '').trim().toLowerCase()
 	const senderNodeHash = String(opts.senderNodeHash ?? '').trim().toLowerCase()

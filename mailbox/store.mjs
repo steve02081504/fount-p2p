@@ -162,7 +162,7 @@ export async function storeMailboxRecord(record) {
 	const toPubKeyHash = normalizeHex64(record.toPubKeyHash)
 	if (!isHex64(toPubKeyHash)) return false
 	const hop = normalizeMailboxHop(record.hop)
-	const tier = record.tier
+	const { tier } = record
 	if (!['trusted', 'normal', 'quarantine'].includes(tier)) return false
 	const app = String(record.app || '').trim()
 	if (!app) return false

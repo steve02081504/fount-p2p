@@ -69,7 +69,7 @@ export function invalidateDenylistIndex() {
 function getDenylistIndex() {
 	if (cachedIndex) return cachedIndex
 	const raw = readNodeJsonSync(DATA_NAME)
-	const blocked = normalizeDenylist(raw).blocked
+	const { blocked } = normalizeDenylist(raw)
 	cachedIndex = buildDenylistIndex(blocked)
 	return cachedIndex
 }
@@ -111,7 +111,7 @@ export function loadDenylist() {
  * @returns {void}
  */
 export function saveDenylist(list) {
-	const blocked = normalizeDenylist(list).blocked
+	const { blocked } = normalizeDenylist(list)
 	writeNodeJsonSync(DATA_NAME, { blocked })
 	cachedIndex = buildDenylistIndex(blocked)
 }

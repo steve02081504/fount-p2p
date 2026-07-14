@@ -34,18 +34,18 @@ export function hashFromPubKeyHex(pubKeyHex) {
 /**
  * @param {string} nodeHash 成员所属节点 hash
  * @param {string} recoveryPubKeyHex 32 字节 recovery 公钥 hex（稳定身份锚）
- * @returns {string} 用户 entityHash
+ * @returns {string} entityHash
  */
-export function userEntityHashFromRecoveryPubKeyHex(nodeHash, recoveryPubKeyHex) {
+export function entityHashFromRecoveryPubKeyHex(nodeHash, recoveryPubKeyHex) {
 	return encodeEntityHash(nodeHash, hashFromPubKeyHex(recoveryPubKeyHex))
 }
 
 /**
  * @param {string} nodeHash 成员所属节点 hash
  * @param {string} subjectHash 成员签名 pubKeyHash（DAG sender）
- * @returns {string} 用户 entityHash
+ * @returns {string} entityHash
  */
-export function userEntityHashFromSubjectHash(nodeHash, subjectHash) {
+export function entityHashFromSubjectHash(nodeHash, subjectHash) {
 	const node = normalizeHex64(nodeHash)
 	const subject = normalizeHex64(subjectHash)
 	if (!isHex64(node) || !isHex64(subject)) throw new Error('invalid subject hash')

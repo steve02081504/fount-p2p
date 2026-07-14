@@ -7,9 +7,17 @@ import { assertEquals } from '../helpers/assert.mjs'
 test('waitPoweredOn prefers waitForPoweredOnAsync', async () => {
 	let called = ''
 	const runtime = {
+		/**
+		 * 等待 BT powered-on 的同步 API
+		 */
 		waitForPoweredOn() {
 			called = 'sync'
 		},
+		/**
+		 * 等待 BT powered-on 的异步 API
+		 * @param {number} timeout 等待 BT powered-on 的超时（毫秒）
+		 * @returns {Promise<void>}
+		 */
 		async waitForPoweredOnAsync(timeout) {
 			called = `async:${timeout}`
 		},
@@ -21,6 +29,11 @@ test('waitPoweredOn prefers waitForPoweredOnAsync', async () => {
 test('waitPoweredOn falls back to waitForPoweredOn', async () => {
 	let called = ''
 	const runtime = {
+		/**
+		 * 等待 BT powered-on 的同步 API
+		 * @param {number} timeout 等待 BT powered-on 的超时（毫秒）
+		 * @returns {Promise<void>}
+		 */
 		waitForPoweredOn(timeout) {
 			called = `sync:${timeout}`
 			return Promise.resolve()

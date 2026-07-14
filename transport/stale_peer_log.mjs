@@ -3,9 +3,7 @@
  *
  * 无回退行为——仅在发生处记录异常「身份映射滞后于活跃连接」
  * （群/房间 + peerId + nodeHash），以便追踪 onPeerLeave 遗漏。
- * 计数通过 catchup stats 暴露给测试；磁盘记录可在 debug_logs/ 下 grep。
  */
-import { debugLog } from '../utils/debug_log.mjs'
 
 /** @type {Map<string, number>} scopeId → 累计修剪次数 */
 const pruneCounts = new Map()
@@ -31,7 +29,6 @@ export function recordStalePeerPrune(scope, staleEntries, meta = {}) {
 		lines.push(JSON.stringify(record))
 	}
 	while (recent.length > RECENT_CAP) recent.shift()
-	void debugLog('federation_stale_peer', `${lines.join('\n')}\n`).catch(() => { /* best-effort observability */ })
 }
 
 /**

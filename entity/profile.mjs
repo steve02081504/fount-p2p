@@ -113,7 +113,7 @@ export async function getProfile(entityHash, replicaUsername = null, options = {
 
 	if (options.skipPresentation) return merged
 
-	let infoDefaults = options.infoDefaults
+	let { infoDefaults } = options
 	if (!infoDefaults && replicaUsername)
 		infoDefaults = await resolveInfoDefaultsForEntity(replicaUsername, parsed.entityHash, locales)
 	if (!infoDefaults)

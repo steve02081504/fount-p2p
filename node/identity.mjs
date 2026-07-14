@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 
-import { userEntityHashFromRecoveryPubKeyHex } from '../core/entity_id.mjs'
+import { entityHashFromRecoveryPubKeyHex } from '../core/entity_id.mjs'
 import { isHex64 } from '../core/hexIds.mjs'
 import { nodeHashFromSeed } from '../entity/node_hash.mjs'
 import { normalizeMailboxSettings } from '../mailbox/settings.mjs'
@@ -8,7 +8,7 @@ import { normalizeMailboxSettings } from '../mailbox/settings.mjs'
 import { emitNodeChange } from './instance.mjs'
 import { readNodeJsonSync, writeNodeJsonSync } from './storage.mjs'
 
-const NODE_SEED_HEX_RE = /^[0-9a-f]{64}$/iu
+const NODE_SEED_HEX_RE = /^[\da-f]{64}$/iu
 const NODE_JSON = 'node'
 
 /**
@@ -90,10 +90,10 @@ export function ensureNodeDefaults() {
 /**
  * @param {string} nodeHash 64 位十六进制
  * @param {string} recoveryPubKeyHex 64 位十六进制 recovery 公钥（稳定身份锚）
- * @returns {string | null} 操作者 entityHash
+ * @returns {string | null} entityHash（非法 hex 时 null）
  */
-export function operatorEntityHashFromKeys(nodeHash, recoveryPubKeyHex) {
+export function entityHashFromKeys(nodeHash, recoveryPubKeyHex) {
 	const pub = String(recoveryPubKeyHex || '').trim().toLowerCase().replace(/^0x/iu, '')
 	if (!isHex64(nodeHash) || !isHex64(pub)) return null
-	return userEntityHashFromRecoveryPubKeyHex(nodeHash, pub)
+	return entityHashFromRecoveryPubKeyHex(nodeHash, pub)
 }

@@ -47,7 +47,7 @@ test('p2p production code import boundary', async () => {
 		const rel = path.relative(P2P_ROOT, entry.path)
 		if (/\bsocial_rpc\b/u.test(text))
 			violations.push(`${rel}: social_rpc literal`)
-		if (/getShellPartpath\(\s*['"]social['"]\s*\)/u.test(text))
+		if (/getShellPartpath\(\s*["']social["']\s*\)/u.test(text))
 			violations.push(`${rel}: getShellPartpath('social')`)
 		if (/fount:chat:/u.test(text))
 			violations.push(`${rel}: fount:chat: literal`)
@@ -55,7 +55,7 @@ test('p2p production code import boundary', async () => {
 			violations.push(`${rel}: fount:chat:agent: literal`)
 		if (/\bagentEntityHash\b/u.test(text))
 			violations.push(`${rel}: agentEntityHash literal`)
-		for (const match of text.matchAll(/from\s+['"]([^'"]+)['"]/gu)) {
+		for (const match of text.matchAll(/from\s+["']([^"']+)["']/gu)) {
 			const spec = match[1]
 			if (spec.includes('public/parts/shells'))
 				violations.push(`${rel} -> ${spec} (shell parts)`)

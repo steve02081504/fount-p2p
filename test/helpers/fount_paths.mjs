@@ -1,4 +1,4 @@
-import { realpath } from 'node:fs/promises'
+import { access, realpath } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -37,13 +37,24 @@ export async function fountSkipReason() {
 }
 
 /**
- * @param {...string} segments `src/scripts/p2p` 下相对路径
- * @returns {Promise<Record<string, unknown>>} 动态导入的模块命名空间
+ * fount social 走 `npm:`，需 Deno；另要求 PATH 有 fount，且所列 `social/src` 相对路径均存在。
+ * @param {...string} socialSrcRelPaths 如 `federation/entity_key_auth.mjs`
+ * @returns {Promise<string | false>} 应跳过时返回原因字符串；环境就绪则返回 false
  */
-export async function importFountP2pScript(...segments) {
+export async function fountBridgeSkipReason(...socialSrcRelPaths) {
+	if (typeof globalThis.Deno === 'undefined')
+		return 'requires Deno'
+	const pathSkip = await fountSkipReason()
+	if (pathSkip) return pathSkip
 	const root = await resolveFountRoot()
-	const file = join(root, 'src/scripts/p2p', ...segments)
-	return import(pathToFileURL(file).href)
+	for (const rel of socialSrcRelPaths) try {
+		await access(join(root, 'src/public/parts/shells/social/src', rel))
+	}
+	catch {
+		return `missing ${rel}`
+	}
+
+	return false
 }
 
 /**
@@ -53,15 +64,5 @@ export async function importFountP2pScript(...segments) {
 export async function importSocialModule(...segments) {
 	const root = await resolveFountRoot()
 	const file = join(root, 'src/public/parts/shells/social/src', ...segments)
-	return import(pathToFileURL(file).href)
-}
-
-/**
- * @param {...string} segments `public/pages/scripts/p2p` 下相对路径
- * @returns {Promise<Record<string, unknown>>} 动态导入的模块命名空间
- */
-export async function importPagesP2pModule(...segments) {
-	const root = await resolveFountRoot()
-	const file = join(root, 'src/public/pages/scripts/p2p', ...segments)
 	return import(pathToFileURL(file).href)
 }

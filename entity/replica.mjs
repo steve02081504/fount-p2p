@@ -1,12 +1,12 @@
 import { parseEntityHash } from '../core/entity_id.mjs'
-import { operatorEntityHashFromKeys, getNodeHash } from '../node/identity.mjs'
+import { entityHashFromKeys, getNodeHash } from '../node/identity.mjs'
 
 /**
  * @param {string} recoveryPubKeyHex 64 位十六进制 recovery 公钥
- * @returns {string | null} 本节点操作者 entityHash
+ * @returns {string | null} 本节点 entityHash
  */
-export function resolveLocalOperatorEntityHash(recoveryPubKeyHex) {
-	return operatorEntityHashFromKeys(getNodeHash(), recoveryPubKeyHex)
+export function resolveLocalEntityHashFromRecoveryPubKeyHex(recoveryPubKeyHex) {
+	return entityHashFromKeys(getNodeHash(), recoveryPubKeyHex)
 }
 
 /**

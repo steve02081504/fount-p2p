@@ -18,7 +18,7 @@ const buckets = createLruMap(BUCKET_MAP_MAX)
 export function consumeWireRateBucket(bucketKey, limits) {
 	const byteCount = Math.max(0, Number(limits.byteCount) || 0)
 	const maxBytes = Number(limits.maxBytesPerWindow) || 0
-	const maxCount = limits.maxCount
+	const { maxCount } = limits
 	const now = Date.now()
 	let bucket = buckets.get(bucketKey)
 	if (!bucket) {

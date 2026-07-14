@@ -131,7 +131,7 @@ export function onBufferedAmountLow(channel, cb) {
  * @returns {{ enqueue: (action: string, bytes: Uint8Array, preferredChannel?: 'control' | 'bulk') => void, flush: (channelName?: 'control' | 'bulk') => void, pending: () => { control: number, bulk: number }, clear: () => void }} 发送队列 API
  */
 export function createChannelSendQueues(opts) {
-	const getChannel = opts.getChannel
+	const { getChannel } = opts
 	const highWatermarkBytes = Math.max(CHANNEL_LOW_THRESHOLD_BYTES, Number(opts.highWatermarkBytes) || CHANNEL_HIGH_WATERMARK_BYTES)
 	/** @type {{ control: Array<{ priority: number, seq: number, bytes: Uint8Array }>, bulk: Array<{ priority: number, seq: number, bytes: Uint8Array }> }} */
 	const queues = { control: [], bulk: [] }

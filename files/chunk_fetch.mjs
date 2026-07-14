@@ -46,7 +46,7 @@ function chunkFetchPeerTargets() {
  */
 export async function fetchChunk(context) {
 	const hash = String(context.ciphertextHash || '').trim().toLowerCase()
-	const username = context.username
+	const { username } = context
 	if (!hash || !username) return null
 
 	if (await hasChunk(hash))

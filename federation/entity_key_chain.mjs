@@ -1,5 +1,5 @@
 /**
- * Operator 密钥历史链：entityHash 锚定 recovery 公钥，活跃钥可轮换。
+ * Entity 密钥历史链：entityHash 锚定 recovery 公钥，活跃钥可轮换。
  */
 import { Buffer } from 'node:buffer'
 
@@ -10,7 +10,7 @@ import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
 /**
  *
  */
-export const OPERATOR_KEY_REVOKE_DOMAIN = 'fount-operator-key-revoke'
+export const ENTITY_KEY_REVOKE_DOMAIN = 'fount-entity-key-revoke'
 
 /**
  * @typedef {{
@@ -19,7 +19,7 @@ export const OPERATOR_KEY_REVOKE_DOMAIN = 'fount-operator-key-revoke'
  *   attestedBy: 'recovery' | 'active' | 'revoked',
  *   validFrom?: number,
  *   revokedGenerations?: number[],
- * }} OperatorKeyHistoryEntry
+ * }} EntityKeyHistoryEntry
  */
 
 /**
@@ -42,7 +42,7 @@ export function activeSenderHashFromPubKeyHex(activePubKeyHex) {
  * @param {string} recoveryPubKeyHex recovery 公钥
  * @param {string} activePubKeyHex 初始活跃公钥
  * @param {number} [validFrom] 生效时间
- * @returns {OperatorKeyHistoryEntry[]} 创世链
+ * @returns {EntityKeyHistoryEntry[]} 创世链
  */
 export function createGenesisKeyHistory(recoveryPubKeyHex, activePubKeyHex, validFrom = Date.now()) {
 	return [{
@@ -54,7 +54,7 @@ export function createGenesisKeyHistory(recoveryPubKeyHex, activePubKeyHex, vali
 }
 
 /**
- * @param {OperatorKeyHistoryEntry[]} keyHistory 密钥历史
+ * @param {EntityKeyHistoryEntry[]} keyHistory 密钥历史
  * @param {number} generation 代际
  * @returns {string | null} 活跃公钥 hex
  */
@@ -64,7 +64,7 @@ export function resolveActiveKeyAtGeneration(keyHistory, generation) {
 }
 
 /**
- * @param {OperatorKeyHistoryEntry[]} keyHistory 密钥历史
+ * @param {EntityKeyHistoryEntry[]} keyHistory 密钥历史
  * @returns {number} 最新代际，无则 -1
  */
 export function resolveLatestActiveGeneration(keyHistory) {
@@ -73,7 +73,7 @@ export function resolveLatestActiveGeneration(keyHistory) {
 }
 
 /**
- * @param {OperatorKeyHistoryEntry[]} keyHistory 密钥历史
+ * @param {EntityKeyHistoryEntry[]} keyHistory 密钥历史
  * @param {number} generation 代际
  * @returns {boolean} 是否已吊销
  */
@@ -84,7 +84,7 @@ export function isActiveGenerationRevoked(keyHistory, generation) {
 }
 
 /**
- * @param {OperatorKeyHistoryEntry[]} keyHistory 密钥历史
+ * @param {EntityKeyHistoryEntry[]} keyHistory 密钥历史
  * @param {string} recoveryPubKeyHex recovery 公钥
  * @param {string} senderPubKeyHash 事件 sender（64 hex pubKeyHash）
  * @returns {boolean} sender 是否为未吊销的活跃钥
@@ -112,18 +112,18 @@ export function isRecoverySender(recoveryPubKeyHex, senderPubKeyHash) {
 
 /**
  * @param {object} state 物化状态
- * @param {object} event operator_key_rotate 事件
+ * @param {object} event entity_key_rotate 事件
  * @returns {object} 更新后状态
  */
-export function reduceOperatorKeyRotate(state, event) {
+export function reduceEntityKeyRotate(state, event) {
 	const generation = Number(event.content?.generation)
 	const activePubKeyHex = normalizeHex64(event.content?.activePubKeyHex || '')
 	if (!Number.isFinite(generation) || generation < 0 || !isHex64(activePubKeyHex))
 		return state
-	state.operatorKeyHistory = state.operatorKeyHistory || []
-	if (state.operatorKeyHistory.some(row => row.generation === generation))
+	state.entityKeyHistory = state.entityKeyHistory || []
+	if (state.entityKeyHistory.some(row => row.generation === generation))
 		return state
-	state.operatorKeyHistory.push({
+	state.entityKeyHistory.push({
 		generation,
 		activePubKeyHex,
 		attestedBy: generation === 0 ? 'recovery' : 'active',
@@ -134,10 +134,10 @@ export function reduceOperatorKeyRotate(state, event) {
 
 /**
  * @param {object} state 物化状态
- * @param {object} event operator_key_revoke 事件
+ * @param {object} event entity_key_revoke 事件
  * @returns {object} 更新后状态
  */
-export function reduceOperatorKeyRevoke(state, event) {
+export function reduceEntityKeyRevoke(state, event) {
 	const newGeneration = Number(event.content?.newGeneration)
 	const activePubKeyHex = normalizeHex64(event.content?.activePubKeyHex || '')
 	const revokeGenerations = Array.isArray(event.content?.revokeGenerations)
@@ -145,17 +145,17 @@ export function reduceOperatorKeyRevoke(state, event) {
 		: []
 	if (!Number.isFinite(newGeneration) || newGeneration < 0 || !isHex64(activePubKeyHex))
 		return state
-	state.operatorKeyHistory = state.operatorKeyHistory || []
+	state.entityKeyHistory = state.entityKeyHistory || []
 	for (const gen of revokeGenerations) {
-		const entry = state.operatorKeyHistory.find(row => row.generation === gen)
+		const entry = state.entityKeyHistory.find(row => row.generation === gen)
 		if (entry) {
 			entry.revokedGenerations = entry.revokedGenerations || []
 			if (!entry.revokedGenerations.includes(gen))
 				entry.revokedGenerations.push(gen)
 		}
 	}
-	if (!state.operatorKeyHistory.some(row => row.generation === newGeneration))
-		state.operatorKeyHistory.push({
+	if (!state.entityKeyHistory.some(row => row.generation === newGeneration))
+		state.entityKeyHistory.push({
 			generation: newGeneration,
 			activePubKeyHex,
 			attestedBy: 'recovery',
@@ -166,35 +166,34 @@ export function reduceOperatorKeyRevoke(state, event) {
 }
 /**
  * @param {object[]} events 时间线事件（拓扑序）
- * @returns {{ recoveryPubKeyHex: string | null, operatorKeyHistory: OperatorKeyHistoryEntry[] }} 折叠密钥链
+ * @returns {{ recoveryPubKeyHex: string | null, entityKeyHistory: EntityKeyHistoryEntry[] }} 折叠密钥链
  */
-export function foldOperatorKeyHistoryFromEvents(events) {
-	/** @type {OperatorKeyHistoryEntry[]} */
-	let operatorKeyHistory = []
+export function foldEntityKeyHistoryFromEvents(events) {
+	/** @type {EntityKeyHistoryEntry[]} */
+	let entityKeyHistory = []
 	for (const event of events || []) {
-		if (event.type === 'operator_key_rotate') {
-			const state = reduceOperatorKeyRotate({ operatorKeyHistory }, event)
-			operatorKeyHistory = state.operatorKeyHistory
+		if (event.type === 'entity_key_rotate') {
+			const state = reduceEntityKeyRotate({ entityKeyHistory }, event)
+			entityKeyHistory = state.entityKeyHistory
 		}
-		if (event.type === 'operator_key_revoke') {
-			const state = reduceOperatorKeyRevoke({ operatorKeyHistory }, event)
-			operatorKeyHistory = state.operatorKeyHistory
+		if (event.type === 'entity_key_revoke') {
+			const state = reduceEntityKeyRevoke({ entityKeyHistory }, event)
+			entityKeyHistory = state.entityKeyHistory
 		}
 	}
-	return { recoveryPubKeyHex: null, operatorKeyHistory }
+	return { recoveryPubKeyHex: null, entityKeyHistory }
 }
 
 /**
  * @param {object} revokeBody 吊销正文
  * @returns {Buffer} 固定域签名消息
  */
-export function operatorKeyRevokeSignBytes(revokeBody) {
+export function entityKeyRevokeSignBytes(revokeBody) {
 	const body = {
 		revokeGenerations: (revokeBody.revokeGenerations || []).map(g => Number(g)),
 		newGeneration: Number(revokeBody.newGeneration),
 		activePubKeyHex: normalizeHex64(revokeBody.activePubKeyHex || ''),
 		entityHash: String(revokeBody.entityHash || '').trim().toLowerCase(),
 	}
-	return Buffer.from(`${OPERATOR_KEY_REVOKE_DOMAIN}\0${canonicalStringify(body)}`, 'utf8')
+	return Buffer.from(`${ENTITY_KEY_REVOKE_DOMAIN}\0${canonicalStringify(body)}`, 'utf8')
 }
-

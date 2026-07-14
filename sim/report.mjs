@@ -60,7 +60,7 @@ export function downsampleHistory(history, maxRows = 60) {
  */
 export async function writeReport(payload, tag = 'latest') {
 	await mkdir(RESULTS_DIR, { recursive: true })
-	const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+	const stamp = new Date().toISOString().replace(/[.:]/g, '-')
 	const base = `${tag}-${stamp}`
 	const jsonPath = path.join(RESULTS_DIR, `${base}.json`)
 	const mdPath = path.join(RESULTS_DIR, `${base}.md`)
