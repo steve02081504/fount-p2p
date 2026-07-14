@@ -1,6 +1,6 @@
 {
 	"name": "@steve02081504/fount-p2p",
-	"version": "0.0.3",
+	"version": "0.0.4",
 	"description": "fount federation P2P layer — link, trust graph, mailbox, DAG, EVFS.",
 	"keywords": [
 		"network",
@@ -45,8 +45,6 @@
 		"./rooms/*": "./rooms/*.mjs",
 		"./overlay": "./overlay/index.mjs",
 		"./overlay/*": "./overlay/*.mjs",
-		"./entity/*": "./entity/*.mjs",
-		"./entity/files/*": "./entity/files/*.mjs",
 		"./trust_graph/*": "./trust_graph/*.mjs",
 		"./mailbox/*": "./mailbox/*.mjs",
 		"./dag": "./dag/index.mjs",

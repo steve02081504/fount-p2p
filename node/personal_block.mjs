@@ -5,8 +5,8 @@
  */
 import { parseEntityHash } from '../core/entity_id.mjs'
 import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
-import { isWritableLocalEntity } from '../entity/replica.mjs'
 
+import { isWritableLocalEntity } from './identity.mjs'
 import { isNodeInitialized, getEntityStore } from './instance.mjs'
 
 /** @typedef {'subject' | 'entity'} PersonalListScope */

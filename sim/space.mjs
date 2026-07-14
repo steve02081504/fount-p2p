@@ -56,7 +56,6 @@ export const PARAM_SPACE = [
 	{ module: 'trustGraph', key: 'hintDefaultWeight', kind: 'unit' },
 	{ module: 'trustGraph', key: 'hintMaxBonus', kind: 'unit' },
 	{ module: 'trustGraph', key: 'rosterDefaultScore', kind: 'unit' },
-	{ module: 'social', key: 'socialBlockClaim', kind: 'unit' },
 	{ module: 'social', key: 'socialRepHideThreshold', kind: 'score' },
 	{ module: 'mailbox', key: 'maxHop', kind: 'count' },
 	{ module: 'mailbox', key: 'relayFanoutTrustedRatio', kind: 'unit' },

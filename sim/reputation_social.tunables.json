@@ -1,5 +1,5 @@
 {
-	"socialRepHideThreshold": 0.35,
+	"socialRepHideThreshold": 0,
 	"socialBlockDecayFraction": 0.02,
 	"followedBlockSelfTrustPenalty": 0.12,
 	"followedBlockPenalty": 0.06

@@ -10,7 +10,7 @@ import {
 	isLogicalEntityHash,
 	logicalEntityHash,
 	LOGICAL_ENTITY_SENTINEL_NODE_HASH,
-} from '../../entity/logical_entity.mjs'
+} from '../../core/logical_entity.mjs'
 import { encryptPlaintextToParts, buildFileManifest } from '../../files/assemble.mjs'
 import { normalizeFileManifest } from '../../files/manifest.mjs'
 import { assembleManifestPlaintext } from '../../files/transfer_key.mjs'
@@ -52,7 +52,7 @@ test('assertSafeEvfsLogicalPath rejects traversal', () => {
 })
 
 test('parseEvfsRef rejects malformed refs', async () => {
-	const { parseEvfsRef, formatEvfsRef } = await import('../../entity/files/evfs_ref.mjs')
+	const { parseEvfsRef, formatEvfsRef } = await import('../../files/evfs_ref.mjs')
 	assertEquals(parseEvfsRef('evfs:abc'), null)
 	assertEquals(parseEvfsRef('evfs://'), null)
 	const ref = formatEvfsRef(TEST_ENTITY, 'shells/chat/x')
@@ -60,13 +60,13 @@ test('parseEvfsRef rejects malformed refs', async () => {
 })
 
 test('manifest acl registry is fail-closed', async () => {
-	const { checkManifestAcl } = await import('../../entity/files/manifest_acl_registry.mjs')
+	const { checkManifestAcl } = await import('../../files/manifest_acl_registry.mjs')
 	assertEquals(await checkManifestAcl('vault-wrap', { replicaUsername: 'u', ownerEntityHash: 'x', manifest: {} }), false)
 	assertEquals(await checkManifestAcl('file-master-key-wrap', { replicaUsername: 'u', ownerEntityHash: 'x', manifest: {} }), false)
 })
 
 test('nodeHashFromSeed is stable', async () => {
-	const { nodeHashFromSeed } = await import('../../entity/node_hash.mjs')
+	const { nodeHashFromSeed } = await import('../../node/identity.mjs')
 	const seed = 'a'.repeat(64)
 	assertEquals(nodeHashFromSeed(seed), nodeHashFromSeed(seed))
 	assertEquals(nodeHashFromSeed(seed) !== nodeHashFromSeed('b'.repeat(64)), true)

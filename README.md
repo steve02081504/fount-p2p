@@ -34,7 +34,7 @@ Subpath exports mirror source directories, e.g. `@steve02081504/fount-p2p/dag`, 
 | L1 | `crypto/`, `wire/`, `schemas/` | Cryptography, wire protocol, canonical validation |
 | L2 | `node/` | Node runtime: `identity`, `entity_store`, `denylist`, `reputation_store` |
 | L3 | `discovery/`, `link/`, `transport/`, `rooms/` | Discovery, RTC links, rooms |
-| L4 | `trust_graph/`, `mailbox/`, `dag/`, `federation/`, `files/`, `entity/` | Federation, store-and-forward, DAG, EVFS |
+| L4 | `trust_graph/`, `mailbox/`, `dag/`, `federation/`, `files/` | Federation, store-and-forward, DAG, EVFS |
 | — | `registries/` | Pluggable registries (event type, part path, room provider, …) |
 
 Facade entry: `index.mjs` (`startNode`, `createGroupLinkSet`, `registerDiscoveryProvider`, …).

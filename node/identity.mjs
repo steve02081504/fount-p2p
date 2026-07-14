@@ -1,8 +1,9 @@
+import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 
-import { entityHashFromRecoveryPubKeyHex } from '../core/entity_id.mjs'
+import { entityHashFromRecoveryPubKeyHex, parseEntityHash } from '../core/entity_id.mjs'
 import { isHex64 } from '../core/hexIds.mjs'
-import { nodeHashFromSeed } from '../entity/node_hash.mjs'
+import { keyPairFromSeed, pubKeyHash } from '../crypto/crypto.mjs'
 import { normalizeMailboxSettings } from '../mailbox/settings.mjs'
 
 import { emitNodeChange } from './instance.mjs'
@@ -10,6 +11,18 @@ import { readNodeJsonSync, writeNodeJsonSync } from './storage.mjs'
 
 const NODE_SEED_HEX_RE = /^[\da-f]{64}$/iu
 const NODE_JSON = 'node'
+
+/**
+ * 由持久化 nodeSeed 派生 nodeHash（64 hex）。
+ * @param {string} seedHex 32 字节 hex
+ * @returns {string} 节点哈希
+ */
+export function nodeHashFromSeed(seedHex) {
+	const seed = Buffer.from(String(seedHex).trim(), 'hex')
+	if (seed.length !== 32) throw new Error('invalid node seed')
+	const { publicKey } = keyPairFromSeed(seed)
+	return pubKeyHash(publicKey)
+}
 
 /**
  * @returns {object} 节点配置磁盘对象
@@ -96,4 +109,22 @@ export function entityHashFromKeys(nodeHash, recoveryPubKeyHex) {
 	const pub = String(recoveryPubKeyHex || '').trim().toLowerCase().replace(/^0x/iu, '')
 	if (!isHex64(nodeHash) || !isHex64(pub)) return null
 	return entityHashFromRecoveryPubKeyHex(nodeHash, pub)
+}
+
+/**
+ * @param {string} recoveryPubKeyHex 64 位十六进制 recovery 公钥
+ * @returns {string | null} 本节点 entityHash
+ */
+export function resolveLocalEntityHashFromRecoveryPubKeyHex(recoveryPubKeyHex) {
+	return entityHashFromKeys(getNodeHash(), recoveryPubKeyHex)
+}
+
+/**
+ * @param {string} entityHash 目标 entityHash
+ * @returns {boolean} 是否为本节点可写实体
+ */
+export function isWritableLocalEntity(entityHash) {
+	const parsed = parseEntityHash(entityHash)
+	if (!parsed) return false
+	return parsed.nodeHash === getNodeHash()
 }

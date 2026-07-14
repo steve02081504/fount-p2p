@@ -181,3 +181,94 @@ test('publishPublicFile writes verifiable public manifest', async () => {
 	assertEquals(verified?.meta?.publicSig?.publishedAt, 600)
 	assertEquals(verified?.transferKeyDescriptor?.type, 'public')
 })
+
+test('fed_manifest_get refuses vault-wrap private manifest', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'fount-fed-manifest-priv-'))
+	initTestP2pNode({ nodeDir: dir })
+	const { handleIncomingManifestGet } = await import('../../files/manifest_fetch.mjs')
+	const { getEntityStore } = await import('../../node/instance.mjs')
+	const keys = testRecoveryKeys(10)
+	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), keys.pubKeyHex)
+	const plaintext = Buffer.from('secret')
+	const enc = encryptPlaintextToParts(plaintext, 'convergent')
+	const manifest = buildFileManifestFromEnc({
+		ownerEntityHash: owner,
+		logicalPath: 'vault/secret.bin',
+		plaintext,
+		name: 'secret.bin',
+		mimeType: 'application/octet-stream',
+		ceMode: 'convergent',
+		transferKeyDescriptor: { type: 'vault-wrap', entityHash: owner },
+	}, enc)
+	await getEntityStore().writeManifest(owner, 'vault/secret.bin', manifest)
+	let called = false
+	await handleIncomingManifestGet('u', {
+		requestId: 'r1',
+		ownerEntityHash: owner,
+		logicalPath: 'vault/secret.bin',
+	}, () => { called = true }, 'peer')
+	assertEquals(called, false)
+})
+
+test('fed_manifest_get refuses public manifest without publicSig', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'fount-fed-manifest-nosig-'))
+	initTestP2pNode({ nodeDir: dir })
+	const { handleIncomingManifestGet } = await import('../../files/manifest_fetch.mjs')
+	const { getEntityStore } = await import('../../node/instance.mjs')
+	const keys = testRecoveryKeys(11)
+	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), keys.pubKeyHex)
+	const plaintext = Buffer.from('x')
+	const enc = encryptPlaintextToParts(plaintext, 'convergent')
+	const manifest = buildFileManifestFromEnc({
+		ownerEntityHash: owner,
+		logicalPath: 'profile.json',
+		plaintext,
+		name: 'profile.json',
+		mimeType: 'application/json',
+		ceMode: 'convergent',
+		transferKeyDescriptor: publicTransferKeyDescriptor(),
+	}, enc)
+	await getEntityStore().writeManifest(owner, 'profile.json', manifest)
+	let called = false
+	await handleIncomingManifestGet('u', {
+		requestId: 'r2',
+		ownerEntityHash: owner,
+		logicalPath: 'profile.json',
+	}, () => { called = true }, 'peer')
+	assertEquals(called, false)
+})
+
+test('fed_manifest_get responds with publicSig-only meta', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'fount-fed-manifest-ok-'))
+	initTestP2pNode({ nodeDir: dir })
+	const { handleIncomingManifestGet } = await import('../../files/manifest_fetch.mjs')
+	const keys = testRecoveryKeys(12)
+	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), keys.pubKeyHex)
+	const published = await publishPublicFile({
+		ownerEntityHash: owner,
+		logicalPath: 'profile.json',
+		plaintext: Buffer.from('{}'),
+		name: 'profile.json',
+		mimeType: 'application/json',
+		entitySecretKey: keys.secretKey,
+		entityPubKeyHex: keys.pubKeyHex,
+		publishedAt: 800,
+	})
+	// 本地扩展不应外泄
+	const { getEntityStore } = await import('../../node/instance.mjs')
+	await getEntityStore().writeManifest(owner, 'profile.json', {
+		...published,
+		meta: { ...published.meta, groupId: 'local-only', dagParts: [{ hash: 'a'.repeat(64) }] },
+	})
+	/** @type {object | null} */
+	let resp = null
+	await handleIncomingManifestGet('u', {
+		requestId: 'r3',
+		ownerEntityHash: owner,
+		logicalPath: 'profile.json',
+	}, (payload) => { resp = payload }, 'peer')
+	assertEquals(resp?.requestId, 'r3')
+	assertEquals(Object.keys(resp?.manifest?.meta || {}), ['publicSig'])
+	assertEquals(resp?.manifest?.meta?.publicSig?.publishedAt, 800)
+	assertEquals(resp?.manifest?.transferKeyDescriptor?.type, 'public')
+})

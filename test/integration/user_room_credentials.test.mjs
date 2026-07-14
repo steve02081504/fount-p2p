@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 
-import { nodeHashFromSeed } from '../../entity/node_hash.mjs'
+import { nodeHashFromSeed } from '../../node/identity.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
 

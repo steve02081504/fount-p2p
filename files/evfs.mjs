@@ -1,21 +1,21 @@
 import { Buffer } from 'node:buffer'
 import { Readable } from 'node:stream'
 
-import { FEDERATION_CHUNK_MAX_BYTES } from '../../core/constants.mjs'
-import { buildFileManifestFromEnc } from '../../files/assemble.mjs'
-import { encryptReadableToParts } from '../../files/assemble_stream.mjs'
-import { fetchChunk } from '../../files/chunk_fetch.mjs'
-import { getChunk, hasChunk, putChunk } from '../../files/chunk_store.mjs'
-import { normalizeFileManifest, publicTransferKeyDescriptor } from '../../files/manifest.mjs'
-import { assembleManifestPlaintext } from '../../files/transfer_key.mjs'
-import { readDagManifestPlaintext, resolveTransferKeyDeps } from '../../files/transfer_key_registry.mjs'
-import { getEntityStore } from '../../node/instance.mjs'
+import { FEDERATION_CHUNK_MAX_BYTES } from '../core/constants.mjs'
+import { getEntityStore } from '../node/instance.mjs'
 
+import { buildFileManifestFromEnc, encryptPlaintextToParts, encryptPlaintextToMultiPartsAsync } from './assemble.mjs'
+import { encryptReadableToParts } from './assemble_stream.mjs'
+import { fetchChunk } from './chunk_fetch.mjs'
+import { getChunk, hasChunk, putChunk } from './chunk_store.mjs'
+import { normalizeFileManifest, publicTransferKeyDescriptor } from './manifest.mjs'
+import { assembleManifestPlaintext } from './transfer_key.mjs'
+import { readDagManifestPlaintext, resolveTransferKeyDeps } from './transfer_key_registry.mjs'
 
 /**
  * @param {string} ownerEntityHash 所有者
  * @param {string} logicalPath 路径
- * @returns {Promise<import('../../files/manifest.mjs').FileManifest | null>} 归一化 manifest
+ * @returns {Promise<import('./manifest.mjs').FileManifest | null>} 归一化 manifest
  */
 export async function loadFileManifest(ownerEntityHash, logicalPath) {
 	const manifest = await getEntityStore().readManifest(ownerEntityHash, logicalPath)
@@ -23,7 +23,7 @@ export async function loadFileManifest(ownerEntityHash, logicalPath) {
 }
 
 /**
- * @param {import('../../files/manifest.mjs').FileManifest} manifest 清单
+ * @param {import('./manifest.mjs').FileManifest} manifest 清单
  * @returns {Promise<void>}
  */
 export async function saveFileManifest(manifest) {
@@ -31,7 +31,7 @@ export async function saveFileManifest(manifest) {
 }
 
 /**
- * @param {import('../../files/manifest.mjs').FileManifest} manifest 清单
+ * @param {import('./manifest.mjs').FileManifest} manifest 清单
  * @param {Array<Buffer | Uint8Array>} partBytes 密文块
  * @returns {Promise<void>}
  */
@@ -42,7 +42,7 @@ export async function storeManifestParts(manifest, partBytes) {
 
 /**
  * @param {string} replicaUsername 副本用户名
- * @param {import('../../files/manifest.mjs').FileManifest} manifest 清单
+ * @param {import('./manifest.mjs').FileManifest} manifest 清单
  * @param {{ username?: string, fetchChunk?: Function }} [opts] miss 拉取
  * @returns {Promise<Buffer | null>} 明文内容
  */
@@ -90,7 +90,7 @@ export async function readManifestPlaintext(replicaUsername, manifest, opts = {}
 
 /**
  * @param {string} replicaUsername 副本用户名
- * @param {import('../../files/manifest.mjs').FileManifest} manifest 清单
+ * @param {import('./manifest.mjs').FileManifest} manifest 清单
  * @param {{ username?: string, fetchChunk?: Function }} [opts] miss 拉取
  * @returns {Promise<import('node:stream').Readable | null>} 明文流
  */
@@ -107,13 +107,12 @@ export async function readManifestPlaintextStream(replicaUsername, manifest, opt
  * @param {Buffer | Uint8Array} params.plaintext 明文
  * @param {string} [params.name] 文件名
  * @param {string} [params.mimeType] MIME
- * @param {import('../../files/manifest.mjs').CeMode} [params.ceMode] 模式
- * @param {import('../../files/manifest.mjs').TransferKeyDescriptor} [params.transferKeyDescriptor] 传递密钥
+ * @param {import('./manifest.mjs').CeMode} [params.ceMode] 模式
+ * @param {import('./manifest.mjs').TransferKeyDescriptor} [params.transferKeyDescriptor] 传递密钥
  * @param {object} [params.meta] meta
- * @returns {Promise<import('../../files/manifest.mjs').FileManifest>} 写入后的 manifest
+ * @returns {Promise<import('./manifest.mjs').FileManifest>} 写入后的 manifest
  */
 export async function putFileManifest(params) {
-	const { encryptPlaintextToParts, encryptPlaintextToMultiPartsAsync } = await import('../../files/assemble.mjs')
 	const {
 		ownerEntityHash,
 		logicalPath,
@@ -152,10 +151,10 @@ export async function putFileManifest(params) {
  * @param {number} params.plainSize 明文字节数
  * @param {string} [params.name] 文件名
  * @param {string} [params.mimeType] MIME
- * @param {import('../../files/manifest.mjs').CeMode} [params.ceMode] 模式
- * @param {import('../../files/manifest.mjs').TransferKeyDescriptor} [params.transferKeyDescriptor] 传递密钥
+ * @param {import('./manifest.mjs').CeMode} [params.ceMode] 模式
+ * @param {import('./manifest.mjs').TransferKeyDescriptor} [params.transferKeyDescriptor] 传递密钥
  * @param {object} [params.meta] meta
- * @returns {Promise<import('../../files/manifest.mjs').FileManifest>} 写入后的 manifest
+ * @returns {Promise<import('./manifest.mjs').FileManifest>} 写入后的 manifest
  */
 export async function putFileManifestFromStream(params) {
 	const {
@@ -197,7 +196,7 @@ export async function putFileManifestFromStream(params) {
  * @returns {Promise<Buffer | null>} 明文或 null
  */
 export async function readPublicFile(replicaUsername, entityHash, logicalPath, opts = {}) {
-	const { fetchPublicManifest } = await import('../../files/manifest_fetch.mjs')
+	const { fetchPublicManifest } = await import('./manifest_fetch.mjs')
 	const manifest = await fetchPublicManifest({
 		username: opts.username || replicaUsername,
 		ownerEntityHash: entityHash,

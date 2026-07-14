@@ -1,9 +1,7 @@
-import { isEntityHash128 } from '../../core/entity_id.mjs'
-import { assertSafeEvfsLogicalPath } from '../../core/evfs_logical_path.mjs'
+import { isEntityHash128 } from '../core/entity_id.mjs'
+import { assertSafeEvfsLogicalPath } from '../core/evfs_logical_path.mjs'
 
-/**
- *
- */
+/** @type {string} evfs URI scheme */
 export const EVFS_SCHEME = 'evfs:'
 
 /**

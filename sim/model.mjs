@@ -146,7 +146,7 @@ function updateChurnOffline(simulationContext, nodes, rng, scenario) {
 }
 
 /**
- * 给诚实节点注入瞬时误伤信号（hide 阈值接近 0 时 falsePositive 自然升高）。
+ * 给诚实节点注入瞬时误伤信号（hide 阈值抬高时 falsePositive 自然升高）。
  * @param {object} simulationContext 仿真上下文
  * @param {SimObserver} obs 观察者
  * @param {SimNode[]} activeHonest 活跃诚实节点

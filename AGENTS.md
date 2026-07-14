@@ -4,11 +4,11 @@
 
 | Layer | Directory | Key modules |
 |---|---|---|
-| L0 | `core/` | `hexIds`, `entity_id_parse`, `entity_id`, `canonical_json`, `bytes_codec` |
+| L0 | `core/` | `hexIds`, `entity_id_parse`, `entity_id`, `logical_entity`, `canonical_json`, `bytes_codec` |
 | L1 | `crypto/`, `wire/`, `schemas/` | Cryptography, wire-protocol ingress, canonical validation |
 | L2 | `node/` | `initNode`, `identity`, `entity_store`, `denylist`, `reputation_store`, `storage_plugins` |
 | L3 | `discovery/`, `link/`, `transport/`, `rooms/` | Discovery, RTC links, rooms |
-| L4 | `trust_graph/`, `mailbox/`, `dag/`, `federation/`, `files/`, `entity/`, `governance/`, `reputation/` | Federation, store-and-forward, DAG, EVFS, tunables |
+| L4 | `trust_graph/`, `mailbox/`, `dag/`, `federation/`, `files/`, `governance/`, `reputation/` | Federation, store-and-forward, DAG, EVFS, tunables |
 
 **Outside the package (shell / frontend; p2p must not import):** Chat/Social semantics, frontend mention rendering, entity identity provisioning, etc. live in the upper shell. Standalone clients use `import { startNode } from '@steve02081504/fount-p2p'`.
 
@@ -52,7 +52,7 @@ Fount bridge: `test/fount/` + `test/helpers/fount_paths.mjs` (`fountBridgeSkipRe
 ## Entity files (EVFS)
 
 - **Storage:** ciphertext chunks `{nodeDir}/chunks/` (CAS); logical manifest `{EntityStoreRoot}/{entityHash}/files/{path}.manifest.json`; default `EntityStoreRoot = {nodeDir}/entities`.
-- **Core modules:** `files/` (includes `public_manifest` signed publish / `manifest_fetch` network retrieval), `entity/files/` (evfs, acl, `evfs_ref`).
+- **Core modules:** `files/` — `evfs`, `evfs_ref`, `acl`, `manifest_acl_registry`, `public_manifest` / `manifest_fetch`.
 - **Public files:** `publishPublicFile` signs with the entity recovery key then persists; remote path is `fed_manifest_get` → verify signature → cache; `readPublicFile` unifies local and network reads. The signature covers content fields only — after verification, incoming `meta` is dropped except `publicSig` (prevents `dagParts`/`groupId` injection). Profile / avatar display semantics live in the shell; this library does not hard-code them.
 
 ## Tunables JSON

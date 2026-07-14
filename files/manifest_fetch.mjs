@@ -1,16 +1,16 @@
 import { randomUUID } from 'node:crypto'
 
-import { loadFileManifest, saveFileManifest } from '../entity/files/evfs.mjs'
-import { isWritableLocalEntity } from '../entity/replica.mjs'
 import {
 	manifestFetchExpectedKey,
 	MAX_PENDING_MANIFEST_FETCHES,
 	pendingManifestFetches,
 	registerManifestFetchWait,
 } from '../federation/manifest_fetch_pending.mjs'
+import { isWritableLocalEntity } from '../node/identity.mjs'
 import { getEntityStore } from '../node/instance.mjs'
 
 import { resolveNodeHash } from './chunk_provider_registry.mjs'
+import { loadFileManifest, saveFileManifest } from './evfs.mjs'
 import { fanoutFedFetch } from './fetch_fanout.mjs'
 import { normalizeFileManifest } from './manifest.mjs'
 import { shouldPreferIncomingPublicManifest } from './public_manifest.mjs'

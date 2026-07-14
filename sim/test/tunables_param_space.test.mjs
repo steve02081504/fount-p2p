@@ -54,7 +54,7 @@ test('sampleParam stays inside each semantic domain', () => {
 
 test('normalizeParam repairs out-of-domain values without a tuning box', () => {
 	assertEquals(normalizeParam(-5, { module: 'reputation', key: 'penaltyUnknownWant', kind: 'pos' }) > 0, true)
-	assertEquals(normalizeParam(3.4, { module: 'social', key: 'socialBlockClaim', kind: 'unit' }) < 1, true)
+	assertEquals(normalizeParam(3.4, { module: 'reputation', key: 'slashVerifiedMultiplier', kind: 'unit' }) < 1, true)
 	assertEquals(normalizeParam(2.7, { module: 'mailbox', key: 'maxHop', kind: 'count' }), 3)
 	assertEquals(normalizeParam(9, { module: 'social', key: 'socialRepHideThreshold', kind: 'score' }) < 1, true)
 })

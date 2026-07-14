@@ -31,7 +31,6 @@ function disabledDefenseBundle() {
 	bundle.reputation.slashUnverifiedDefaultClaim = 0
 	bundle.reputation.slashVerifiedMultiplier = 0
 	bundle.reputation.introducerSeedEdge = 1
-	bundle.social.socialBlockClaim = 0
 	bundle.social.socialRepHideThreshold = 0
 	bundle.trustGraph.hintDefaultWeight = 0
 	bundle.trustGraph.rosterDefaultScore = 0
@@ -288,7 +287,8 @@ test('key_thief and sleeper are containable on dedicated scenarios', () => {
 test('trigger-happy hide threshold raises falsePositive (endogenous mis-hide)', () => {
 	const base = loadDefaultTunables()
 	const triggerHappy = loadDefaultTunables()
-	triggerHappy.social.socialRepHideThreshold = -0.05
+	// score < threshold → hide：抬高阈值才会误伤诚实节点
+	triggerHappy.social.socialRepHideThreshold = 0.85
 
 	const scenario = resolveScenarios('balanced')[0]
 	const baseSnap = runSimulation(scenario, 9, base)
