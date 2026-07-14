@@ -159,6 +159,8 @@ const NON_CRITICAL_FED_ACTIONS = new Set([
 	'fed_chunk_get',
 	'fed_chunk_data',
 	'fed_chunk_ack',
+	'fed_manifest_get',
+	'fed_manifest_data',
 	'part_invoke',
 	'discovery_announce',
 	'discovery_query',

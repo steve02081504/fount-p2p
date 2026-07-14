@@ -26,7 +26,7 @@ Fount bridge: `test/fount/` + `test/helpers/fount_paths.mjs` (`fountBridgeSkipRe
 
 ## Trust boundaries
 
-- **Untrusted ingress:** discovery adverts/signals, link/overlay envelopes, group WebSocket federation frames, `remoteIngest`, `part_timeline_put`/`part_invoke` — validation and `canonicalize*` happen ONLY at this boundary.
+- **Untrusted ingress:** discovery adverts/signals, link/overlay envelopes, group WebSocket federation frames, `remoteIngest`, `part_timeline_put`/`part_invoke`, **public manifest (`fed_manifest_data`)** — validation and `canonicalize*` / `verifySignedPublicManifest` happen ONLY at this boundary.
 - **Trusted after disk:** once read from `events.jsonl`, only `stripDagEventLocalExtensions` runs; upper layers do NOT re-run hex canonicalization.
 - **Node data:** `initNode({ nodeDir })` singleton under `nodeDir` — `node.json`, `network.json`, `denylist.json`, `reputation.json`, `mailbox/`, `chunks/`. Default `EntityStore` root is `{nodeDir}/entities/` (shell may inject a custom store).
 - **Entity key chain:** `federation/entity_key_chain.mjs` — `entity_key_rotate` / `entity_key_revoke`; `state.entityKeyHistory`; revoke signature domain `ENTITY_KEY_REVOKE_DOMAIN` (`fount-entity-key-revoke`).
@@ -52,7 +52,8 @@ Fount bridge: `test/fount/` + `test/helpers/fount_paths.mjs` (`fountBridgeSkipRe
 ## Entity files (EVFS)
 
 - **Storage:** ciphertext chunks `{nodeDir}/chunks/` (CAS); logical manifest `{EntityStoreRoot}/{entityHash}/files/{path}.manifest.json`; default `EntityStoreRoot = {nodeDir}/entities`.
-- **Core modules:** `files/`, `entity/files/` (evfs, acl), `entity/profile.mjs` (`profile.json`).
+- **Core modules:** `files/` (includes `public_manifest` signed publish / `manifest_fetch` network retrieval), `entity/files/` (evfs, acl, `evfs_ref`).
+- **Public files:** `publishPublicFile` signs with the entity recovery key then persists; remote path is `fed_manifest_get` → verify signature → cache; `readPublicFile` unifies local and network reads. The signature covers content fields only — after verification, incoming `meta` is dropped except `publicSig` (prevents `dagParts`/`groupId` injection). Profile / avatar display semantics live in the shell; this library does not hard-code them.
 
 ## Tunables JSON
 

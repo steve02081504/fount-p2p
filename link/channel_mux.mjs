@@ -43,6 +43,8 @@ const DEFAULT_ACTION_PRIORITIES = Object.freeze({
 	fed_chunk_get: 5,
 	fed_chunk_data: 5,
 	fed_chunk_ack: 5,
+	fed_manifest_get: 5,
+	fed_manifest_data: 5,
 	fed_partition_bridge: 5,
 	fed_volatile: 10,
 })

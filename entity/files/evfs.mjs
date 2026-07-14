@@ -187,3 +187,22 @@ export async function putFileManifestFromStream(params) {
 	await saveFileManifest(manifest)
 	return manifest
 }
+
+/**
+ * 读取实体公开文件：本地 miss 时经网络取回签名 manifest，chunk miss 走既有 fetchChunk。
+ * @param {string} replicaUsername 副本用户名
+ * @param {string} entityHash owner entityHash
+ * @param {string} logicalPath EVFS 逻辑路径
+ * @param {{ username?: string, fetchChunk?: Function }} [opts] miss 拉取
+ * @returns {Promise<Buffer | null>} 明文或 null
+ */
+export async function readPublicFile(replicaUsername, entityHash, logicalPath, opts = {}) {
+	const { fetchPublicManifest } = await import('../../files/manifest_fetch.mjs')
+	const manifest = await fetchPublicManifest({
+		username: opts.username || replicaUsername,
+		ownerEntityHash: entityHash,
+		logicalPath,
+	})
+	if (!manifest) return null
+	return readManifestPlaintext(replicaUsername, manifest, opts)
+}

@@ -1,19 +1,16 @@
 import { randomUUID } from 'node:crypto'
 
 import { u8ToB64 } from '../core/bytes_codec.mjs'
-import { FEDERATION_CHUNK_FETCH_FANOUT_K } from '../core/constants.mjs'
 import {
 	MAX_PENDING_CHUNK_FETCHES,
 	pendingChunkFetches,
 	registerChunkFetchWait,
 } from '../federation/chunk_fetch_pending.mjs'
-import { loadNetwork } from '../node/network.mjs'
-import { ensureLinkToNode, listLinks } from '../transport/link_registry.mjs'
-import { DEFAULT_TRUST_GRAPH_OWNER, requireTrustGraphProvider } from '../trust_graph/registry.mjs'
 
 import { verifiedChunkBytes } from './chunk_fetch_verify.mjs'
 import { fetchFederationChunk, resolveNodeHash } from './chunk_provider_registry.mjs'
 import { getChunk, hasChunk, putChunk } from './chunk_store.mjs'
+import { fanoutFedFetch } from './fetch_fanout.mjs'
 
 /**
  * @typedef {{
@@ -23,22 +20,6 @@ import { getChunk, hasChunk, putChunk } from './chunk_store.mjs'
  *   groupId?: string,
  * }} FetchChunkContext
  */
-
-/**
- * @returns {string[]} 全局 CAS miss 时应尝试拨号/发送的 nodeHash 列表
- */
-function chunkFetchPeerTargets() {
-	/** @type {Set<string>} */
-	const targets = new Set()
-	for (const { nodeHash } of listLinks())
-		if (nodeHash) targets.add(String(nodeHash).toLowerCase())
-	const net = loadNetwork()
-	for (const nodeHash of [...net.trustedPeers || [], ...net.explorePeers || []])
-		if (nodeHash) targets.add(String(nodeHash).toLowerCase())
-	for (const hint of net.hints || [])
-		if (hint?.nodeHash) targets.add(String(hint.nodeHash).toLowerCase())
-	return [...targets]
-}
 
 /**
  * @param {FetchChunkContext} context 上下文
@@ -72,19 +53,7 @@ export async function fetchChunk(context) {
 		chunkHash: hash,
 		ownerEntityHash: context.ownerEntityHash,
 	}
-	const graph = await requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER).buildMergedGraph(username)
-	const peerTargets = chunkFetchPeerTargets()
-	await Promise.all(peerTargets.map(nodeHash => ensureLinkToNode(nodeHash).catch(() => null)))
-	const tg = requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER)
-	// 已直连 / follow hint peer 可能不在 trust-graph top-K（非成员 emoji CAS / Social 预览路径）。
-	for (const nodeHash of peerTargets)
-		void tg.sendToNode(username, nodeHash, 'fed_chunk_get', payload, graph)
-	await tg.fanoutToTopNodes(
-		username,
-		'fed_chunk_get',
-		payload,
-		FEDERATION_CHUNK_FETCH_FANOUT_K,
-	)
+	await fanoutFedFetch(username, 'fed_chunk_get', payload)
 	const result = await done
 	const verified = verifiedChunkBytes(hash, result)
 	if (verified) {
