@@ -122,20 +122,6 @@ export function saveNetwork(data) {
 }
 
 /**
- * @param {string} nodeHash 64 位十六进制
- * @param {'trusted' | 'explore'} tier 池档位
- * @returns {void}
- */
-export function addNetworkPeer(nodeHash, tier = 'explore') {
-	const id = normalizeHex64(nodeHash)
-	if (!isHex64(id)) return
-	const net = loadNetwork()
-	const list = tier === 'trusted' ? net.trustedPeers : net.explorePeers
-	if (!list.includes(id)) list.push(id)
-	saveNetwork(net)
-}
-
-/**
  * @param {{ nodeHash: string, source: string, kind: string, weight?: number, expiresAt?: number, ttlMs?: number, groupId?: string }} hint 扩边 hint
  * @returns {void}
  */
@@ -162,35 +148,6 @@ export function applyNetworkHint(hint) {
 		expiresAt,
 		...hint.groupId ? { groupId: String(hint.groupId).trim() } : {},
 	})
-	saveNetwork(net)
-}
-
-/**
- * @param {{ remoteNodeHash?: string }[]} roster Trystero roster
- * @param {string} [groupId] 来源群
- * @param {string} [source='roster'] hint 来源标签
- * @returns {void}
- */
-export function recordExplorePeersFromRoster(roster, groupId = '', source = 'roster') {
-	if (!roster?.length) return
-	const net = loadNetwork()
-	const now = Date.now()
-	for (const peer of roster) {
-		const nodeHash = normalizeHex64(peer?.remoteNodeHash)
-		if (!isHex64(nodeHash)) continue
-		if (!net.explorePeers.includes(nodeHash))
-			net.explorePeers.push(nodeHash)
-		net.hints.push({
-			nodeHash,
-			source: String(source || 'roster'),
-			kind: 'roster',
-			weight: 0.1,
-			expiresAt: now + 24 * 60 * 60 * 1000,
-			...groupId ? { groupId: String(groupId).trim() } : {},
-		})
-	}
-	net.hints = capHintsBySource(net.hints).slice(-MAX_HINTS)
-	net.lastRosterAt = now
 	saveNetwork(net)
 }
 
@@ -237,14 +194,6 @@ export function mergeNetworkPeerPools(patch = {}) {
 	}
 	net.lastRosterAt = Date.now()
 	saveNetwork(net)
-}
-
-/**
- * @param {string[]} nodeHashes trusted 候选
- * @returns {void}
- */
-export function mergeTrustedPeers(nodeHashes) {
-	mergeNetworkPeerPools({ trustedPeers: nodeHashes })
 }
 
 /**

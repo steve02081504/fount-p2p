@@ -65,15 +65,6 @@ export function resolveActiveKeyAtGeneration(keyHistory, generation) {
 
 /**
  * @param {EntityKeyHistoryEntry[]} keyHistory 密钥历史
- * @returns {number} 最新代际，无则 -1
- */
-export function resolveLatestActiveGeneration(keyHistory) {
-	if (!keyHistory?.length) return -1
-	return Math.max(...keyHistory.map(row => row.generation))
-}
-
-/**
- * @param {EntityKeyHistoryEntry[]} keyHistory 密钥历史
  * @param {number} generation 代际
  * @returns {boolean} 是否已吊销
  */

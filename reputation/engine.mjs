@@ -445,14 +445,3 @@ export function isQuarantinedPure(data, peerNodeHash, now = Date.now()) {
 	const until = Number(data.byNodeHash?.[id]?.quarantinedUntil ?? 0)
 	return Number.isFinite(until) && until > now
 }
-
-/**
- * @param {ReputationFile} data 信誉表
- * @param {string} peerNodeHash 对端
- * @param {number} [now] 当前时间
- * @param {typeof reputationTunables} [tunables] tunables
- * @returns {boolean} 是否检测到异常并触发隔离
- */
-export function detectAnomalyPure(data, peerNodeHash, now = Date.now(), tunables = reputationTunables) {
-	return isQuarantinedPure(data, peerNodeHash, now)
-}

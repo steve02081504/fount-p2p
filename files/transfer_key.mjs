@@ -46,17 +46,23 @@ export async function resolveContentKey(descriptor, manifest, deps = {}) {
  * @param {Buffer | Uint8Array} encryptedPartBytes 密文块
  * @param {FileManifest} manifest manifest
  * @param {Buffer | null} contentKey random 模式密钥
+ * @param {number} [partIndex] 分块下标（多块 convergent 用 part.contentHash）
  * @returns {Buffer | null} 明文
  */
-export function decryptPart(encryptedPartBytes, manifest, contentKey) {
+export function decryptPart(encryptedPartBytes, manifest, contentKey, partIndex = 0) {
 	if (manifest.ceMode === 'plain')
 		return Buffer.from(encryptedPartBytes)
 
-	if (manifest.ceMode === 'convergent')
-		return decryptConvergentCiphertext(encryptedPartBytes, manifest.contentHash)
+	if (manifest.ceMode === 'convergent') {
+		const partPlainHash = manifest.parts[partIndex]?.contentHash || manifest.contentHash
+		return decryptConvergentCiphertext(encryptedPartBytes, partPlainHash)
+	}
 
-	if (manifest.ceMode === 'random' && contentKey)
-		return decryptRandomCiphertext(encryptedPartBytes, contentKey, manifest.contentHash)
+	if (manifest.ceMode === 'random' && contentKey) {
+		// 多块时各块明文 hash ≠ 整文件 contentHash；完整性在 assemble 末尾校验
+		const verifyHash = manifest.parts.length === 1 ? manifest.contentHash : ''
+		return decryptRandomCiphertext(encryptedPartBytes, contentKey, verifyHash)
+	}
 
 	return null
 }
@@ -73,7 +79,7 @@ export async function assembleManifestPlaintext(manifest, partBytes, deps = {}) 
 	/** @type {Buffer[]} */
 	const plains = []
 	for (let index = 0; index < manifest.parts.length; index++) {
-		const plain = decryptPart(partBytes[index], manifest, contentKey)
+		const plain = decryptPart(partBytes[index], manifest, contentKey, index)
 		if (!plain) return null
 		plains.push(plain)
 	}

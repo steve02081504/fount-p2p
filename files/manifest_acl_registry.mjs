@@ -61,12 +61,6 @@ export function unregisterManifestAclMatcher(ownerId) {
 	matchersByOwner.delete(String(ownerId))
 }
 
-/** @returns {void} */
-export function clearManifestAclRegistry() {
-	handlersByType.clear()
-	matchersByOwner.clear()
-}
-
 /**
  * @param {import('./manifest.mjs').FileManifest | null | undefined} manifest manifest
  * @param {string} ownerEntityHash 所有者

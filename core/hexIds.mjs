@@ -58,16 +58,3 @@ export function assertHex64(value, label = 'hex64') {
 export function isSignatureHex128(value) {
 	return SIGNATURE_HEX_128.test(String(value ?? '').trim())
 }
-
-/**
- * 外部入站专用：断言 128 位签名 hex。
- * @param {unknown} value 原始值
- * @param {string} [label='signature'] 字段名
- * @returns {string} 签名 hex
- */
-export function assertSignatureHex128(value, label = 'signature') {
-	const normalized = String(value ?? '').trim().toLowerCase()
-	if (!SIGNATURE_HEX_128.test(normalized))
-		throw new Error(`${label} must be 128 hex characters`)
-	return normalized
-}

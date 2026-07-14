@@ -105,41 +105,6 @@ export async function loadPersonalBlockEntries(viewerEntityHash) {
 }
 
 /**
- * @param {string} viewerEntityHash 观看者实体
- * @param {object} subject 待检主体
- * @returns {Promise<boolean>} 是否被隐藏
- */
-export async function isHiddenBy(viewerEntityHash, subject) {
-	return matchesPersonalListEntries(await loadPersonalHideEntries(viewerEntityHash), subject)
-}
-
-/**
- * @param {string} viewerEntityHash 观看者实体
- * @param {object} subject 待检主体
- * @returns {Promise<boolean>} 是否被拉黑
- */
-export async function isBlockedBy(viewerEntityHash, subject) {
-	return matchesPersonalListEntries(await loadPersonalBlockEntries(viewerEntityHash), subject)
-}
-
-/**
- * @param {string} viewerEntityHash 观看者实体
- * @param {object} subject 待检主体
- * @returns {Promise<boolean>} 是否应过滤
- */
-export async function isFilteredByPersonalLists(viewerEntityHash, subject) {
-	if (!viewerEntityHash) return false
-	const [blocked, hidden, muted] = await Promise.all([
-		loadPersonalBlockEntries(viewerEntityHash),
-		loadPersonalHideEntries(viewerEntityHash),
-		loadPersonalMuteEntries(viewerEntityHash),
-	])
-	return matchesPersonalListEntries(blocked, subject)
-		|| matchesPersonalListEntries(hidden, subject)
-		|| matchesPersonalListEntries(muted, subject)
-}
-
-/**
  * @param {string} viewerEntityHash 本地可写实体
  * @param {string} targetEntityHash 目标
  * @param {boolean} hide true=隐藏

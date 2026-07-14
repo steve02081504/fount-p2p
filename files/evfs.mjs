@@ -4,13 +4,51 @@ import { Readable } from 'node:stream'
 import { FEDERATION_CHUNK_MAX_BYTES } from '../core/constants.mjs'
 import { getEntityStore } from '../node/instance.mjs'
 
-import { buildFileManifestFromEnc, encryptPlaintextToParts, encryptPlaintextToMultiPartsAsync } from './assemble.mjs'
-import { encryptReadableToParts } from './assemble_stream.mjs'
+import { buildFileManifestFromEnc, encryptPlaintextToMultiPartsAsync, encryptPlaintextToParts, manifestPartsForPersist } from './assemble.mjs'
+import { createManifestPlaintextStream, encryptReadableToParts } from './assemble_stream.mjs'
 import { fetchChunk } from './chunk_fetch.mjs'
-import { getChunk, hasChunk, putChunk } from './chunk_store.mjs'
+import { createChunkReadStream, getChunk, hasChunk, putChunk } from './chunk_store.mjs'
 import { normalizeFileManifest, publicTransferKeyDescriptor } from './manifest.mjs'
-import { assembleManifestPlaintext } from './transfer_key.mjs'
+import { assembleManifestPlaintext, resolveContentKey } from './transfer_key.mjs'
 import { readDagManifestPlaintext, resolveTransferKeyDeps } from './transfer_key_registry.mjs'
+
+/**
+ * @param {string} replicaUsername 副本用户名
+ * @param {import('./manifest.mjs').FileManifest} manifest 清单
+ * @returns {{ getGroupFileMasterKey?: Function, getVaultMasterKey?: Function }} 密钥依赖
+ */
+function transferKeyDepsForReplica(replicaUsername, manifest) {
+	const rawDeps = resolveTransferKeyDeps(undefined, manifest)
+	return {
+		getGroupFileMasterKey: rawDeps.getGroupFileMasterKey
+			? (groupId, keyGeneration) => rawDeps.getGroupFileMasterKey(replicaUsername, groupId, keyGeneration)
+			: undefined,
+		getVaultMasterKey: rawDeps.getVaultMasterKey
+			? entityHash => rawDeps.getVaultMasterKey(replicaUsername, entityHash)
+			: undefined,
+	}
+}
+
+/**
+ * @param {string} username 拉取身份
+ * @param {import('./manifest.mjs').FileManifest} manifest 清单
+ * @param {{ fetchChunk?: Function }} [opts] miss 拉取
+ * @returns {Promise<boolean>} 全部 part 是否已就位
+ */
+async function ensureManifestPartsLocal(username, manifest, opts = {}) {
+	for (const part of manifest.parts) {
+		if (await hasChunk(part.hash)) continue
+		const fetchedChunk = await (opts.fetchChunk || fetchChunk)({
+			username,
+			ciphertextHash: part.hash,
+			ownerEntityHash: manifest.ownerEntityHash,
+			groupId: manifest.transferKeyDescriptor.groupId,
+		})
+		if (!fetchedChunk) return false
+		await putChunk(part.hash, fetchedChunk)
+	}
+	return true
+}
 
 /**
  * @param {string} ownerEntityHash 所有者
@@ -54,38 +92,14 @@ export async function readManifestPlaintext(replicaUsername, manifest, opts = {}
 	}
 
 	const username = opts.username || replicaUsername
+	if (!await ensureManifestPartsLocal(username, manifest, opts)) return null
+
 	/** @type {Buffer[]} */
 	const partBytes = []
-	for (const part of manifest.parts) {
-		let ciphertextBytes = null
-		if (await hasChunk(part.hash))
-			ciphertextBytes = await getChunk(part.hash)
-		else {
-			const fetchedChunk = await (opts.fetchChunk || fetchChunk)({
-				username,
-				ciphertextHash: part.hash,
-				ownerEntityHash: manifest.ownerEntityHash,
-				groupId: manifest.transferKeyDescriptor.groupId,
-			})
-			if (fetchedChunk) {
-				await putChunk(part.hash, fetchedChunk)
-				ciphertextBytes = Buffer.from(fetchedChunk)
-			}
-		}
-		if (!ciphertextBytes) return null
-		partBytes.push(ciphertextBytes)
-	}
+	for (const part of manifest.parts)
+		partBytes.push(await getChunk(part.hash))
 
-	const rawDeps = resolveTransferKeyDeps(undefined, manifest)
-	const deps = {
-		getGroupFileMasterKey: rawDeps.getGroupFileMasterKey
-			? (groupId, keyGeneration) => rawDeps.getGroupFileMasterKey(replicaUsername, groupId, keyGeneration)
-			: undefined,
-		getVaultMasterKey: rawDeps.getVaultMasterKey
-			? entityHash => rawDeps.getVaultMasterKey(replicaUsername, entityHash)
-			: undefined,
-	}
-	return assembleManifestPlaintext(manifest, partBytes, deps)
+	return assembleManifestPlaintext(manifest, partBytes, transferKeyDepsForReplica(replicaUsername, manifest))
 }
 
 /**
@@ -95,9 +109,22 @@ export async function readManifestPlaintext(replicaUsername, manifest, opts = {}
  * @returns {Promise<import('node:stream').Readable | null>} 明文流
  */
 export async function readManifestPlaintextStream(replicaUsername, manifest, opts = {}) {
-	const plain = await readManifestPlaintext(replicaUsername, manifest, opts)
-	if (!plain) return null
-	return Readable.from(plain)
+	const dagGroupId = manifest.meta?.groupId
+	if (Array.isArray(manifest.meta?.dagParts) && dagGroupId) {
+		const plain = await readManifestPlaintext(replicaUsername, manifest, opts)
+		if (!plain) return null
+		return Readable.from([plain])
+	}
+
+	const username = opts.username || replicaUsername
+	if (!await ensureManifestPartsLocal(username, manifest, opts)) return null
+
+	const deps = transferKeyDepsForReplica(replicaUsername, manifest)
+	const contentKey = await resolveContentKey(manifest.transferKeyDescriptor, manifest, deps)
+	if (manifest.ceMode === 'random' && !contentKey) return null
+
+	const partStreams = manifest.parts.map(part => createChunkReadStream(part.hash))
+	return createManifestPlaintextStream(manifest, partStreams, contentKey)
 }
 
 /**
@@ -178,7 +205,7 @@ export async function putFileManifestFromStream(params) {
 		size: plainSize,
 		contentHash: enc.contentHash,
 		ceMode,
-		parts: enc.parts,
+		parts: manifestPartsForPersist(enc.parts),
 		transferKeyDescriptor: transferKeyDescriptor || publicTransferKeyDescriptor(),
 		meta,
 	})

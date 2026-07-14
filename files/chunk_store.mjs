@@ -2,7 +2,6 @@ import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 
 import { isHex64 } from '../core/hexIds.mjs'
@@ -74,14 +73,5 @@ export async function putChunk(hash, data) {
 export async function putChunkFromStream(hash, readable) {
 	const filePath = chunkStorePath(hash)
 	await fsp.mkdir(dirname(filePath), { recursive: true })
-	const writable = fs.createWriteStream(filePath)
-	await pipeline(readable, writable)
-}
-
-/**
- * @param {string} hash 64 位十六进制
- * @returns {Readable} chunk 可读流
- */
-export function chunkToReadable(hash) {
-	return createChunkReadStream(hash)
+	await pipeline(readable, fs.createWriteStream(filePath))
 }

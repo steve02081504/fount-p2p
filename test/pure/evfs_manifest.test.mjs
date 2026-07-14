@@ -1,8 +1,8 @@
+import { Buffer } from 'node:buffer'
 import { test } from 'node:test'
 
-
 /**
- * EVFS chunk + manifest 单元测试（Deno）。
+ * EVFS chunk + manifest 单元测试。
  */
 
 import { assertSafeEvfsLogicalPath } from '../../core/evfs_logical_path.mjs'
@@ -38,6 +38,64 @@ test('convergent encrypt-decrypt roundtrip via manifest', async () => {
 	})
 	const assembled = await assembleManifestPlaintext(manifest, enc.parts.map(part => part.raw), {})
 	assertEquals(assembled?.toString(), 'hello evfs')
+})
+
+test('multipart convergent roundtrip keeps per-part contentHash', async () => {
+	const { encryptPlaintextToMultiParts } = await import('../../files/assemble.mjs')
+	const { FEDERATION_CHUNK_MAX_BYTES } = await import('../../core/constants.mjs')
+	const plain = Buffer.alloc(FEDERATION_CHUNK_MAX_BYTES + 1000, 0x42)
+	const enc = encryptPlaintextToMultiParts(plain, 'convergent')
+	assertEquals(enc.parts.length > 1, true)
+	assertEquals(!!enc.parts[0].contentHash, true)
+	const manifest = normalizeFileManifest({
+		ownerEntityHash: TEST_ENTITY,
+		logicalPath: 'shells/chat/attachments/big',
+		name: 'big.bin',
+		mimeType: 'application/octet-stream',
+		size: plain.length,
+		contentHash: enc.contentHash,
+		ceMode: 'convergent',
+		parts: enc.parts.map(part => ({ hash: part.hash, size: part.size, contentHash: part.contentHash })),
+		transferKeyDescriptor: { type: 'public' },
+	})
+	const assembled = await assembleManifestPlaintext(manifest, enc.parts.map(part => part.raw), {})
+	assertEquals(Buffer.compare(assembled, plain), 0)
+})
+
+test('multipart plaintext stream roundtrip verifies contentHash', async () => {
+	const { encryptPlaintextToMultiParts, manifestPartsForPersist } = await import('../../files/assemble.mjs')
+	const { createManifestPlaintextStream } = await import('../../files/assemble_stream.mjs')
+	const { FEDERATION_CHUNK_MAX_BYTES } = await import('../../core/constants.mjs')
+	const { Readable } = await import('node:stream')
+	const plain = Buffer.alloc(FEDERATION_CHUNK_MAX_BYTES + 500, 0x37)
+	const enc = encryptPlaintextToMultiParts(plain, 'convergent')
+	const manifest = normalizeFileManifest({
+		ownerEntityHash: TEST_ENTITY,
+		logicalPath: 'shells/chat/attachments/streamed',
+		name: 'streamed.bin',
+		mimeType: 'application/octet-stream',
+		size: plain.length,
+		contentHash: enc.contentHash,
+		ceMode: 'convergent',
+		parts: manifestPartsForPersist(enc.parts),
+		transferKeyDescriptor: { type: 'public' },
+	})
+	const stream = createManifestPlaintextStream(manifest, enc.parts.map(part => Readable.from([part.raw])), null)
+	/** @type {Buffer[]} */
+	const chunks = []
+	for await (const chunk of stream) chunks.push(chunk)
+	assertEquals(Buffer.compare(Buffer.concat(chunks), plain), 0)
+
+	// 篡改一块密文：流须以错误终止而非静默输出坏数据
+	const tampered = enc.parts.map(part => Buffer.from(part.raw))
+	tampered[1][40] ^= 0xff
+	const badStream = createManifestPlaintextStream(manifest, tampered.map(raw => Readable.from([raw])), null)
+	let failed = false
+	try {
+		for await (const _ of badStream) { /* drain */ }
+	}
+	catch { failed = true }
+	assertEquals(failed, true)
 })
 
 test('normalizeFileManifest rejects invalid parts', () => {

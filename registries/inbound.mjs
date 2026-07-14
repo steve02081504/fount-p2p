@@ -42,22 +42,6 @@ export function registerDeliveryInboundHandler(type, handler) {
 }
 
 /**
- * @param {string} type 入站类型
- * @returns {void}
- */
-export function unregisterRpcInboundHandler(type) {
-	rpcHandlers.delete(String(type || '').trim())
-}
-
-/**
- * @param {string} type 入站类型
- * @returns {void}
- */
-export function unregisterDeliveryInboundHandler(type) {
-	deliveryHandlers.delete(String(type || '').trim())
-}
-
-/**
  * @param {InboundContext} ctx 入站上下文
  * @param {object} message 已校验的线载荷（含 type）
  * @returns {Promise<PartInvokeResponse | null>} 处理器返回值
@@ -81,10 +65,4 @@ export async function dispatchDeliveryInbound(ctx, message) {
 	const handler = deliveryHandlers.get(type)
 	if (!handler) return
 	await handler(ctx, message)
-}
-
-/** @returns {void} 测试用 */
-export function clearInboundHandlers() {
-	rpcHandlers.clear()
-	deliveryHandlers.clear()
 }

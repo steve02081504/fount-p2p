@@ -4,15 +4,12 @@ import { createHash } from 'node:crypto'
 
 import { canonicalStringify } from '../core/canonical_json.mjs'
 import { HEX_ID_64 } from '../core/hexIds.mjs'
-import { HLC } from '../core/hlc.mjs'
-import { sign, verify } from '../crypto/crypto.mjs'
 
 /**
  * 重导出 64 位十六进制事件 ID 正则（`HEX_ID_64` 别名）。
  */
 export { HEX_ID_64 as EVENT_ID_HEX }
 const EVENT_ID_HEX = HEX_ID_64
-const HEX_PAIR = /^[\da-f]{2}$/iu
 
 /**
  * 对事件 id 列表做二叉 Merkle 根（字典序叶子，§7 checkpoint）。
@@ -239,76 +236,6 @@ export function topologicalCanonicalOrder(metas) {
 	}
 
 	return ordered
-}
-
-/**
- * @param {string} hex 十六进制串
- * @param {number} expectedByteLength 期望字节长度
- * @returns {Uint8Array | null} 解析后的字节
- */
-function parseHexBytes(hex, expectedByteLength) {
-	if (!hex || hex.length !== expectedByteLength * 2 || hex.length % 2 !== 0) return null
-	const bytes = hex.match(/.{2}/g)
-	if (!bytes?.every(pair => HEX_PAIR.test(pair))) return null
-	return new Uint8Array(bytes.map(byte => Number.parseInt(byte, 16)))
-}
-
-/**
- * 签名事件（签名为不含 id 的 canonical body）
- * @param {object} event 含完整字段；可含占位 id
- * @param {Uint8Array} privateKey 私钥
- * @returns {Promise<string>} 十六进制签名
- */
-export async function signEvent(event, privateKey) {
-	const body = eventBodyForSign(event)
-	const signature = await sign(signPayloadBytes(body), privateKey)
-	return Array.from(signature).map(byte => byte.toString(16).padStart(2, '0')).join('')
-}
-
-/**
- * 验证事件签名
- * @param {object} event 含 signature、sender 与正文字段的完整事件
- * @returns {Promise<boolean>} 验签是否通过
- */
-export async function verifyEventSignature(event) {
-	try {
-		const signature = parseHexBytes(event?.signature, 64)
-		const publicKey = parseHexBytes(event?.sender, 32)
-		if (!signature || !publicKey) return false
-		return await verify(signature, signPayloadBytes(eventBodyForSign(event)), publicKey)
-	}
-	catch (error) {
-		console.error('Signature verification failed:', error)
-		return false
-	}
-}
-
-/**
- * 创建新事件
- * @param {object} params 事件字段与签名私钥等构造参数
- * @param {string[]} [params.prev_event_ids] 父事件 id；根事件 `[]`
- * @returns {Promise<object>} 含 id、signature 的完整事件对象
- */
-export async function createEvent(params) {
-	const {
-		type, groupId, channelId, sender, charId, content, prev_event_ids, privateKey, hlc,
-	} = params
-
-	const event = {
-		type,
-		groupId,
-		channelId: channelId || null,
-		sender,
-		charId: charId || null,
-		timestamp: Date.now(),
-		hlc: hlc || HLC.now(),
-		prev_event_ids: sortedPrevEventIds(prev_event_ids),
-		content,
-	}
-
-	event.id = computeEventId(eventBodyForSign(event))
-	event.signature = await signEvent(event, privateKey)
-	return event
 }
 
 /**

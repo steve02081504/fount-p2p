@@ -1,6 +1,7 @@
 .gitignore
 /node_modules
 /test
+/scripts
 /package-lock.json
 /deno.lock
 /deno.json

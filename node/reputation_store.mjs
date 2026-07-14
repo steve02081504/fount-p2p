@@ -7,7 +7,6 @@ import {
 	bumpChunkStorageReputationPure,
 	bumpReputationOnRelayPure,
 	ensureReputationShape,
-	isQuarantinedPure,
 	observeBehaviorSamplePure,
 	penalizeArchiveServeMismatchPure,
 	penalizeChunkStorageFailurePure,
@@ -143,14 +142,6 @@ export async function observePeerBehavior(peerNodeHash, sample) {
 		anomaly = result.anomaly
 	})
 	return anomaly
-}
-
-/**
- * @param {string} peerNodeHash 对端
- * @returns {boolean} 是否处于本地隔离
- */
-export function isPeerQuarantined(peerNodeHash) {
-	return isQuarantinedPure(loadReputation(), peerNodeHash)
 }
 
 /**

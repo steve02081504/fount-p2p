@@ -197,17 +197,6 @@ export async function readJsonlTipId(filePath) {
 }
 
 /**
- * 将单个 JSON 对象作为一行追加写入 JSONL（必要时创建父目录）。
- * @param {string} filePath 目标文件路径
- * @param {object} record 要序列化写入的对象
- * @returns {Promise<void>}
- */
-export async function appendJsonl(filePath, record) {
-	await mkdir(dirname(filePath), { recursive: true })
-	await appendFile(filePath, `${JSON.stringify(record)}\n`, 'utf8')
-}
-
-/**
  * 流式重写 JSONL（临时文件 + rename），避免大数组 join 的内存峰值。
  * @param {string} filePath 目标路径
  * @param {object[]} records 行对象列表
@@ -242,17 +231,6 @@ export function jsonlMutexKey(filePath) {
  */
 export async function writeJsonlSynced(filePath, records) {
 	return withAsyncMutex(jsonlMutexKey(filePath), () => writeJsonl(filePath, records))
-}
-
-/**
- * 在 per-file 互斥锁内过滤重写 JSONL。
- * @param {string} filePath 目标路径
- * @param {(row: object) => boolean} keep 保留谓词
- * @param {{ sanitize?: (row: object) => object }} [options] 读行净化
- * @returns {Promise<{ kept: number, dropped: number }>} 统计
- */
-export async function rewriteJsonlKeepingSynced(filePath, keep, options = {}) {
-	return withAsyncMutex(jsonlMutexKey(filePath), () => rewriteJsonlKeeping(filePath, keep, options))
 }
 
 /**

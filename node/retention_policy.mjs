@@ -3,21 +3,6 @@ import {
 	authzFoldOrderIds,
 	descendantClosureFromTip,
 } from '../governance/branch.mjs'
-import { getPermissionAnchorTypes } from '../registries/event_type.mjs'
-
-/**
- * @param {string[]} order 拓扑序 id 列表
- * @param {Map<string, object>} byId id → 事件
- * @returns {number} 最早须保留的事件下标
- */
-export function permissionAnchorStartIndex(order, byId) {
-	let anchor = order.length
-	for (let index = order.length - 1; index >= 0; index--) {
-		const ev = byId.get(order[index])
-		if (ev && getPermissionAnchorTypes().has(ev.type)) anchor = index
-	}
-	return anchor
-}
 
 /**
  * 在共识分支上计算须保留的事件 id（连通子图，不用拓扑下标切片）。

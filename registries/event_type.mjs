@@ -56,18 +56,6 @@ export function getGovernanceAuthzTypes() {
 	return typesWithFlag('governance')
 }
 
-/** 联邦入站/中继前须物化 ACL 门控的类型。 */
-/** @returns {Set<string>} ACL 门控事件 type 集合 */
-export function getFederationAclGatedEventTypes() {
-	return typesWithFlag('aclGated')
-}
-
-/** §6.2 频道 GC 沉寂计时排除的类型。 */
-/** @returns {Set<string>} GC 排除事件 type 集合 */
-export function getChannelGcExcludedEventTypes() {
-	return typesWithFlag('gcExclude')
-}
-
 /** 裁剪时不得早于最早一条权限锚点事件（§7.1）。 */
 /** @returns {Set<string>} 权限锚点事件 type 集合 */
 export function getPermissionAnchorTypes() {

@@ -7,39 +7,6 @@
 const TIER_ORDER = { quarantine: 0, normal: 1, trusted: 2 }
 
 /**
- * @param {number} score 信誉分
- * @returns {MailboxTier} 分层
- */
-export function mailboxTierFromScore(score) {
-	const numericScore = Number(score)
-	if (!Number.isFinite(numericScore)) return 'quarantine'
-	if (numericScore >= 0.45) return 'trusted'
-	if (numericScore >= 0.12) return 'normal'
-	return 'quarantine'
-}
-
-/**
- * @param {object} opts 参数
- * @param {number} [opts.senderScore] 发件方信誉
- * @param {number} [opts.recipientScore] 收件方关系信誉（可选）
- * @param {boolean} [opts.knownMember] 是否本地已知成员/节点
- * @param {number} [opts.hop] 转发跳数
- * @returns {{ tier: MailboxTier, score: number }} 分层与分数
- */
-export function scoreMailboxImportance(opts = {}) {
-	const sender = Number(opts.senderScore ?? 0)
-	const recipient = Number(opts.recipientScore ?? sender)
-	const known = !!opts.knownMember
-	const hop = Math.max(0, Number(opts.hop) || 0)
-	let score = sender * 0.65 + recipient * 0.35
-	if (known) score += 0.15
-	score -= hop * 0.08
-	if (score < 0) score = 0
-	if (score > 1) score = 1
-	return { tier: mailboxTierFromScore(score), score }
-}
-
-/**
  * 按 tier 与 storedAt 排序（低 tier 先淘汰）。
  * @param {object[]} rows 记录
  * @returns {object[]} 排序后

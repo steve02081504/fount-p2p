@@ -3,7 +3,7 @@ import { isHex64 } from '../core/hexIds.mjs'
 
 /** @typedef {'plain' | 'convergent' | 'random'} CeMode */
 
-/** @typedef {{ hash: string, size: number }} ManifestPart */
+/** @typedef {{ hash: string, size: number, contentHash?: string }} ManifestPart */
 
 /**
  * @typedef {{
@@ -48,7 +48,16 @@ export function normalizeFileManifest(input) {
 	if (!CE_MODES.has(ceMode)) return null
 	const parts = Array.isArray(input.parts)
 		? input.parts
-			.map(part => ({ hash: String(part?.hash || '').trim().toLowerCase(), size: Number(part?.size) || 0 }))
+			.map(part => {
+				/** @type {ManifestPart} */
+				const out = {
+					hash: String(part?.hash || '').trim().toLowerCase(),
+					size: Number(part?.size) || 0,
+				}
+				const partContentHash = String(part?.contentHash || '').trim().toLowerCase()
+				if (isHex64(partContentHash)) out.contentHash = partContentHash
+				return out
+			})
 			.filter(part => isHex64(part.hash))
 		: []
 	if (!parts.length) return null

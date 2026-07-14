@@ -94,17 +94,6 @@ export function descendantClosureFromTip(rootId, byId) {
 }
 
 /**
- * 事件是否在 root 的后代闭包中（含 root）。
- * @param {string} eventId 事件 id
- * @param {string} rootId 根 id
- * @param {Map<string, object>} byId id→事件
- * @returns {boolean} 是否为 root 的后代（含 root 自身）
- */
-export function isDescendantOfTip(eventId, rootId, byId) {
-	return descendantClosureFromTip(rootId, byId).has(eventId)
-}
-
-/**
  * @param {string} tipId 叶 id
  * @param {Map<string, object>} byId id→事件
  * @param {Record<string, number>} reputationBySender 发送方主观信誉

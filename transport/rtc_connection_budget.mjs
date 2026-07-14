@@ -162,6 +162,8 @@ const NON_CRITICAL_FED_ACTIONS = new Set([
 	'fed_manifest_get',
 	'fed_manifest_data',
 	'part_invoke',
+	'part_query_req',
+	'part_query_res',
 	'discovery_announce',
 	'discovery_query',
 	'char_rpc',

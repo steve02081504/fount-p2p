@@ -4,6 +4,7 @@ import { attachMailboxWire } from '../mailbox/wire.mjs'
 import { ensureNodeDefaults, getNodeHash } from '../node/identity.mjs'
 import { registerFederationRoomProvider } from '../registries/room_provider.mjs'
 import { attachPartWire } from '../wire/part_ingress.mjs'
+import { attachPartQueryWire } from '../wire/part_query.mjs'
 
 import { listLinks, sendToNodeLink, subscribeScope, getLinkRegistry } from './link_registry.mjs'
 import { USER_ROOM_SCOPE } from './room_scopes.mjs'
@@ -105,6 +106,7 @@ async function ensureNodeScopeRuntime(ctx) {
 	const wire = createNodeScopeWire()
 	nodeScopeWire = wire
 	attachPartWire({ replicaUsername: ctx.replicaUsername }, wire)
+	attachPartQueryWire({ replicaUsername: ctx.replicaUsername }, wire)
 	attachMailboxWire({ replicaUsername: ctx.replicaUsername }, wire)
 	attachUserRoomChunkHandlers(ctx.replicaUsername || '', wire)
 	for (const hook of nodeScopeWireHooks)
@@ -215,17 +217,6 @@ export async function ensureUserRoom(ctx = {}) {
 	})()
 
 	return await userRoomInflight
-}
-
-/**
- * @returns {void}
- */
-export function invalidateUserRoom() {
-	userRoomSlot = null
-	userRoomInflight = null
-	nodeScopeWire = null
-	nodeScopeReplicaUsername = ''
-	nodeScopeCleanup = null
 }
 
 /**

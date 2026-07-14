@@ -1,0 +1,14 @@
+{
+	"maxTtl": 3,
+	"maxHits": 32,
+	"maxQueryBytes": 2048,
+	"maxRowsBytes": 16384,
+	"fanoutCap": 4,
+	"ratePerSourcePerMin": 30,
+	"dedupeTtlMs": 300000,
+	"dedupeMaxSize": 4000,
+	"cacheTtlMs": 300000,
+	"cacheMaxKeys": 256,
+	"hopTimeoutMs": [1000, 2500, 4000, 6000],
+	"defaultTimeoutMs": 4000
+}

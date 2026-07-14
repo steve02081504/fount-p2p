@@ -1,20 +1,5 @@
-import { eventsToMetas, topologicalCanonicalOrder } from '../dag/index.mjs'
-
 /** @type {Map<string, { fp: string, order: string[] }>} */
 const memoByKey = new Map()
-
-/**
- * 进程内拓扑序 memo（key 由调用方提供，如 username:groupId）。
- * @param {string} memoKey 缓存键
- * @param {string} fingerprint 文件 stat + 事件数指纹
- * @param {object[]} events 全量事件
- * @param {{ force?: boolean }} [opts] 强制重算
- * @returns {string[]} 拓扑序 event id
- */
-export function resolveTopologicalOrderMemo(memoKey, fingerprint, events, opts = {}) {
-	return resolveTopologicalOrderMemoCached(memoKey, fingerprint, () =>
-		topologicalCanonicalOrder(eventsToMetas(events)), opts)
-}
 
 /**
  * 进程内拓扑序 memo；`resolveOrder` 可接入磁盘缓存等实现。

@@ -5,13 +5,6 @@ let revision = 0
 const DEFAULT_TTL_MS = 30_000
 
 /**
- * @returns {number} 当前 revision
- */
-export function getTrustGraphRevision() {
-	return revision
-}
-
-/**
  * @returns {void}
  */
 export function invalidateTrustGraphCache() {
@@ -35,10 +28,4 @@ export async function getCachedTrustGraph(username, build, ttlMs = DEFAULT_TTL_M
 	const graph = await build()
 	cacheByUsername.set(key, { graph, builtAt: now, revision })
 	return graph
-}
-
-/** @returns {void} 测试用 */
-export function clearTrustGraphCache() {
-	cacheByUsername.clear()
-	revision = 0
 }

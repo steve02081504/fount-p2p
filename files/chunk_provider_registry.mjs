@@ -32,12 +32,6 @@ export function unregisterChunkProviders(ownerId) {
 	nodeHashProvidersByOwner.delete(key)
 }
 
-/** @returns {void} */
-export function clearChunkProviderRegistry() {
-	federationFetchersByOwner.clear()
-	nodeHashProvidersByOwner.clear()
-}
-
 /**
  * @param {string} username 用户
  * @param {string} groupId 群 ID

@@ -50,22 +50,3 @@ export async function collectPartInvokeResponses(username, partpath, invoke, tim
 
 	return waitForResponses
 }
-
-/**
- * 单向 part_invoke fanout（mailbox put 等）。
- * @param {string} username 用户
- * @param {string} partpath part 路径
- * @param {import('./part_invoke.mjs').PartInvoke} invoke 调用体
- * @param {number} limit fanout 上限
- * @param {string} [nodeHash] 来源节点
- * @param {string} [groupId] 群上下文
- * @returns {Promise<number>} 发送次数
- */
-export async function fanoutPartInvoke(username, partpath, invoke, limit, nodeHash, groupId) {
-	return requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER).fanoutToTopNodes(username, 'part_invoke', buildPartInvokePayload({
-		partpath,
-		invoke,
-		nodeHash,
-		groupId,
-	}), limit)
-}

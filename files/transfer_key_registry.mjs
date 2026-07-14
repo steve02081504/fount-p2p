@@ -57,13 +57,6 @@ export function unregisterTransferKeyDeps(ownerId) {
 	unregisterManifestOwnerMatchers(key)
 }
 
-/** @returns {void} */
-export function clearTransferKeyRegistry() {
-	transferDepsByOwner.clear()
-	dagPlaintextReadersByOwner.clear()
-	manifestOwnerMatchers.length = 0
-}
-
 /**
  * 从 manifest 推断 transfer key 注册方 id（按 registerManifestOwnerMatcher 注册顺序匹配）。
  * @param {import('./manifest.mjs').FileManifest} manifest 清单

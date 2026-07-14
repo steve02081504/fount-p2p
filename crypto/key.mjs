@@ -67,18 +67,6 @@ function toHBuf(H) {
 // ─── 密钥推导 ─────────────────────────────────────────────────────────────────
 
 /**
- * 推导群内两两直连额外隔离密钥：`KDF(H, "dm", sorted(a,b).join(":"))`（§11.1）
- * @param {string | Buffer} H 群秘密
- * @param {string} pubKeyHashA 第一方 pubKeyHash
- * @param {string} pubKeyHashB 第二方 pubKeyHash
- * @returns {Buffer} 32 字节 AES-256 密钥
- */
-export function derivePairKey(H, pubKeyHashA, pubKeyHashB) {
-	const sorted = [pubKeyHashA, pubKeyHashB].sort().join(':')
-	return kdf(toHBuf(H), 'dm', sorted)
-}
-
-/**
  * 推导群文件加密密钥：`KDF(H, "file", fileId)`（§10.3、§6.3）
  * @param {string | Buffer} H 群秘密
  * @param {string} fileId 文件 ID
@@ -327,16 +315,27 @@ export function encryptConvergentPlaintext(plaintext) {
  * @returns {{ contentHash: string, ciphertextHash: string, contentKey: Buffer, raw: Buffer }} 哈希、随机密钥与密文
  */
 export function encryptRandomPlaintext(plaintext) {
+	const contentKey = randomBytes(32)
+	const enc = encryptRandomPlaintextWithKey(plaintext, contentKey)
+	return { ...enc, contentKey }
+}
+
+/**
+ * 用已有 contentKey 加密一块明文（多块 random 文件共用一把 key）。
+ * @param {Buffer | Uint8Array} plaintext 明文字节
+ * @param {Buffer | Uint8Array} contentKey 32 字节
+ * @returns {{ contentHash: string, ciphertextHash: string, raw: Buffer }} 哈希与密文
+ */
+export function encryptRandomPlaintextWithKey(plaintext, contentKey) {
 	const plain = Buffer.from(plaintext)
 	const contentHash = createHash('sha256').update(plain).digest('hex')
-	const contentKey = randomBytes(32)
 	const iv = randomBytes(12)
-	const cipher = createCipheriv('aes-256-gcm', contentKey, iv)
+	const cipher = createCipheriv('aes-256-gcm', Buffer.from(contentKey), iv)
 	const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()])
 	const authTag = cipher.getAuthTag()
 	const raw = Buffer.concat([iv, authTag, ciphertext])
 	const ciphertextHash = createHash('sha256').update(raw).digest('hex')
-	return { contentHash, ciphertextHash, contentKey, raw }
+	return { contentHash, ciphertextHash, raw }
 }
 
 /**

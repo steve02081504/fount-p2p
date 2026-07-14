@@ -1,4 +1,3 @@
-import { getNodeTransportSettings } from '../node/identity.mjs'
 import {
 	resolveMailboxRelayFanout,
 	resolveMailboxWantFanout,
@@ -42,12 +41,4 @@ export function resolveMailboxRoutingForPeerCount(peerCount, raw = {}, batterySa
 		wantFanout: Math.max(1, Math.ceil(base.wantFanout / 2)),
 		batterySaver: true,
 	}
-}
-
-/**
- * @returns {{ maxHop: number, relayFanoutTrusted: number, relayFanoutNormal: number, wantFanout: number, batterySaver: boolean }} mailbox 路由配置
- */
-export function getMailboxRoutingSettings() {
-	const { batterySaver, mailbox } = getNodeTransportSettings()
-	return resolveMailboxRoutingForPeerCount(0, mailbox, batterySaver)
 }

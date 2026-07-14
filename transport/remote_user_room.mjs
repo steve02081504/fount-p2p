@@ -95,15 +95,3 @@ export async function ensureRemoteUserRoom(username, targetNodeHash) {
 	inflights.set(key, task)
 	return await task
 }
-
-/**
- * 释放目标节点的远端用户房间连接。
- * @param {string} targetNodeHash 目标节点 64 hex
- * @returns {void}
- */
-export function releaseRemoteUserRoom(targetNodeHash) {
-	const key = targetNodeHash.toLowerCase()
-	const slot = slots.get(key)
-	if (slot) void Promise.resolve(slot.leave()).catch(() => { })
-	slots.delete(key)
-}

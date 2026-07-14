@@ -18,7 +18,7 @@
 
 Production import boundary: `test/integration/p2p_shell_import_guard.test.mjs`.
 
-**Tests:** `npm test` — package pure logic (Node). `npm run test:fount` — cross-repo bridge (Deno; fount social uses `npm:`). Dev-time relative import check: `node scripts/check-imports.mjs`.
+**Tests:** `npm test` — package pure logic (Node). `npm run test:fount` — cross-repo bridge (Deno; fount social uses `npm:`). Dev-time relative import check: `node scripts/check-imports.mjs`. Dead-export scan (pkg src / test+sim / fount cross-repo, `--fount <path>` optional): `node scripts/find-unused-exports.mjs`.
 
 **Test assertions:** `test/helpers/assert.mjs` re-exports `assert` / `assertEquals` / `assertThrows`; import from there in `test/` and `sim/test/` instead of inlining duplicate helpers.
 
@@ -26,11 +26,12 @@ Fount bridge: `test/fount/` + `test/helpers/fount_paths.mjs` (`fountBridgeSkipRe
 
 ## Trust boundaries
 
-- **Untrusted ingress:** discovery adverts/signals, link/overlay envelopes, group WebSocket federation frames, `remoteIngest`, `part_timeline_put`/`part_invoke`, **public manifest (`fed_manifest_data`)** — validation and `canonicalize*` / `verifySignedPublicManifest` happen ONLY at this boundary.
+- **Untrusted ingress:** discovery adverts/signals, link/overlay envelopes, group WebSocket federation frames, `remoteIngest`, `part_timeline_put`/`part_invoke`, `part_query_req`/`part_query_res`, **public manifest (`fed_manifest_data`)** — validation and `canonicalize*` / `verifySignedPublicManifest` happen ONLY at this boundary.
 - **Trusted after disk:** once read from `events.jsonl`, only `stripDagEventLocalExtensions` runs; upper layers do NOT re-run hex canonicalization.
 - **Node data:** `initNode({ nodeDir })` singleton under `nodeDir` — `node.json`, `network.json`, `denylist.json`, `reputation.json`, `mailbox/`, `chunks/`. Default `EntityStore` root is `{nodeDir}/entities/` (shell may inject a custom store).
 - **Entity key chain:** `federation/entity_key_chain.mjs` — `entity_key_rotate` / `entity_key_revoke`; `state.entityKeyHistory`; revoke signature domain `ENTITY_KEY_REVOKE_DOMAIN` (`fount-entity-key-revoke`).
 - **TrustGraph fanout:** timeline/chunk exploration → `requireTrustGraphProvider().fanoutToTopNodes`; **targeted packets** (Mailbox) → `sendToNode`/User Room, never fanout.
+- **part_query:** multi-hop opaque query (`wire/part_query.mjs`); shell registers `registerQueryInboundHandler(partpath, kind, handler)`; initiator `queryNetwork(...)`; `part_query_res` returns along the reverse path so relays can cache; local cache hit skips broadcast (`wire/part_query_cache.mjs`, short TTL, unverified clues).
 - **Group room startup invariant:** `group_link_set.start()` / `rooms/scoped_link.start()` must call `registry.ensureRuntime()` before topic subscribe/advertise.
 - **User-room startup invariant:** `ensureUserRoom()` must call `registry.ensureRuntime()` on first init.
 - **Signaling & linking:** see [docs/signaling.md](docs/signaling.md).
@@ -53,7 +54,7 @@ Fount bridge: `test/fount/` + `test/helpers/fount_paths.mjs` (`fountBridgeSkipRe
 
 - **Storage:** ciphertext chunks `{nodeDir}/chunks/` (CAS); logical manifest `{EntityStoreRoot}/{entityHash}/files/{path}.manifest.json`; default `EntityStoreRoot = {nodeDir}/entities`.
 - **Core modules:** `files/` — `evfs`, `evfs_ref`, `acl`, `manifest_acl_registry`, `public_manifest` / `manifest_fetch`.
-- **Public files:** `publishPublicFile` signs with the entity recovery key then persists; remote path is `fed_manifest_get` → verify signature → cache; `readPublicFile` unifies local and network reads. The signature covers content fields only — after verification, incoming `meta` is dropped except `publicSig` (prevents `dagParts`/`groupId` injection). Profile / avatar display semantics live in the shell; this library does not hard-code them.
+- **Public files:** `publishPublicFile` signs with the entity recovery key then persists; remote path is `fed_manifest_get` → verify signature → cache; `readPublicFile` / `fetchPublicManifest` unify local and network reads. The signature covers content fields only — after verification, incoming `meta` is dropped except `publicSig` (prevents `dagParts`/`groupId` injection). Profile / avatar display semantics live in the shell; this library does not hard-code them.
 
 ## Tunables JSON
 
@@ -66,5 +67,6 @@ Runtime defaults live next to the module that consumes them:
 | `tunables.json` | `mailbox/` |
 | `tunables.json` | `governance/` |
 | `tunables.json` | `dag/` |
+| `part_query.tunables.json` | `wire/` |
 
 Sim harness aggregates these via `sim/tunables_bundle.mjs` (dev-only; not published).

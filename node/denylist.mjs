@@ -57,13 +57,6 @@ function buildDenylistIndex(blocked) {
 }
 
 /**
- * @returns {void}
- */
-export function invalidateDenylistIndex() {
-	cachedIndex = null
-}
-
-/**
  * @returns {DenylistIndex} 缓存索引
  */
 function getDenylistIndex() {
@@ -242,23 +235,6 @@ export async function addDenylistFromBanContent(banContent, groupId) {
 	const pk = normalizeHex64(banContent?.targetPubKeyHash)
 	if (isHex64(pk))
 		await addDenylistEntry({ scope: 'subject', value: pk, ...sourceGroupId ? { groupId: sourceGroupId } : {} })
-}
-
-/**
- * @param {string} entityHash 128 位十六进制
- * @param {boolean} block true=拉黑
- * @returns {Promise<boolean>} 当前是否拉黑
- */
-export async function setEntityBlocked(entityHash, block) {
-	const id = String(entityHash || '').trim().toLowerCase()
-	if (!isEntityHash128(id)) throw new Error('invalid entityHash')
-	await mutateDenylist(() => {
-		const list = loadDenylist()
-		const without = list.blocked.filter(e => !(e.scope === 'entity' && e.value === id))
-		if (block) without.push({ scope: 'entity', value: id })
-		saveDenylist({ blocked: without })
-	})
-	return block
 }
 
 /**

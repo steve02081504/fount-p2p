@@ -58,12 +58,3 @@ export async function withAsyncMutex(key, fn) {
 		}
 	})
 }
-
-/**
- * @param {string} keyPrefix 前缀
- * @returns {(key: string, fn: () => Promise<T>) => Promise<T>} 带前缀的 mutex 函数
- * @template T
- */
-export function asyncMutexForPrefix(keyPrefix) {
-	return (key, fn) => withAsyncMutex(`${keyPrefix}:${key}`, fn)
-}

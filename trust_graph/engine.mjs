@@ -18,30 +18,6 @@ import trustGraphTunables from './tunables.json' with { type: 'json' }
  */
 
 /**
- * @returns {typeof trustGraphTunables} 默认 tunables
- */
-export function defaultTrustGraphTunables() {
-	return trustGraphTunables
-}
-
-/**
- * @param {Map<string, TrustNode>} byNode 累积图
- * @param {string} scopeId scope 标识
- * @param {string} nodeHash 64 位十六进制
- * @param {number} score 信誉分
- */
-export function mergeTrustNode(byNode, scopeId, nodeHash, score) {
-	const previous = byNode.get(nodeHash)
-	if (previous) {
-		const seenCount = previous.scopeIds.length
-		previous.score = (previous.score * seenCount + score) / (seenCount + 1)
-		if (!previous.scopeIds.includes(scopeId)) previous.scopeIds.push(scopeId)
-		return
-	}
-	byNode.set(nodeHash, { nodeHash, score, scopeIds: [scopeId] })
-}
-
-/**
  * @param {TrustGraphInputs} inputs 图输入
  * @param {typeof trustGraphTunables} [tunables] tunables
  * @returns {Map<string, TrustNode>} nodeHash → 节点

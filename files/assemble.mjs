@@ -1,11 +1,12 @@
 import { Buffer } from 'node:buffer'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { setImmediate } from 'node:timers'
 
 import { FEDERATION_CHUNK_MAX_BYTES } from '../core/constants.mjs'
 import {
 	encryptConvergentPlaintext,
 	encryptRandomPlaintext,
+	encryptRandomPlaintextWithKey,
 	wrapContentKey,
 } from '../crypto/key.mjs'
 
@@ -49,16 +50,56 @@ function encryptionStrategyFor(ceMode) {
 }
 
 /**
+ * @param {{ contentHash: string, ciphertextHash: string, raw: Buffer }} enc 分块加密结果
+ * @param {CeMode} ceMode 模式
+ * @returns {{ hash: string, size: number, raw: Buffer, contentHash?: string }} manifest part
+ */
+function partFromEnc(enc, ceMode) {
+	/** @type {{ hash: string, size: number, raw: Buffer, contentHash?: string }} */
+	const part = { hash: enc.ciphertextHash, size: enc.raw.length, raw: enc.raw }
+	if (ceMode === 'convergent' || ceMode === 'plain')
+		part.contentHash = enc.contentHash
+	return part
+}
+
+/**
+ * 加密单个分块（random 模式复用调用方提供的 contentKey）。
+ * @param {Buffer | Uint8Array} slice 明文分块
+ * @param {CeMode} ceMode 模式
+ * @param {Buffer | null} [contentKey] random 模式密钥
+ * @returns {{ hash: string, size: number, raw: Buffer, contentHash?: string }} manifest part
+ */
+export function encryptSliceToPart(slice, ceMode, contentKey = null) {
+	const enc = ceMode === 'random'
+		? encryptRandomPlaintextWithKey(slice, contentKey)
+		: encryptionStrategyFor(ceMode)(slice)
+	return partFromEnc(enc, ceMode)
+}
+
+/**
+ * @param {Array<{ hash: string, size: number, contentHash?: string }>} parts 分块
+ * @returns {Array<{ hash: string, size: number, contentHash?: string }>} 写入 manifest 的 parts
+ */
+export function manifestPartsForPersist(parts) {
+	return parts.map(part => {
+		/** @type {{ hash: string, size: number, contentHash?: string }} */
+		const out = { hash: part.hash, size: part.size }
+		if (part.contentHash) out.contentHash = part.contentHash
+		return out
+	})
+}
+
+/**
  * @param {Buffer | Uint8Array} plaintext 明文
  * @param {CeMode} ceMode 模式
- * @returns {{ contentHash: string, parts: Array<{ hash: string, size: number, raw: Buffer }>, contentKey?: Buffer }} 加密结果
+ * @returns {{ contentHash: string, parts: Array<{ hash: string, size: number, raw: Buffer, contentHash?: string }>, contentKey?: Buffer }} 加密结果
  */
 export function encryptPlaintextToParts(plaintext, ceMode = 'convergent') {
 	const plain = Buffer.from(plaintext)
 	const enc = encryptionStrategyFor(ceMode)(plain)
 	return {
 		contentHash: enc.contentHash,
-		parts: [{ hash: enc.ciphertextHash, size: enc.raw.length, raw: enc.raw }],
+		parts: [partFromEnc(enc, ceMode)],
 		contentKey: enc.contentKey,
 	}
 }
@@ -67,7 +108,7 @@ export function encryptPlaintextToParts(plaintext, ceMode = 'convergent') {
  * 将明文拆分为多块加密（大文件）。
  * @param {Buffer | Uint8Array} plaintext 明文
  * @param {CeMode} ceMode 模式
- * @returns {{ contentHash: string, parts: Array<{ hash: string, size: number, raw: Buffer }>, contentKey?: Buffer }} 分块加密结果
+ * @returns {{ contentHash: string, parts: Array<{ hash: string, size: number, raw: Buffer, contentHash?: string }>, contentKey?: Buffer }} 分块加密结果
  */
 export function encryptPlaintextToMultiParts(plaintext, ceMode = 'convergent') {
 	const plain = Buffer.from(plaintext)
@@ -75,15 +116,11 @@ export function encryptPlaintextToMultiParts(plaintext, ceMode = 'convergent') {
 	if (plain.length <= FEDERATION_CHUNK_MAX_BYTES)
 		return encryptPlaintextToParts(plain, ceMode)
 
-	/** @type {Array<{ hash: string, size: number, raw: Buffer }>} */
+	/** @type {Array<{ hash: string, size: number, raw: Buffer, contentHash?: string }>} */
 	const parts = []
-	let contentKey = null
-	for (let offset = 0; offset < plain.length; offset += FEDERATION_CHUNK_MAX_BYTES) {
-		const slice = plain.subarray(offset, offset + FEDERATION_CHUNK_MAX_BYTES)
-		const enc = encryptionStrategyFor(ceMode)(slice)
-		if (ceMode === 'random') contentKey = enc.contentKey
-		parts.push({ hash: enc.ciphertextHash, size: enc.raw.length, raw: enc.raw })
-	}
+	const contentKey = ceMode === 'random' ? randomBytes(32) : null
+	for (let offset = 0; offset < plain.length; offset += FEDERATION_CHUNK_MAX_BYTES)
+		parts.push(encryptSliceToPart(plain.subarray(offset, offset + FEDERATION_CHUNK_MAX_BYTES), ceMode, contentKey))
 	return { contentHash, parts, contentKey: contentKey || undefined }
 }
 
@@ -99,15 +136,12 @@ export async function encryptPlaintextToMultiPartsAsync(plaintext, ceMode = 'con
 	if (plain.length <= FEDERATION_CHUNK_MAX_BYTES)
 		return encryptPlaintextToParts(plain, ceMode)
 
-	/** @type {Array<{ hash: string, size: number, raw: Buffer }>} */
+	/** @type {Array<{ hash: string, size: number, raw: Buffer, contentHash?: string }>} */
 	const parts = []
-	let contentKey = null
+	const contentKey = ceMode === 'random' ? randomBytes(32) : null
 	for (let offset = 0; offset < plain.length; offset += FEDERATION_CHUNK_MAX_BYTES) {
 		if (offset > 0) await new Promise(resolve => setImmediate(resolve))
-		const slice = plain.subarray(offset, offset + FEDERATION_CHUNK_MAX_BYTES)
-		const enc = encryptionStrategyFor(ceMode)(slice)
-		if (ceMode === 'random') contentKey = enc.contentKey
-		parts.push({ hash: enc.ciphertextHash, size: enc.raw.length, raw: enc.raw })
+		parts.push(encryptSliceToPart(plain.subarray(offset, offset + FEDERATION_CHUNK_MAX_BYTES), ceMode, contentKey))
 	}
 	return { contentHash, parts, contentKey: contentKey || undefined }
 }
@@ -144,7 +178,7 @@ export function buildFileManifest(params) {
 		size: Buffer.from(plaintext).length,
 		contentHash: enc.contentHash,
 		ceMode,
-		parts: enc.parts.map(part => ({ hash: part.hash, size: part.size })),
+		parts: manifestPartsForPersist(enc.parts),
 		transferKeyDescriptor: transferKeyDescriptor || publicTransferKeyDescriptor(),
 		meta,
 	})
@@ -155,7 +189,7 @@ export function buildFileManifest(params) {
 /**
  * 由已加密分块构建 manifest（vault / file-master-key-wrap 等需自定义 transferKeyDescriptor）。
  * @param {object} params 与 buildFileManifest 相同字段（不含 plaintext 重加密）
- * @param {{ contentHash: string, parts: Array<{ hash: string, size: number, raw?: Buffer }> }} enc 加密结果
+ * @param {{ contentHash: string, parts: Array<{ hash: string, size: number, raw?: Buffer, contentHash?: string }> }} enc 加密结果
  * @returns {FileManifest} manifest
  */
 export function buildFileManifestFromEnc(params, enc) {
@@ -177,30 +211,12 @@ export function buildFileManifestFromEnc(params, enc) {
 		size: Buffer.from(plaintext).length,
 		contentHash: enc.contentHash,
 		ceMode,
-		parts: enc.parts.map(part => ({ hash: part.hash, size: part.size })),
+		parts: manifestPartsForPersist(enc.parts),
 		transferKeyDescriptor: transferKeyDescriptor || publicTransferKeyDescriptor(),
 		meta,
 	})
 	if (!manifest) throw new Error('invalid manifest')
 	return manifest
-}
-
-/**
- * @param {string} groupId 群 ID
- * @param {Buffer} contentKey 随机 contentKey
- * @param {Buffer | string} H 群/vault 秘密
- * @param {string} fileId 文件 ID
- * @param {number} keyGeneration 密钥代次
- * @returns {import('./manifest.mjs').TransferKeyDescriptor} 传输密钥描述
- */
-export function fileMasterKeyWrapDescriptor(groupId, fileId, contentKey, H, keyGeneration = 0) {
-	return {
-		type: 'file-master-key-wrap',
-		groupId,
-		fileId,
-		keyGeneration,
-		wrappedKey: wrapContentKey(contentKey, H, fileId),
-	}
 }
 
 /**

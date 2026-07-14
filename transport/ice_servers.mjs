@@ -48,14 +48,6 @@ export function resolveIceServers(groupSettings) {
 }
 
 /**
- * @param {unknown} groupSettings 物化群设置
- * @returns {{ iceServers: ReturnType<typeof resolveIceServers> }} Trystero rtcConfig 片段
- */
-export function resolveIceServersForTrystero(groupSettings) {
-	return { iceServers: resolveIceServers(groupSettings) }
-}
-
-/**
  * 校验并规范化待写入 DAG 的 iceServers 数组。
  * @param {unknown} raw 请求体字段
  * @returns {{ urls: string, username?: string, credential?: string }[]} 校验后的 ICE 列表

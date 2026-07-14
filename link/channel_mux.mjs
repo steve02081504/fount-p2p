@@ -38,6 +38,8 @@ const DEFAULT_ACTION_PRIORITIES = Object.freeze({
 	discovery_query_response: 3,
 	part_invoke: 3,
 	part_invoke_response: 3,
+	part_query_req: 5,
+	part_query_res: 5,
 	char_rpc: 3,
 	fed_chunk_put: 5,
 	fed_chunk_get: 5,
