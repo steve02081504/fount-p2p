@@ -23,11 +23,11 @@ export function assignChunksToPeers(chunkHashes, peerIds) {
  * @param {Map<string, { state: ChunkFetchState, peerId?: string, attempts: number }>} table 状态表
  * @param {string[]} chunkHashes 待拉取块
  * @param {string[]} peerIds 可用 peer
- * @param {{ maxAttempts?: number }} [opts] 选项
+ * @param {{ maxAttempts?: number }} [options] 选项
  * @returns {{ assignments: Map<string, string>, broadcast: string[] }} 分配与需广播块
  */
-export function planChunkFetches(table, chunkHashes, peerIds, opts = {}) {
-	const maxAttempts = Math.max(1, Number(opts.maxAttempts) || 3)
+export function planChunkFetches(table, chunkHashes, peerIds, options = {}) {
+	const maxAttempts = Math.max(1, Number(options.maxAttempts) || 3)
 	const assignments = assignChunksToPeers(chunkHashes, peerIds)
 	/** @type {string[]} */
 	const broadcast = []

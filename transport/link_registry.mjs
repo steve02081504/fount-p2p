@@ -187,20 +187,20 @@ function subscribeBucket(buckets, key, listener) {
 
 /**
  * 创建 P2P 链路注册表（discovery、信令、直连与 overlay relay）。
- * @param {object} [opts] 选项
- * @param {{ nodeHash?: string, nodePubKey?: string, secretKey?: Uint8Array }} [opts.localIdentity] 本地身份
- * @param {typeof createLink} [opts.createLink] 链路工厂（可注入 mock）
- * @param {RTCConfiguration['iceServers']} [opts.iceServers] ICE 服务器列表
- * @param {number} [opts.maxActive] 最大并发活跃链路数
- * @param {boolean} [opts.autoRegisterDiscoveryProviders] 是否自动注册 discovery provider
+ * @param {object} [options] 选项
+ * @param {{ nodeHash?: string, nodePubKey?: string, secretKey?: Uint8Array }} [options.localIdentity] 本地身份
+ * @param {typeof createLink} [options.createLink] 链路工厂（可注入 mock）
+ * @param {RTCConfiguration['iceServers']} [options.iceServers] ICE 服务器列表
+ * @param {number} [options.maxActive] 最大并发活跃链路数
+ * @param {boolean} [options.autoRegisterDiscoveryProviders] 是否自动注册 discovery provider
  * @returns {object} link registry 接口
  */
-export function createLinkRegistry(opts = {}) {
-	const localIdentity = resolveLocalIdentity(opts.localIdentity)
-	const createLinkImpl = opts.createLink ?? createLink
-	const iceServers = opts.iceServers?.length ? opts.iceServers : DEFAULT_ICE_SERVERS
-	const maxActive = Math.max(4, Number(opts.maxActive) || 32)
-	const autoRegisterDiscoveryProviders = opts.autoRegisterDiscoveryProviders !== false
+export function createLinkRegistry(options = {}) {
+	const localIdentity = resolveLocalIdentity(options.localIdentity)
+	const createLinkImpl = options.createLink ?? createLink
+	const iceServers = options.iceServers?.length ? options.iceServers : DEFAULT_ICE_SERVERS
+	const maxActive = Math.max(4, Number(options.maxActive) || 32)
+	const autoRegisterDiscoveryProviders = options.autoRegisterDiscoveryProviders !== false
 	const selfTopic = nodeRendezvousTopic(localIdentity.nodeHash)
 	/** @type {Map<string, Awaited<ReturnType<typeof createLinkImpl>>>} */
 	const links = new Map()
@@ -348,7 +348,7 @@ export function createLinkRegistry(opts = {}) {
 	/**
 	 * 为一条 connId 会话建 PC 并走 glare 择一：建 link → 绑 onDown 清 session → ready → registerResolvedLink。
 	 * initiator 侧建链前先 trimToBudget 腾预算。出错则清理该 connId 会话。
-	 * @param {{ remoteNodeHash: string, connId: string, session: ReturnType<typeof createBufferedSignalSession>, initiator: boolean }} opts 建链参数
+	 * @param {{ remoteNodeHash: string, connId: string, session: ReturnType<typeof createBufferedSignalSession>, initiator: boolean }} options 建链参数
 	 * @returns {Promise<Awaited<ReturnType<typeof createLinkImpl>> | null>} 当前规范链（本条可能因 glare 被关，取 links 现值）；失败 null
 	 */
 	async function buildConnLink({ remoteNodeHash, connId, session, initiator }) {

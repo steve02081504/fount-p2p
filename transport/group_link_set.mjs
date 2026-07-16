@@ -14,22 +14,22 @@ import { resolveFederationPoolLimits, selectLinkTargetsFromMembers } from './pee
 
 /**
  * 创建基于 link registry 的群组联邦房间。
- * @param {object} opts 选项
- * @param {string} opts.groupId 群组 id
- * @param {string} opts.roomSecret 房间密钥（用于 rendezvous topic）
- * @param {string[]} opts.members 初始成员 nodeHash 列表
- * @param {object} [opts.groupSettings] 群设置（连接预算：trustedPeerSlots/explorePeerSlots/maxPeers 等）
- * @returns {{ groupId: string, scope: string, start: () => Promise<void>, leave: () => Promise<void>, getRoster: () => Array<{ peerId: string, remoteNodeHash: string }>, getPeerIdByNodeHash: (nodeHash: string) => string | null, sendToPeer: (peerId: string, actionName: string, payload: unknown) => Promise<boolean>, send: (actionName: string, payload: unknown, peerId?: string | null) => Promise<number>, onEnvelope: (cb: (senderNodeHash: string, envelope: object) => void) => () => void, onPeerJoin: (cb: (peerId: string) => void) => () => void, onPeerLeave: (cb: (peerId: string) => void) => () => void, getPeers: () => Record<string, true>, makeAction: (name: string) => [(payload: unknown, peerId?: string | string[] | null) => Promise<void>, (handler: (payload: unknown, peerId: string) => void) => void], registerCleanup: (fn: () => void) => void, isActive: () => boolean }} 群组 link set 接口
+ * @param {object} options 选项
+ * @param {string} options.groupId 群组 id
+ * @param {string} options.roomSecret 房间密钥（用于 rendezvous topic）
+ * @param {string[]} options.members 初始成员 nodeHash 列表
+ * @param {object} [options.groupSettings] 群设置（连接预算：trustedPeerSlots/explorePeerSlots/maxPeers 等）
+ * @returns {{ groupId: string, scope: string, start: () => Promise<void>, leave: () => Promise<void>, getRoster: () => Array<{ peerId: string, remoteNodeHash: string }>, getPeerIdByNodeHash: (nodeHash: string) => string | null, sendToPeer: (peerId: string, actionName: string, payload: unknown) => Promise<boolean>, send: (actionName: string, payload: unknown, peerId?: string | null) => Promise<number>, onEnvelope: (callback: (senderNodeHash: string, envelope: object) => void) => () => void, onPeerJoin: (callback: (peerId: string) => void) => () => void, onPeerLeave: (callback: (peerId: string) => void) => () => void, getPeers: () => Record<string, true>, makeAction: (name: string) => [(payload: unknown, peerId?: string | string[] | null) => Promise<void>, (handler: (payload: unknown, peerId: string) => void) => void], registerCleanup: (cleanup: () => void) => void, isActive: () => boolean }} 群组 link set 接口
  */
-export function createGroupLinkSet(opts) {
-	const registry = opts.registry ?? getLinkRegistry()
-	const autoconnect = opts.autoconnect !== false
-	const groupId = String(opts.groupId)
+export function createGroupLinkSet(options) {
+	const registry = options.registry ?? getLinkRegistry()
+	const autoconnect = options.autoconnect !== false
+	const groupId = String(options.groupId)
 	const scope = `group:${groupId}`
-	const topic = groupRendezvousTopic(opts.roomSecret)
-	const members = new Set((Array.isArray(opts.members) ? opts.members : []).map(String))
+	const topic = groupRendezvousTopic(options.roomSecret)
+	const members = new Set((Array.isArray(options.members) ? options.members : []).map(String))
 	const selfNodeHash = registry.localIdentity.nodeHash
-	const groupSettings = opts.groupSettings ?? {}
+	const groupSettings = options.groupSettings ?? {}
 	// 初始成员是调用方明确知道的引导集合（如 introducer/creator/seed），作为必连锚点保证引导期连通。
 	const initialAnchors = new Set(members)
 	/** @type {ReturnType<typeof setTimeout> | null} */
@@ -50,12 +50,12 @@ export function createGroupLinkSet(opts) {
 
 	/**
 	 * 注册 leave 时执行的清理回调。
-	 * @param {() => void} fn 清理函数
+	 * @param {() => void} cleanup 清理函数
 	 * @returns {void}
 	 */
-	function registerCleanup(fn) {
-		if (typeof fn !== 'function') return
-		cleanups.add(fn)
+	function registerCleanup(cleanup) {
+		if (typeof cleanup !== 'function') return
+		cleanups.add(cleanup)
 	}
 
 	/**
@@ -255,34 +255,34 @@ export function createGroupLinkSet(opts) {
 		},
 		/**
 		 * 订阅入站 envelope。
-		 * @param {(senderNodeHash: string, envelope: object) => void} cb 回调
+		 * @param {(senderNodeHash: string, envelope: object) => void} callback 回调
 		 * @returns {() => void} 取消订阅函数
 		 */
-		onEnvelope(cb) {
-			envelopeListeners.add(cb)
-			return () => envelopeListeners.delete(cb)
+		onEnvelope(callback) {
+			envelopeListeners.add(callback)
+			return () => envelopeListeners.delete(callback)
 		},
 		/**
 		 * 订阅 peer 加入事件（含当前已在线 peer 的即时回调）。
-		 * @param {(peerId: string) => void} cb 回调
+		 * @param {(peerId: string) => void} callback 回调
 		 * @returns {() => void} 取消订阅函数
 		 */
-		onPeerJoin(cb) {
-			peerJoinListeners.add(cb)
+		onPeerJoin(callback) {
+			peerJoinListeners.add(callback)
 			for (const { peerId } of activeRoster())
 				if (peerId) announcedPeers.add(peerId)
 			for (const peerId of announcedPeers)
-				try { cb(peerId) } catch { /* ignore */ }
-			return () => peerJoinListeners.delete(cb)
+				try { callback(peerId) } catch { /* ignore */ }
+			return () => peerJoinListeners.delete(callback)
 		},
 		/**
 		 * 订阅 peer 离开事件。
-		 * @param {(peerId: string) => void} cb 回调
+		 * @param {(peerId: string) => void} callback 回调
 		 * @returns {() => void} 取消订阅函数
 		 */
-		onPeerLeave(cb) {
-			peerLeaveListeners.add(cb)
-			return () => peerLeaveListeners.delete(cb)
+		onPeerLeave(callback) {
+			peerLeaveListeners.add(callback)
+			return () => peerLeaveListeners.delete(callback)
 		},
 		/**
 		 * 返回当前在线 peer 的 Record 映射。

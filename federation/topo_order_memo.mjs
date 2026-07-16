@@ -6,11 +6,11 @@ const memoByKey = new Map()
  * @param {string} memoKey 缓存键
  * @param {string} fingerprint 文件 stat + 事件数指纹
  * @param {() => string[]} resolveOrder 实际求序（含磁盘层）
- * @param {{ force?: boolean }} [opts] 强制重算
+ * @param {{ force?: boolean }} [options] 强制重算
  * @returns {string[]} 拓扑序 event id
  */
-export function resolveTopologicalOrderMemoCached(memoKey, fingerprint, resolveOrder, opts = {}) {
-	if (!opts.force) {
+export function resolveTopologicalOrderMemoCached(memoKey, fingerprint, resolveOrder, options = {}) {
+	if (!options.force) {
 		const cached = memoByKey.get(memoKey)
 		if (cached?.fp === fingerprint && cached.order.length)
 			return cached.order

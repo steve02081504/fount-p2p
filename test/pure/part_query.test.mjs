@@ -10,7 +10,7 @@ import {
 } from '../../schemas/part_query.mjs'
 import {
 	createPartQueryNodeState,
-	handleIncomingPartQueryRes,
+	handleIncomingPartQueryResponse,
 	mergeQueryRows,
 	resolvePartQueryHopTimeoutMs,
 } from '../../wire/part_query.mjs'
@@ -88,9 +88,9 @@ test('duplicate part_query_res from the same peer counts once', () => {
 		 */
 		rowKey: row => String(row.id),
 	})
-	const res = { requestId: 'r1', fromNodeHash: NODE_B, rows: [{ id: 'b' }] }
-	handleIncomingPartQueryRes(res, NODE_B, { state })
-	handleIncomingPartQueryRes({ ...res, rows: [{ id: 'b2' }] }, NODE_B, { state })
+	const response = { requestId: 'r1', fromNodeHash: NODE_B, rows: [{ id: 'b' }] }
+	handleIncomingPartQueryResponse(response, NODE_B, { state })
+	handleIncomingPartQueryResponse({ ...response, rows: [{ id: 'b2' }] }, NODE_B, { state })
 	const bag = state.originBags.get('r1')
 	assertEquals(bag.received, 1)
 	assertEquals(bag.rows.map(row => row.id), ['b'])

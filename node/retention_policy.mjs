@@ -8,16 +8,16 @@ import {
  * 在共识分支上计算须保留的事件 id（连通子图，不用拓扑下标切片）。
  * @param {string[]} order 规范拓扑序
  * @param {Map<string, object>} byId id → 事件
- * @param {object} opts 保留策略
- * @param {number} opts.maxDepth 分支上最大事件深度
- * @param {number} opts.cutoffWall 最早保留的 HLC wall
- * @param {Set<string>} opts.anchorTypes 权限锚点事件类型
- * @param {string | null} [opts.checkpointTipId] checkpoint 尖
- * @param {string | null} [opts.branchTipId] 共识分支尖
+ * @param {object} options 保留策略
+ * @param {number} options.maxDepth 分支上最大事件深度
+ * @param {number} options.cutoffWall 最早保留的 HLC wall
+ * @param {Set<string>} options.anchorTypes 权限锚点事件类型
+ * @param {string | null} [options.checkpointTipId] checkpoint 尖
+ * @param {string | null} [options.branchTipId] 共识分支尖
  * @returns {Set<string>} 保留 id
  */
-export function computeRetentionKeepIds(order, byId, opts) {
-	const { maxDepth, cutoffWall, anchorTypes, checkpointTipId, branchTipId } = opts
+export function computeRetentionKeepIds(order, byId, options) {
+	const { maxDepth, cutoffWall, anchorTypes, checkpointTipId, branchTipId } = options
 	const branchOrder = authzFoldOrderIds(order, byId, branchTipId)
 	const branchSet = new Set(branchOrder)
 	if (!branchSet.size) return new Set()

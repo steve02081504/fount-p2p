@@ -91,12 +91,12 @@ function activeLinkRoster() {
 
 /**
  * 初始化 node scope 订阅与 wire 派发（幂等）。
- * @param {{ replicaUsername?: string }} ctx 入站上下文
+ * @param {{ replicaUsername?: string }} wireContext 入站上下文
  * @returns {Promise<void>}
  */
-async function ensureNodeScopeRuntime(ctx) {
+async function ensureNodeScopeRuntime(wireContext) {
 	if (nodeScopeCleanup) return
-	nodeScopeReplicaUsername = String(ctx.replicaUsername || nodeScopeReplicaUsername || '')
+	nodeScopeReplicaUsername = String(wireContext.replicaUsername || nodeScopeReplicaUsername || '')
 	nodeScopeCleanup = subscribeScope('node', (senderNodeHash, envelope) => {
 		const handlers = nodeActionHandlers.get(String(envelope?.action || ''))
 		if (!handlers?.size) return
@@ -105,12 +105,12 @@ async function ensureNodeScopeRuntime(ctx) {
 	})
 	const wire = createNodeScopeWire()
 	nodeScopeWire = wire
-	attachPartWire({ replicaUsername: ctx.replicaUsername }, wire)
-	attachPartQueryWire({ replicaUsername: ctx.replicaUsername }, wire)
-	attachMailboxWire({ replicaUsername: ctx.replicaUsername }, wire)
-	attachUserRoomChunkHandlers(ctx.replicaUsername || '', wire)
+	attachPartWire({ replicaUsername: wireContext.replicaUsername }, wire)
+	attachPartQueryWire({ replicaUsername: wireContext.replicaUsername }, wire)
+	attachMailboxWire({ replicaUsername: wireContext.replicaUsername }, wire)
+	attachUserRoomChunkHandlers(wireContext.replicaUsername || '', wire)
 	for (const hook of nodeScopeWireHooks)
-		try { hook(ctx.replicaUsername || '', wire) } catch { /* ignore */ }
+		try { hook(wireContext.replicaUsername || '', wire) } catch { /* ignore */ }
 }
 
 /**
@@ -162,10 +162,10 @@ export function resolveUserRoomCredentials() {
 }
 
 /**
- * @param {{ replicaUsername?: string }} [ctx] 入站上下文（part/mailbox 派发用）
+ * @param {{ replicaUsername?: string }} [wireContext] 入站上下文（part/mailbox 派发用）
  * @returns {Promise<UserRoomSlot | null>} 用户级联邦房间槽
  */
-export async function ensureUserRoom(ctx = {}) {
+export async function ensureUserRoom(wireContext = {}) {
 	if (userRoomSlot) return userRoomSlot
 	if (userRoomInflight) return await userRoomInflight
 
@@ -173,7 +173,7 @@ export async function ensureUserRoom(ctx = {}) {
 		ensureNodeDefaults()
 		try {
 			await getLinkRegistry().ensureRuntime()
-			await ensureNodeScopeRuntime(ctx)
+			await ensureNodeScopeRuntime(wireContext)
 			const creds = resolveUserRoomCredentials()
 			/** @type {UserRoomSlot} */
 			userRoomSlot = {
@@ -238,9 +238,7 @@ export async function deliverToUserRoomPeers(username, actionName, payload, exce
 		.filter(({ peerId }) => peerId && peerId !== exceptPeerId)]
 	for (let swapIndex = peers.length - 1; swapIndex > 0; swapIndex--) {
 		const pickIndex = Math.floor(Math.random() * (swapIndex + 1))
-		const tmp = peers[swapIndex]
-		peers[swapIndex] = peers[pickIndex]
-		peers[pickIndex] = tmp
+		;[peers[swapIndex], peers[pickIndex]] = [peers[pickIndex], peers[swapIndex]]
 	}
 	for (const { peerId } of peers)
 		try {

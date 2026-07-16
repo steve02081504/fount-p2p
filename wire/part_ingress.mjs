@@ -45,16 +45,16 @@ function parsePartTimelinePut(data, partpath) {
 }
 
 /**
- * @param {PartWireContext} ctx 入站上下文
+ * @param {PartWireContext} wireContext 入站上下文
  * @param {object} payload part_invoke 请求
  * @returns {Promise<PartInvokeResponse | null>} RPC 处理器返回值
  */
-async function dispatchPartInvoke(ctx, payload) {
+async function dispatchPartInvoke(wireContext, payload) {
 	const partpath = normalizePartpath(payload?.partpath)
 	const invoke = payload?.invoke
 	if (!partpath || !isPlainObject(invoke)) return null
 	return dispatchRpcInbound({
-		replicaUsername: ctx.replicaUsername,
+		replicaUsername: wireContext.replicaUsername,
 		requesterNodeHash: payload.nodeHash ? String(payload.nodeHash).trim() : null,
 		groupId: payload.groupId ? String(payload.groupId).trim() : undefined,
 		peerId: payload.peerId,
@@ -70,12 +70,12 @@ async function dispatchPartInvoke(ctx, payload) {
 
 /**
  * 挂载 part_timeline_put / part_invoke / part_invoke_response。
- * @param {PartWireContext} ctx 入站上下文
+ * @param {PartWireContext} wireContext 入站上下文
  * @param {PartWireAdapter} wire Trystero 适配器
  * @param {{ allowPartInvoke?: (payload: object) => boolean }} [options] 入站过滤
  * @returns {void}
  */
-export function attachPartWire(ctx, wire, options = {}) {
+export function attachPartWire(wireContext, wire, options = {}) {
 	wire.on('part_timeline_put', data => {
 		if (!isPlainObject(data)) return
 		const partpath = normalizePartpath(data.partpath)
@@ -83,7 +83,7 @@ export function attachPartWire(ctx, wire, options = {}) {
 		const message = parsePartTimelinePut(data, partpath)
 		if (!message) return
 		void dispatchDeliveryInbound({
-			replicaUsername: ctx.replicaUsername,
+			replicaUsername: wireContext.replicaUsername,
 			requesterNodeHash: data.nodeHash ? String(data.nodeHash).trim() : null,
 		}, message)
 	})
@@ -93,9 +93,9 @@ export function attachPartWire(ctx, wire, options = {}) {
 		if (options.allowPartInvoke?.(data) === false) return
 		const payload = { ...data, peerId }
 		if (payload.requestId)
-			void handleIncomingPartInvokeRequest(ctx, payload, wire, peerId)
+			void handleIncomingPartInvokeRequest(wireContext, payload, wire, peerId)
 		else
-			void handleIncomingPartInvokeFireAndForget(ctx, payload, wire, peerId)
+			void handleIncomingPartInvokeFireAndForget(wireContext, payload, wire, peerId)
 	})
 
 	wire.on('part_invoke_response', (data, peerId) => {
@@ -105,17 +105,17 @@ export function attachPartWire(ctx, wire, options = {}) {
 }
 
 /**
- * @param {PartWireContext} ctx 入站上下文
+ * @param {PartWireContext} wireContext 入站上下文
  * @param {object} payload part_invoke 请求（含 requestId）
  * @param {PartWireAdapter} wire 发送适配器
  * @param {string} peerId 对端
  * @returns {Promise<void>}
  */
-export async function handleIncomingPartInvokeRequest(ctx, payload, wire, peerId) {
+export async function handleIncomingPartInvokeRequest(wireContext, payload, wire, peerId) {
 	const partpath = normalizePartpath(payload?.partpath)
 	if (!partpath || !payload.requestId) return
 
-	const response = await dispatchPartInvoke(ctx, { ...payload, peerId })
+	const response = await dispatchPartInvoke(wireContext, { ...payload, peerId })
 	if (response == null || !isPartInvokeResponse(response)) return
 
 	try {
@@ -129,17 +129,17 @@ export async function handleIncomingPartInvokeRequest(ctx, payload, wire, peerId
 }
 
 /**
- * @param {PartWireContext} ctx 入站上下文
+ * @param {PartWireContext} wireContext 入站上下文
  * @param {object} payload part_invoke 请求（无 requestId）
  * @param {PartWireAdapter} wire 发送适配器
  * @param {string} peerId 对端
  * @returns {Promise<void>}
  */
-export async function handleIncomingPartInvokeFireAndForget(ctx, payload, wire, peerId) {
+export async function handleIncomingPartInvokeFireAndForget(wireContext, payload, wire, peerId) {
 	const partpath = normalizePartpath(payload?.partpath)
 	if (!partpath) return
 
-	const response = await dispatchPartInvoke(ctx, { ...payload, peerId })
+	const response = await dispatchPartInvoke(wireContext, { ...payload, peerId })
 	const followUp = unwrapPartInvokeResult(response)
 	if (!isPartInvoke(followUp)) return
 	try {

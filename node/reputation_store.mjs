@@ -26,12 +26,12 @@ import { readNodeJsonSync, writeNodeJsonSync } from './storage.mjs'
 
 const DATA_NAME = 'reputation'
 
-/** @type {((opts: object) => Promise<boolean>) | null} */
+/** @type {((options: object) => Promise<boolean>) | null} */
 let blockReputationHandler = null
 
 /**
  * Shell Load 时注册：公开 block/unblock → 信誉传导。
- * @param {(opts: object) => Promise<boolean>} handler block/unblock 信誉传导回调
+ * @param {(options: object) => Promise<boolean>} handler block/unblock 信誉传导回调
  * @returns {void}
  */
 export function registerBlockReputationHandler(handler) {
@@ -308,10 +308,10 @@ export function pickNodeScore(nodeId) {
 }
 
 /**
- * @param {object} opts applyFollowedBlockSignal 参数
+ * @param {object} options applyFollowedBlockSignal 参数
  * @returns {Promise<boolean>} 是否已应用
  */
-export async function applyBlockReputationSignal(opts) {
+export async function applyBlockReputationSignal(options) {
 	if (!blockReputationHandler) return false
-	return blockReputationHandler(opts)
+	return blockReputationHandler(options)
 }

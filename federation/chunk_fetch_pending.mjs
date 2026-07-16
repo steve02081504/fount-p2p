@@ -14,10 +14,10 @@ export const MAX_PENDING_CHUNK_FETCHES = 2048
  * @param {string} key 唯一等待键
  * @param {string} expectedHash 期望 64 hex 密文哈希
  * @param {number} timeoutMs 超时毫秒
- * @param {{ rejectOnTimeout?: boolean }} [opts] rejectOnTimeout 时 Promise 以 Error 拒绝
+ * @param {{ rejectOnTimeout?: boolean }} [options] rejectOnTimeout 时 Promise 以 Error 拒绝
  * @returns {{ done: Promise<Uint8Array | null>, cancel: () => void }} 等待 Promise 与取消函数
  */
-export function registerChunkFetchWait(key, expectedHash, timeoutMs, opts = {}) {
+export function registerChunkFetchWait(key, expectedHash, timeoutMs, options = {}) {
 	if (!key || pendingChunkFetches.size >= MAX_PENDING_CHUNK_FETCHES)
 		return {
 			done: Promise.resolve(null), /**
@@ -41,7 +41,7 @@ export function registerChunkFetchWait(key, expectedHash, timeoutMs, opts = {}) 
 	})
 	const timer = setTimeout(() => {
 		pendingChunkFetches.delete(key)
-		if (opts.rejectOnTimeout)
+		if (options.rejectOnTimeout)
 			settle(new Error('chunk fetch timeout'))
 		else
 			settle(null)

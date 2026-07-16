@@ -34,18 +34,18 @@ export function buildAuthMessage(peerNonce, localFingerprint, localNodeHash) {
 
 /**
  * 构造 link hello 握手包。
- * @param {{ nodeHash?: string, nodePubKey?: string, nonce?: string }} [opts] 可选身份字段，省略则从本地节点种子推导
+ * @param {{ nodeHash?: string, nodePubKey?: string, nonce?: string }} [options] 可选身份字段，省略则从本地节点种子推导
  * @returns {{ v: 1, nodeHash: string, nodePubKey: string, nonce: string }} hello 对象
  */
-export function buildHello(opts = {}) {
+export function buildHello(options = {}) {
 	let publicKey = null
-	if (!opts.nodeHash || !opts.nodePubKey) {
+	if (!options.nodeHash || !options.nodePubKey) {
 		const derived = keyPairFromSeed(Buffer.from(ensureNodeSeed(), 'hex'))
 		publicKey = derived.publicKey
 	}
-	const nodeHash = normalizeHex64(opts.nodeHash || getNodeHash())
-	const nodePubKey = normalizeHex64(opts.nodePubKey || Buffer.from(publicKey).toString('hex'))
-	const nonce = normalizeHex64(opts.nonce || randomBytes(32).toString('hex'))
+	const nodeHash = normalizeHex64(options.nodeHash || getNodeHash())
+	const nodePubKey = normalizeHex64(options.nodePubKey || Buffer.from(publicKey).toString('hex'))
+	const nonce = normalizeHex64(options.nonce || randomBytes(32).toString('hex'))
 	if (!isHex64(nodeHash) || !isHex64(nodePubKey) || !isHex64(nonce))
 		throw new Error('p2p: invalid hello fields')
 	if (pubKeyHash(Buffer.from(nodePubKey, 'hex')) !== nodeHash)
@@ -57,15 +57,15 @@ export function buildHello(opts = {}) {
  * 对 link auth 消息签名。
  * @param {string} peerNonce 对端 hello 中的 nonce
  * @param {string} localFingerprint 本地 DTLS fingerprint
- * @param {{ secretKey?: Uint8Array, nodeHash?: string }} [opts] 签名密钥与 nodeHash 覆盖
+ * @param {{ secretKey?: Uint8Array, nodeHash?: string }} [options] 签名密钥与 nodeHash 覆盖
  * @returns {Promise<{ sig: string }>} hex 签名
  */
-export async function buildAuth(peerNonce, localFingerprint, opts = {}) {
-	const seed = opts.secretKey
-		? Buffer.from(opts.secretKey)
+export async function buildAuth(peerNonce, localFingerprint, options = {}) {
+	const seed = options.secretKey
+		? Buffer.from(options.secretKey)
 		: Buffer.from(ensureNodeSeed(), 'hex')
 	const { publicKey, secretKey } = keyPairFromSeed(seed)
-	const nodeHash = normalizeHex64(opts.nodeHash || pubKeyHash(publicKey))
+	const nodeHash = normalizeHex64(options.nodeHash || pubKeyHash(publicKey))
 	if (nodeHash !== pubKeyHash(publicKey))
 		throw new Error('p2p: auth nodeHash does not match secretKey')
 	const message = buildAuthMessage(peerNonce, localFingerprint, nodeHash)
@@ -133,16 +133,16 @@ export function buildAdvertMessage(topic, ts, nodeHash) {
  * 构造带签名的 discovery advert。
  * @param {string} topic 广播主题
  * @param {number} [ts=Date.now()] 时间戳（毫秒）
- * @param {{ secretKey?: Uint8Array, nodeHash?: string, nodePubKey?: string } | null} [opts] 签名身份，省略则用本地节点
+ * @param {{ secretKey?: Uint8Array, nodeHash?: string, nodePubKey?: string } | null} [options] 签名身份，省略则用本地节点
  * @returns {Promise<{ nodeHash: string, nodePubKey: string, ts: number, sig: string }>} 签名 advert
  */
-export async function buildSignedAdvert(topic, ts = Date.now(), opts = null) {
-	const seed = opts?.secretKey
-		? Buffer.from(opts.secretKey)
+export async function buildSignedAdvert(topic, ts = Date.now(), options = null) {
+	const seed = options?.secretKey
+		? Buffer.from(options.secretKey)
 		: Buffer.from(ensureNodeSeed(), 'hex')
 	const { publicKey, secretKey } = keyPairFromSeed(seed)
-	const nodeHash = normalizeHex64(opts?.nodeHash || pubKeyHash(publicKey))
-	const nodePubKey = normalizeHex64(opts?.nodePubKey || Buffer.from(publicKey).toString('hex'))
+	const nodeHash = normalizeHex64(options?.nodeHash || pubKeyHash(publicKey))
+	const nodePubKey = normalizeHex64(options?.nodePubKey || Buffer.from(publicKey).toString('hex'))
 	if (pubKeyHash(Buffer.from(nodePubKey, 'hex')) !== nodeHash)
 		throw new Error('p2p: advert nodePubKey does not match nodeHash')
 	const message = buildAdvertMessage(topic, ts, nodeHash)

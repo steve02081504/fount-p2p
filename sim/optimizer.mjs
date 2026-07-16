@@ -68,19 +68,19 @@ function recordGeneration(pool, best) {
 }
 
 /**
- * @param {object} opts 选项
- * @param {import('./scenarios.mjs').SimScenario[]} opts.scenarios 场景
- * @param {number} [opts.generations=20] 代数上限（未设 duration 时生效）
- * @param {number} [opts.population=12] 种群
- * @param {number[]} [opts.seeds] 种子
- * @param {number} [opts.seedBase=42] 搜索种子基
- * @param {import('./metrics.mjs').MetricWeights} [opts.weights] 权重
- * @param {number | null} [opts.durationMs] 墙钟时长上限（毫秒）；设则按时间停止
- * @param {import('./metrics.mjs').EvalOpts} [opts.evalOpts] 评估并行选项
- * @param {(info: OptimizerProgress) => void} [opts.onProgress] 进度回调
+ * @param {object} options 选项
+ * @param {import('./scenarios.mjs').SimScenario[]} options.scenarios 场景
+ * @param {number} [options.generations=20] 代数上限（未设 duration 时生效）
+ * @param {number} [options.population=12] 种群
+ * @param {number[]} [options.seeds] 种子
+ * @param {number} [options.seedBase=42] 搜索种子基
+ * @param {import('./metrics.mjs').MetricWeights} [options.weights] 权重
+ * @param {number | null} [options.durationMs] 墙钟时长上限（毫秒）；设则按时间停止
+ * @param {import('./metrics.mjs').EvalOpts} [options.evalOpts] 评估并行选项
+ * @param {(info: OptimizerProgress) => void} [options.onProgress] 进度回调
  * @returns {Promise<OptimizerResult>} 搜索结论
  */
-export async function runOptimizer(opts) {
+export async function runOptimizer(options) {
 	const {
 		scenarios,
 		generations = 20,
@@ -91,7 +91,7 @@ export async function runOptimizer(opts) {
 		durationMs = null,
 		evalOpts,
 		onProgress,
-	} = opts
+	} = options
 
 	const startedAt = Date.now()
 	const deadline = durationMs != null && durationMs > 0 ? startedAt + durationMs : null
@@ -219,13 +219,13 @@ export async function runOptimizer(opts) {
  * 且不得让任何单一场景相对基线明显回退。
  * @param {Awaited<ReturnType<typeof evaluateTunables>>} baselineEval 全场景基线评估
  * @param {Awaited<ReturnType<typeof evaluateTunables>>} candidateEval 全场景候选评估
- * @param {object} [opts] 选项
- * @param {number} [opts.margin=0.02] 全场景最小提升
- * @param {number} [opts.regressTol=0.01] 单场景允许的最大回退
+ * @param {object} [options] 选项
+ * @param {number} [options.margin=0.02] 全场景最小提升
+ * @param {number} [options.regressTol=0.01] 单场景允许的最大回退
  * @returns {{ ok: boolean, reason: string }} 是否应写回与原因
  */
-export function shouldApplyResult(baselineEval, candidateEval, opts = {}) {
-	const { margin = 0.02, regressTol = 0.01 } = opts
+export function shouldApplyResult(baselineEval, candidateEval, options = {}) {
+	const { margin = 0.02, regressTol = 0.01 } = options
 	if (candidateEval.fitness < baselineEval.fitness + margin)
 		return {
 			ok: false,

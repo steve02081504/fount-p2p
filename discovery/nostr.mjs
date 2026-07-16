@@ -142,11 +142,11 @@ async function publishEvent(relayUrls, event) {
 
 /**
  * 创建 Nostr discovery provider。
- * @param {{ relayUrls?: string[] }} [opts] 可选中继 URL 覆盖
+ * @param {{ relayUrls?: string[] }} [options] 可选中继 URL 覆盖
  * @returns {import('./index.mjs').DiscoveryProvider} Nostr 发现提供者
  */
-export function createNostrDiscoveryProvider(opts = {}) {
-	const relayUrls = mergeSignalingRelayUrls(opts.relayUrls)
+export function createNostrDiscoveryProvider(options = {}) {
+	const relayUrls = mergeSignalingRelayUrls(options.relayUrls)
 	const secretKey = randomBytes(32)
 	return {
 		id: 'nostr',

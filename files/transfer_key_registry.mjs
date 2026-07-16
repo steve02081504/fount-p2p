@@ -1,18 +1,18 @@
 /** @type {Map<string, { getGroupFileMasterKey?: (replicaUsername: string, groupId: string, keyGeneration?: number) => Promise<Buffer | string | null>, getVaultMasterKey?: (replicaUsername: string, entityHash: string) => Promise<Buffer | string | null> }>} */
-const transferDepsByOwner = new Map()
+const transferDependenciesByOwner = new Map()
 
 /** @type {Map<string, (replicaUsername: string, manifest: import('./manifest.mjs').FileManifest) => Promise<Buffer | null>>} */
 const dagPlaintextReadersByOwner = new Map()
 
 /**
  * @param {string} ownerId 注册方
- * @param {{ getGroupFileMasterKey?: (replicaUsername: string, groupId: string, keyGeneration?: number) => Promise<Buffer | string | null>, getVaultMasterKey?: (replicaUsername: string, entityHash: string) => Promise<Buffer | string | null> }} deps 密钥源
+ * @param {{ getGroupFileMasterKey?: (replicaUsername: string, groupId: string, keyGeneration?: number) => Promise<Buffer | string | null>, getVaultMasterKey?: (replicaUsername: string, entityHash: string) => Promise<Buffer | string | null> }} dependencies 密钥源
  * @returns {void}
  */
-export function registerTransferKeyDeps(ownerId, deps) {
+export function registerTransferKeyDependencies(ownerId, dependencies) {
 	const key = String(ownerId)
-	const prev = transferDepsByOwner.get(key) || {}
-	transferDepsByOwner.set(key, { ...prev, ...deps })
+	const prev = transferDependenciesByOwner.get(key) || {}
+	transferDependenciesByOwner.set(key, { ...prev, ...dependencies })
 }
 
 /**
@@ -50,9 +50,9 @@ export function unregisterManifestOwnerMatchers(ownerId) {
  * @param {string} ownerId 注册方
  * @returns {void}
  */
-export function unregisterTransferKeyDeps(ownerId) {
+export function unregisterTransferKeyDependencies(ownerId) {
 	const key = String(ownerId)
-	transferDepsByOwner.delete(key)
+	transferDependenciesByOwner.delete(key)
 	dagPlaintextReadersByOwner.delete(key)
 	unregisterManifestOwnerMatchers(key)
 }
@@ -73,9 +73,9 @@ export function resolveManifestTransferOwnerId(manifest) {
  * @param {import('./manifest.mjs').FileManifest} [manifest] 用于推断 ownerId
  * @returns {{ getGroupFileMasterKey?: (replicaUsername: string, groupId: string, keyGeneration?: number) => Promise<Buffer | string | null>, getVaultMasterKey?: (replicaUsername: string, entityHash: string) => Promise<Buffer | string | null> }} 依赖
  */
-export function resolveTransferKeyDeps(ownerId, manifest) {
+export function resolveTransferKeyDependencies(ownerId, manifest) {
 	const resolved = ownerId || (manifest ? resolveManifestTransferOwnerId(manifest) : null)
-	if (resolved) return transferDepsByOwner.get(String(resolved)) || {}
+	if (resolved) return transferDependenciesByOwner.get(String(resolved)) || {}
 	return {}
 }
 

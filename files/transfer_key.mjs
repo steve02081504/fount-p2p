@@ -15,26 +15,26 @@ import {
 /**
  * @param {TransferKeyDescriptor} descriptor 传递密钥描述符
  * @param {FileManifest} manifest manifest
- * @param {{ getGroupFileMasterKey?: (groupId: string, keyGeneration?: number) => Promise<Buffer | string | null>, getVaultMasterKey?: (entityHash: string) => Promise<Buffer | string | null> }} deps 密钥源
+ * @param {{ getGroupFileMasterKey?: (groupId: string, keyGeneration?: number) => Promise<Buffer | string | null>, getVaultMasterKey?: (entityHash: string) => Promise<Buffer | string | null> }} dependencies 密钥源
  * @returns {Promise<Buffer | null>} contentKey；plain/convergent 返回 null（按 contentHash 派生）
  */
-export async function resolveContentKey(descriptor, manifest, deps = {}) {
+export async function resolveContentKey(descriptor, manifest, dependencies = {}) {
 	const type = descriptor?.type || 'public'
 	if (type === 'public' || manifest.ceMode === 'plain' || manifest.ceMode === 'convergent')
 		return null
 
 	if (type === 'file-master-key-wrap') {
 		const { groupId, fileId } = descriptor
-		if (!groupId || !fileId || !descriptor.wrappedKey || !deps.getGroupFileMasterKey) return null
-		const groupKey = await deps.getGroupFileMasterKey(String(groupId), descriptor.keyGeneration)
+		if (!groupId || !fileId || !descriptor.wrappedKey || !dependencies.getGroupFileMasterKey) return null
+		const groupKey = await dependencies.getGroupFileMasterKey(String(groupId), descriptor.keyGeneration)
 		if (!groupKey) return null
 		return unwrapContentKey(descriptor.wrappedKey, groupKey, fileId)
 	}
 
 	if (type === 'vault-wrap') {
 		const { entityHash, fileId } = descriptor
-		if (!entityHash || !fileId || !descriptor.wrappedKey || !deps.getVaultMasterKey) return null
-		const vaultKey = await deps.getVaultMasterKey(String(entityHash))
+		if (!entityHash || !fileId || !descriptor.wrappedKey || !dependencies.getVaultMasterKey) return null
+		const vaultKey = await dependencies.getVaultMasterKey(String(entityHash))
 		if (!vaultKey) return null
 		return unwrapContentKey(descriptor.wrappedKey, vaultKey, fileId)
 	}
@@ -70,12 +70,12 @@ export function decryptPart(encryptedPartBytes, manifest, contentKey, partIndex 
 /**
  * @param {FileManifest} manifest manifest
  * @param {Array<Buffer | Uint8Array>} partBytes 按序密文块
- * @param {{ getGroupFileMasterKey?: Function, getVaultMasterKey?: Function }} deps 密钥源
+ * @param {{ getGroupFileMasterKey?: Function, getVaultMasterKey?: Function }} dependencies 密钥源
  * @returns {Promise<Buffer | null>} 完整明文
  */
-export async function assembleManifestPlaintext(manifest, partBytes, deps = {}) {
+export async function assembleManifestPlaintext(manifest, partBytes, dependencies = {}) {
 	if (partBytes.length !== manifest.parts.length) return null
-	const contentKey = await resolveContentKey(manifest.transferKeyDescriptor, manifest, deps)
+	const contentKey = await resolveContentKey(manifest.transferKeyDescriptor, manifest, dependencies)
 	/** @type {Buffer[]} */
 	const plains = []
 	for (let index = 0; index < manifest.parts.length; index++) {

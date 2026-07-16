@@ -150,13 +150,13 @@ function concatChunks(chunks) {
 
 /**
  * 创建分片消息重组器。
- * @param {{ maxMessageBytes?: number, maxPartials?: number, partialTimeoutMs?: number }} [opts] 大小、并发分片数与超时配置
+ * @param {{ maxMessageBytes?: number, maxPartials?: number, partialTimeoutMs?: number }} [options] 大小、并发分片数与超时配置
  * @returns {{ push: (frame: Uint8Array | ArrayBuffer | ArrayBufferView, now?: number) => Uint8Array | null, prune: (now?: number) => string[], clear: () => void, size: () => number }} 重组器 API
  */
-export function createReassembler(opts = {}) {
-	const maxMessageBytes = Math.max(1024, Number(opts.maxMessageBytes) || DEFAULT_MAX_MESSAGE_BYTES)
-	const maxPartials = Math.max(1, Number(opts.maxPartials) || DEFAULT_MAX_PARTIAL_MESSAGES)
-	const partialTimeoutMs = Math.max(1000, Number(opts.partialTimeoutMs) || DEFAULT_PARTIAL_TIMEOUT_MS)
+export function createReassembler(options = {}) {
+	const maxMessageBytes = Math.max(1024, Number(options.maxMessageBytes) || DEFAULT_MAX_MESSAGE_BYTES)
+	const maxPartials = Math.max(1, Number(options.maxPartials) || DEFAULT_MAX_PARTIAL_MESSAGES)
+	const partialTimeoutMs = Math.max(1000, Number(options.partialTimeoutMs) || DEFAULT_PARTIAL_TIMEOUT_MS)
 	/** @type {Map<string, { total: number, chunks: Uint8Array[], seen: boolean[], bytes: number, firstSeenAt: number, lastSeenAt: number }>} */
 	const partials = new Map()
 

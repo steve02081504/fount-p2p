@@ -7,12 +7,12 @@ const DEFAULT_GROUP = '239.255.42.99'
 /**
  * 轻量 multicast 发现插件：不做完整 DNS-SD，只复用 mDNS 的 LAN multicast 发现思路。
  *
- * @param {{ port?: number, group?: string }} [opts] 组播端口与组地址
+ * @param {{ port?: number, group?: string }} [options] 组播端口与组地址
  * @returns {import('./index.mjs').DiscoveryProvider} mDNS 发现提供者
  */
-export function createMdnsDiscoveryProvider(opts = {}) {
-	const port = Number(opts.port) || DEFAULT_PORT
-	const group = String(opts.group || DEFAULT_GROUP)
+export function createMdnsDiscoveryProvider(options = {}) {
+	const port = Number(options.port) || DEFAULT_PORT
+	const group = String(options.group || DEFAULT_GROUP)
 	const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true })
 	let bound = false
 	let bindPromise = null

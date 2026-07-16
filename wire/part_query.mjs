@@ -34,7 +34,7 @@ import { finishMultiWireWaiters, registerMultiWireWait } from './wait.mjs'
  */
 
 /**
- * @typedef {(ctx: QueryInboundContext, query: unknown) => Promise<unknown[] | null | undefined> | unknown[] | null | undefined} QueryInboundHandler
+ * @typedef {(queryContext: QueryInboundContext, query: unknown) => Promise<unknown[] | null | undefined> | unknown[] | null | undefined} QueryInboundHandler
  */
 
 /**
@@ -55,14 +55,14 @@ import { finishMultiWireWaiters, registerMultiWireWait } from './wait.mjs'
  *   getNodeHash?: () => string
  *   now?: () => number
  *   state?: PartQueryNodeState
- * }} PartQueryDeps
+ * }} PartQueryDependencies
  */
 
 /**
  * @typedef {{
  *   upstreamPeerId: string
  *   wire: PartWireAdapter
- *   req: PartQueryReq
+ *   request: PartQueryReq
  *   localRows: unknown[]
  *   remoteRows: unknown[]
  *   expected: number
@@ -70,7 +70,7 @@ import { finishMultiWireWaiters, registerMultiWireWait } from './wait.mjs'
  *   respondedPeers: Set<string>
  *   flushed: boolean
  *   timer: ReturnType<typeof setTimeout> | null
- *   deps: PartQueryDeps
+ *   dependencies: PartQueryDependencies
  *   state: PartQueryNodeState
  * }} RelayPending
  */
@@ -97,11 +97,11 @@ export function createPartQueryNodeState(options = {}) {
 const defaultState = createPartQueryNodeState({ cache: partQueryCache })
 
 /**
- * @param {PartQueryDeps} [deps] 依赖
+ * @param {PartQueryDependencies} [dependencies] 依赖
  * @returns {PartQueryNodeState} 节点状态
  */
-function resolveState(deps = {}) {
-	return deps.state || defaultState
+function resolveState(dependencies = {}) {
+	return dependencies.state || defaultState
 }
 
 /**
@@ -167,27 +167,27 @@ export function mergeQueryRows(lists, maxHits, rowKey) {
 
 /**
  * @param {PartQueryNodeState} state 节点状态
- * @param {QueryInboundContext} ctx 入站上下文
+ * @param {QueryInboundContext} queryContext 入站上下文
  * @param {string} partpath part 路径
  * @param {string} kind 查询标签
  * @param {unknown} query 查询体
  * @returns {Promise<unknown[]>} 本地 rows
  */
-async function runLocalHandler(state, ctx, partpath, kind, query) {
+async function runLocalHandler(state, queryContext, partpath, kind, query) {
 	const handler = state.handlers.get(handlerKey(partpath, kind))
 	if (!handler) return []
-	const rows = await handler(ctx, query)
+	const rows = await handler(queryContext, query)
 	return Array.isArray(rows) ? rows : []
 }
 
 /**
  * @param {string} username trust graph 上下文
  * @param {Set<string>} exclude 排除节点
- * @param {PartQueryDeps} deps 可注入依赖
+ * @param {PartQueryDependencies} dependencies 可注入依赖
  * @returns {Promise<string[]>} 邻居 nodeHash
  */
-async function selectQueryNeighbors(username, exclude, deps) {
-	if (deps.selectNeighbors) return deps.selectNeighbors(exclude)
+async function selectQueryNeighbors(username, exclude, dependencies) {
+	if (dependencies.selectNeighbors) return dependencies.selectNeighbors(exclude)
 	const graph = await buildMergedGraph(username)
 	const fanoutCap = Math.max(1, Math.floor(Number(partQueryTunables.fanoutCap) || 4))
 	const k = Math.min(fanoutCap, resolveFederationFanoutTopK(graph.size, trustGraphTunables))
@@ -207,24 +207,24 @@ async function selectQueryNeighbors(username, exclude, deps) {
  * @param {string} nodeHash 目标
  * @param {string} action action 名
  * @param {unknown} payload 载荷
- * @param {PartQueryDeps} deps 依赖
+ * @param {PartQueryDependencies} dependencies 依赖
  * @returns {Promise<boolean>} 是否发出
  */
-async function deliverQuery(username, nodeHash, action, payload, deps) {
-	if (deps.deliver) return Boolean(await deps.deliver(nodeHash, action, payload))
+async function deliverQuery(username, nodeHash, action, payload, dependencies) {
+	if (dependencies.deliver) return Boolean(await dependencies.deliver(nodeHash, action, payload))
 	return requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER).sendToNode(username, nodeHash, action, payload)
 }
 
 /**
- * @param {PartQueryReq} req 请求
+ * @param {PartQueryReq} request 请求
  * @param {unknown[]} rows 行
  * @param {() => string} nodeHashOf 本机 hash
  * @returns {PartQueryRes} 响应载荷
  */
-function buildRes(req, rows, nodeHashOf) {
-	const capped = clampPartQueryRows(rows, req.budget.maxHits) || []
+function buildResponse(request, rows, nodeHashOf) {
+	const capped = clampPartQueryRows(rows, request.budget.maxHits) || []
 	return {
-		requestId: req.requestId,
+		requestId: request.requestId,
 		fromNodeHash: nodeHashOf(),
 		rows: capped,
 	}
@@ -241,62 +241,62 @@ function flushRelayPending(pending) {
 		clearTimeout(pending.timer)
 		pending.timer = null
 	}
-	pending.state.relayPending.delete(pending.req.requestId)
-	const merged = mergeQueryRows([pending.localRows, pending.remoteRows], pending.req.budget.maxHits)
-	const now = pending.deps.now || Date.now
-	pending.state.cache.set(pending.req.partpath, pending.req.kind, pending.req.query, merged, now())
-	const nodeHashOf = pending.deps.getNodeHash || getNodeHash
+	pending.state.relayPending.delete(pending.request.requestId)
+	const merged = mergeQueryRows([pending.localRows, pending.remoteRows], pending.request.budget.maxHits)
+	const now = pending.dependencies.now || Date.now
+	pending.state.cache.set(pending.request.partpath, pending.request.kind, pending.request.query, merged, now())
+	const nodeHashOf = pending.dependencies.getNodeHash || getNodeHash
 	try {
-		pending.wire.send('part_query_res', buildRes(pending.req, merged, nodeHashOf), pending.upstreamPeerId)
+		pending.wire.send('part_query_res', buildResponse(pending.request, merged, nodeHashOf), pending.upstreamPeerId)
 	}
 	catch { /* disconnected */ }
 }
 
 /**
- * @param {object} ctx attach 上下文
+ * @param {{ replicaUsername?: string }} wireContext attach 上下文
  * @param {PartWireAdapter} wire wire
- * @param {PartQueryReq} req 已校验请求
+ * @param {PartQueryReq} request 已校验请求
  * @param {string} peerId 来路
- * @param {PartQueryDeps} deps 依赖
+ * @param {PartQueryDependencies} dependencies 依赖
  * @returns {Promise<void>}
  */
-async function processIncomingReq(ctx, wire, req, peerId, deps) {
-	const state = resolveState(deps)
-	const nodeHashOf = deps.getNodeHash || getNodeHash
-	const now = deps.now || Date.now
-	const username = String(ctx.replicaUsername || '')
+async function processIncomingRequest(wireContext, wire, request, peerId, dependencies) {
+	const state = resolveState(dependencies)
+	const nodeHashOf = dependencies.getNodeHash || getNodeHash
+	const now = dependencies.now || Date.now
+	const username = String(wireContext.replicaUsername || '')
 
-	const cached = state.cache.get(req.partpath, req.kind, req.query, now())
+	const cached = state.cache.get(request.partpath, request.kind, request.query, now())
 	if (cached) {
-		try { wire.send('part_query_res', buildRes(req, cached, nodeHashOf), peerId) }
+		try { wire.send('part_query_res', buildResponse(request, cached, nodeHashOf), peerId) }
 		catch { /* disconnected */ }
 		return
 	}
 
 	const localRows = await runLocalHandler(state, {
-		replicaUsername: ctx.replicaUsername,
-		requesterNodeHash: req.originNodeHash,
+		replicaUsername: wireContext.replicaUsername,
+		requesterNodeHash: request.originNodeHash,
 		peerId,
-	}, req.partpath, req.kind, req.query)
+	}, request.partpath, request.kind, request.query)
 
-	const nextTtl = req.ttl - 1
+	const nextTtl = request.ttl - 1
 	if (nextTtl <= 0) {
-		state.cache.set(req.partpath, req.kind, req.query, localRows, now())
-		try { wire.send('part_query_res', buildRes(req, localRows, nodeHashOf), peerId) }
+		state.cache.set(request.partpath, request.kind, request.query, localRows, now())
+		try { wire.send('part_query_res', buildResponse(request, localRows, nodeHashOf), peerId) }
 		catch { /* disconnected */ }
 		return
 	}
 
 	const selfHash = nodeHashOf()
-	const exclude = new Set([selfHash, req.originNodeHash, String(peerId || '').trim().toLowerCase()].filter(Boolean))
-	const neighbors = username ? await selectQueryNeighbors(username, exclude, deps) : []
-	const forwardPayload = { ...req, ttl: nextTtl }
+	const exclude = new Set([selfHash, request.originNodeHash, String(peerId || '').trim().toLowerCase()].filter(Boolean))
+	const neighbors = username ? await selectQueryNeighbors(username, exclude, dependencies) : []
+	const forwardPayload = { ...request, ttl: nextTtl }
 
 	/** @type {RelayPending} */
 	const pending = {
 		upstreamPeerId: peerId,
 		wire,
-		req,
+		request,
 		localRows,
 		remoteRows: [],
 		expected: 0,
@@ -304,14 +304,14 @@ async function processIncomingReq(ctx, wire, req, peerId, deps) {
 		respondedPeers: new Set(),
 		flushed: false,
 		timer: null,
-		deps,
+		dependencies,
 		state,
 	}
-	state.relayPending.set(req.requestId, pending)
+	state.relayPending.set(request.requestId, pending)
 
 	let sent = 0
 	for (const target of neighbors)
-		if (await deliverQuery(username, target, 'part_query_req', forwardPayload, deps)) sent++
+		if (await deliverQuery(username, target, 'part_query_req', forwardPayload, dependencies)) sent++
 	pending.expected = sent
 
 	if (sent === 0 || pending.received >= pending.expected) {
@@ -319,69 +319,69 @@ async function processIncomingReq(ctx, wire, req, peerId, deps) {
 		return
 	}
 
-	pending.timer = setTimeout(() => flushRelayPending(pending), resolvePartQueryHopTimeoutMs(req.ttl))
+	pending.timer = setTimeout(() => flushRelayPending(pending), resolvePartQueryHopTimeoutMs(request.ttl))
 }
 
 /**
  * 挂载 part_query_req / part_query_res。
- * @param {{ replicaUsername?: string }} ctx 入站上下文
+ * @param {{ replicaUsername?: string }} wireContext 入站上下文
  * @param {PartWireAdapter} wire wire
- * @param {PartQueryDeps} [deps] 可注入依赖（含 per-node state）
+ * @param {PartQueryDependencies} [dependencies] 可注入依赖（含 per-node state）
  * @returns {void}
  */
-export function attachPartQueryWire(ctx, wire, deps = {}) {
-	const state = resolveState(deps)
+export function attachPartQueryWire(wireContext, wire, dependencies = {}) {
+	const state = resolveState(dependencies)
 	wire.on('part_query_req', (data, peerId) => {
 		if (!isPlainObject(data)) return
-		const req = parsePartQueryReq(data)
-		if (!req) return
-		if (!state.takeDedupe(req.requestId)) return
-		const source = String(peerId || req.originNodeHash || '').trim().toLowerCase()
+		const request = parsePartQueryReq(data)
+		if (!request) return
+		if (!state.takeDedupe(request.requestId)) return
+		const source = String(peerId || request.originNodeHash || '').trim().toLowerCase()
 		if (source && !consumeWireRateBucket(`part_query:${source}`, {
 			maxCount: partQueryTunables.ratePerSourcePerMin,
 		})) return
-		void processIncomingReq(ctx, wire, req, String(peerId || ''), deps)
+		void processIncomingRequest(wireContext, wire, request, String(peerId || ''), dependencies)
 	})
 
 	wire.on('part_query_res', (data, peerId) => {
-		const res = parsePartQueryRes(data)
-		if (!res) return
-		handleIncomingPartQueryRes(res, String(peerId || ''), deps)
+		const response = parsePartQueryRes(data)
+		if (!response) return
+		handleIncomingPartQueryResponse(response, String(peerId || ''), dependencies)
 	})
 }
 
 /**
- * @param {PartQueryRes} res 响应
+ * @param {PartQueryRes} response 响应
  * @param {string} peerId 来路
- * @param {PartQueryDeps} [deps] 依赖
+ * @param {PartQueryDependencies} [dependencies] 依赖
  * @returns {void}
  */
-export function handleIncomingPartQueryRes(res, peerId = '', deps = {}) {
-	const state = resolveState(deps)
+export function handleIncomingPartQueryResponse(response, peerId = '', dependencies = {}) {
+	const state = resolveState(dependencies)
 	// 同一 peer 只计一次，防重复回包灌水/提早凑齐 expected
-	const responderKey = String(peerId || res.fromNodeHash || '').trim().toLowerCase()
-	const relay = state.relayPending.get(res.requestId)
+	const responderKey = String(peerId || response.fromNodeHash || '').trim().toLowerCase()
+	const relay = state.relayPending.get(response.requestId)
 	if (relay) {
 		if (responderKey) {
 			if (relay.respondedPeers.has(responderKey)) return
 			relay.respondedPeers.add(responderKey)
 		}
-		relay.remoteRows.push(...res.rows)
+		relay.remoteRows.push(...response.rows)
 		relay.received += 1
 		if (relay.expected > 0 && relay.received >= relay.expected) flushRelayPending(relay)
 		return
 	}
 
-	const bag = state.originBags.get(res.requestId)
+	const bag = state.originBags.get(response.requestId)
 	if (!bag) return
 	if (responderKey) {
 		if (bag.respondedPeers.has(responderKey)) return
 		bag.respondedPeers.add(responderKey)
 	}
-	bag.rows = mergeQueryRows([bag.rows, res.rows], bag.maxHits, bag.rowKey)
+	bag.rows = mergeQueryRows([bag.rows, response.rows], bag.maxHits, bag.rowKey)
 	bag.received += 1
 	if (bag.expected > 0 && bag.received >= bag.expected)
-		finishMultiWireWaiters(state.originWaits, res.requestId, '')
+		finishMultiWireWaiters(state.originWaits, response.requestId, '')
 }
 
 /**
@@ -396,14 +396,13 @@ export function handleIncomingPartQueryRes(res, peerId = '', deps = {}) {
  *   maxHits?: number
  *   rowKey?: (row: unknown) => string
  *   budget?: { maxHits?: number }
- * } & PartQueryDeps} [options] 选项
+ * } & PartQueryDependencies} [options] 选项
  * @returns {Promise<unknown[]>} 合并后的 rows
  */
 export async function queryNetwork(username, partpath, kind, query, options = {}) {
-	const deps = options
-	const state = resolveState(deps)
-	const now = deps.now || Date.now
-	const nodeHashOf = deps.getNodeHash || getNodeHash
+	const state = resolveState(options)
+	const now = options.now || Date.now
+	const nodeHashOf = options.getNodeHash || getNodeHash
 
 	const cached = state.cache.get(partpath, kind, query, now())
 	if (cached) return cached
@@ -428,7 +427,7 @@ export async function queryNetwork(username, partpath, kind, query, options = {}
 	}, partpath, kind, query)
 
 	/** @type {PartQueryReq} */
-	const req = {
+	const request = {
 		requestId: randomUUID(),
 		originNodeHash: nodeHashOf(),
 		partpath: String(partpath || '').trim(),
@@ -437,7 +436,7 @@ export async function queryNetwork(username, partpath, kind, query, options = {}
 		ttl,
 		budget: { maxHits },
 	}
-	const parsed = parsePartQueryReq(req)
+	const parsed = parsePartQueryReq(request)
 	if (!parsed) return mergeQueryRows([localRows], maxHits, options.rowKey)
 
 	// 预占 dedupe：若查询绕环回流到本机，入站侧直接丢弃
@@ -456,10 +455,10 @@ export async function queryNetwork(username, partpath, kind, query, options = {}
 
 	const selfHash = nodeHashOf()
 	const exclude = new Set([selfHash, parsed.originNodeHash])
-	const neighbors = await selectQueryNeighbors(username, exclude, deps)
+	const neighbors = await selectQueryNeighbors(username, exclude, options)
 	let sent = 0
 	for (const target of neighbors)
-		if (await deliverQuery(username, target, 'part_query_req', parsed, deps)) sent++
+		if (await deliverQuery(username, target, 'part_query_req', parsed, options)) sent++
 	bag.expected = sent
 
 	// deliver 可能同步回流；在赋值 expected 后再检查是否已齐

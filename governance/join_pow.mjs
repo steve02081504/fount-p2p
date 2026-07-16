@@ -85,40 +85,40 @@ export function powVoluntaryBonus(achievedBits, floorBits, tunables = admissionT
 
 /**
  * @param {object} powSolution 客户端 solution
- * @param {object} opts 校验上下文
- * @param {string} opts.groupId 群 ID
- * @param {string} opts.senderNodeHash 签名者 nodeHash（须与 joiner 绑定）
- * @param {string[]} opts.knownAnchors 近期 tip / checkpoint root 列表
- * @param {number} [opts.now=Date.now()] 当前时间
- * @param {number} [opts.difficultyBits=0] 准入 floor（前导零 bit）
- * @param {number} [opts.epochMs=JOIN_POW_DEFAULT_EPOCH_MS] epoch 长度
- * @param {number} [opts.epochSkew=JOIN_POW_DEFAULT_EPOCH_SKEW] 允许 epoch 偏移
+ * @param {object} options 校验上下文
+ * @param {string} options.groupId 群 ID
+ * @param {string} options.senderNodeHash 签名者 nodeHash（须与 joiner 绑定）
+ * @param {string[]} options.knownAnchors 近期 tip / checkpoint root 列表
+ * @param {number} [options.now=Date.now()] 当前时间
+ * @param {number} [options.difficultyBits=0] 准入 floor（前导零 bit）
+ * @param {number} [options.epochMs=JOIN_POW_DEFAULT_EPOCH_MS] epoch 长度
+ * @param {number} [options.epochSkew=JOIN_POW_DEFAULT_EPOCH_SKEW] 允许 epoch 偏移
  * @returns {{ ok: boolean, achievedBits: number }} 校验结果与实际达成 bit
  */
-export function verifyJoinPow(powSolution, opts) {
-	const floorBits = Math.max(0, Math.floor(Number(opts.difficultyBits) || 0))
+export function verifyJoinPow(powSolution, options) {
+	const floorBits = Math.max(0, Math.floor(Number(options.difficultyBits) || 0))
 	if (floorBits <= 0) return { ok: true, achievedBits: 0 }
 	if (!powSolution || typeof powSolution !== 'object') return { ok: false, achievedBits: 0 }
 
 	const anchorRef = String(powSolution.anchorRef ?? '').trim()
 	const { nonce } = powSolution
 	const epoch = Number(powSolution.epoch)
-	const joinerNodeHash = String(powSolution.joinerNodeHash ?? opts.senderNodeHash ?? '').trim().toLowerCase()
-	const senderNodeHash = String(opts.senderNodeHash ?? '').trim().toLowerCase()
+	const joinerNodeHash = String(powSolution.joinerNodeHash ?? options.senderNodeHash ?? '').trim().toLowerCase()
+	const senderNodeHash = String(options.senderNodeHash ?? '').trim().toLowerCase()
 
 	if (!anchorRef || nonce == null || !Number.isFinite(epoch)) return { ok: false, achievedBits: 0 }
 	if (!joinerNodeHash || joinerNodeHash !== senderNodeHash) return { ok: false, achievedBits: 0 }
 
-	const anchors = (opts.knownAnchors ?? []).map(a => String(a).trim()).filter(Boolean)
+	const anchors = (options.knownAnchors ?? []).map(a => String(a).trim()).filter(Boolean)
 	if (!anchors.length || !anchors.includes(anchorRef)) return { ok: false, achievedBits: 0 }
 
-	const epochMs = Math.max(60_000, Number(opts.epochMs) || JOIN_POW_DEFAULT_EPOCH_MS)
-	const skew = Math.max(0, Math.floor(Number(opts.epochSkew) ?? JOIN_POW_DEFAULT_EPOCH_SKEW))
-	const nowEpoch = Math.floor((opts.now ?? Date.now()) / epochMs)
+	const epochMs = Math.max(60_000, Number(options.epochMs) || JOIN_POW_DEFAULT_EPOCH_MS)
+	const skew = Math.max(0, Math.floor(Number(options.epochSkew) ?? JOIN_POW_DEFAULT_EPOCH_SKEW))
+	const nowEpoch = Math.floor((options.now ?? Date.now()) / epochMs)
 	if (Math.abs(epoch - nowEpoch) > skew) return { ok: false, achievedBits: 0 }
 
 	const hash = computeJoinPowHash({
-		groupId: opts.groupId,
+		groupId: options.groupId,
 		anchorRef,
 		joinerNodeHash,
 		epoch,

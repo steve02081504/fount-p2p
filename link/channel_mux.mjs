@@ -110,15 +110,15 @@ export function configureBufferedAmountLowThreshold(channel, thresholdBytes = CH
 /**
  * 订阅 bufferedamountlow 事件，返回取消订阅函数。
  * @param {RTCDataChannel} channel RTC 数据通道
- * @param {() => void} cb 低水位回调
+ * @param {() => void} callback 低水位回调
  * @returns {() => void} 取消订阅函数
  */
-export function onBufferedAmountLow(channel, cb) {
+export function onBufferedAmountLow(channel, callback) {
 	/**
 	 * bufferedamountlow 事件处理函数。
 	 * @returns {void}
 	 */
-	const handler = () => cb()
+	const handler = () => callback()
 	channel.addEventListener?.('bufferedamountlow', handler)
 	channel.onbufferedamountlow = handler
 	if (channel.bufferedAmountLow?.subscribe)
@@ -131,12 +131,12 @@ export function onBufferedAmountLow(channel, cb) {
 
 /**
  * 创建带优先级队列的双通道发送器（control/bulk）。
- * @param {{ getChannel: (name: 'control' | 'bulk') => RTCDataChannel | null | undefined, highWatermarkBytes?: number }} opts 通道访问与高水位配置
+ * @param {{ getChannel: (name: 'control' | 'bulk') => RTCDataChannel | null | undefined, highWatermarkBytes?: number }} options 通道访问与高水位配置
  * @returns {{ enqueue: (action: string, bytes: Uint8Array, preferredChannel?: 'control' | 'bulk') => void, flush: (channelName?: 'control' | 'bulk') => void, pending: () => { control: number, bulk: number }, clear: () => void }} 发送队列 API
  */
-export function createChannelSendQueues(opts) {
-	const { getChannel } = opts
-	const highWatermarkBytes = Math.max(CHANNEL_LOW_THRESHOLD_BYTES, Number(opts.highWatermarkBytes) || CHANNEL_HIGH_WATERMARK_BYTES)
+export function createChannelSendQueues(options) {
+	const { getChannel } = options
+	const highWatermarkBytes = Math.max(CHANNEL_LOW_THRESHOLD_BYTES, Number(options.highWatermarkBytes) || CHANNEL_HIGH_WATERMARK_BYTES)
 	/** @type {{ control: Array<{ priority: number, seq: number, bytes: Uint8Array }>, bulk: Array<{ priority: number, seq: number, bytes: Uint8Array }> }} */
 	const queues = { control: [], bulk: [] }
 	/** @type {{ control: boolean, bulk: boolean }} */

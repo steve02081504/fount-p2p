@@ -10,21 +10,21 @@ import { fetchChunk } from './chunk_fetch.mjs'
 import { createChunkReadStream, getChunk, hasChunk, putChunk } from './chunk_store.mjs'
 import { normalizeFileManifest, publicTransferKeyDescriptor } from './manifest.mjs'
 import { assembleManifestPlaintext, resolveContentKey } from './transfer_key.mjs'
-import { readDagManifestPlaintext, resolveTransferKeyDeps } from './transfer_key_registry.mjs'
+import { readDagManifestPlaintext, resolveTransferKeyDependencies } from './transfer_key_registry.mjs'
 
 /**
  * @param {string} replicaUsername 副本用户名
  * @param {import('./manifest.mjs').FileManifest} manifest 清单
  * @returns {{ getGroupFileMasterKey?: Function, getVaultMasterKey?: Function }} 密钥依赖
  */
-function transferKeyDepsForReplica(replicaUsername, manifest) {
-	const rawDeps = resolveTransferKeyDeps(undefined, manifest)
+function transferKeyDependenciesForReplica(replicaUsername, manifest) {
+	const rawDependencies = resolveTransferKeyDependencies(undefined, manifest)
 	return {
-		getGroupFileMasterKey: rawDeps.getGroupFileMasterKey
-			? (groupId, keyGeneration) => rawDeps.getGroupFileMasterKey(replicaUsername, groupId, keyGeneration)
+		getGroupFileMasterKey: rawDependencies.getGroupFileMasterKey
+			? (groupId, keyGeneration) => rawDependencies.getGroupFileMasterKey(replicaUsername, groupId, keyGeneration)
 			: undefined,
-		getVaultMasterKey: rawDeps.getVaultMasterKey
-			? entityHash => rawDeps.getVaultMasterKey(replicaUsername, entityHash)
+		getVaultMasterKey: rawDependencies.getVaultMasterKey
+			? entityHash => rawDependencies.getVaultMasterKey(replicaUsername, entityHash)
 			: undefined,
 	}
 }
@@ -32,13 +32,13 @@ function transferKeyDepsForReplica(replicaUsername, manifest) {
 /**
  * @param {string} username 拉取身份
  * @param {import('./manifest.mjs').FileManifest} manifest 清单
- * @param {{ fetchChunk?: Function }} [opts] miss 拉取
+ * @param {{ fetchChunk?: Function }} [options] miss 拉取
  * @returns {Promise<boolean>} 全部 part 是否已就位
  */
-async function ensureManifestPartsLocal(username, manifest, opts = {}) {
+async function ensureManifestPartsLocal(username, manifest, options = {}) {
 	for (const part of manifest.parts) {
 		if (await hasChunk(part.hash)) continue
-		const fetchedChunk = await (opts.fetchChunk || fetchChunk)({
+		const fetchedChunk = await (options.fetchChunk || fetchChunk)({
 			username,
 			ciphertextHash: part.hash,
 			ownerEntityHash: manifest.ownerEntityHash,
@@ -81,46 +81,46 @@ export async function storeManifestParts(manifest, partBytes) {
 /**
  * @param {string} replicaUsername 副本用户名
  * @param {import('./manifest.mjs').FileManifest} manifest 清单
- * @param {{ username?: string, fetchChunk?: Function }} [opts] miss 拉取
+ * @param {{ username?: string, fetchChunk?: Function }} [options] miss 拉取
  * @returns {Promise<Buffer | null>} 明文内容
  */
-export async function readManifestPlaintext(replicaUsername, manifest, opts = {}) {
+export async function readManifestPlaintext(replicaUsername, manifest, options = {}) {
 	const dagGroupId = manifest.meta?.groupId
 	if (Array.isArray(manifest.meta?.dagParts) && dagGroupId) {
 		const dagPlain = await readDagManifestPlaintext(replicaUsername, manifest)
 		if (dagPlain) return dagPlain
 	}
 
-	const username = opts.username || replicaUsername
-	if (!await ensureManifestPartsLocal(username, manifest, opts)) return null
+	const username = options.username || replicaUsername
+	if (!await ensureManifestPartsLocal(username, manifest, options)) return null
 
 	/** @type {Buffer[]} */
 	const partBytes = []
 	for (const part of manifest.parts)
 		partBytes.push(await getChunk(part.hash))
 
-	return assembleManifestPlaintext(manifest, partBytes, transferKeyDepsForReplica(replicaUsername, manifest))
+	return assembleManifestPlaintext(manifest, partBytes, transferKeyDependenciesForReplica(replicaUsername, manifest))
 }
 
 /**
  * @param {string} replicaUsername 副本用户名
  * @param {import('./manifest.mjs').FileManifest} manifest 清单
- * @param {{ username?: string, fetchChunk?: Function }} [opts] miss 拉取
+ * @param {{ username?: string, fetchChunk?: Function }} [options] miss 拉取
  * @returns {Promise<import('node:stream').Readable | null>} 明文流
  */
-export async function readManifestPlaintextStream(replicaUsername, manifest, opts = {}) {
+export async function readManifestPlaintextStream(replicaUsername, manifest, options = {}) {
 	const dagGroupId = manifest.meta?.groupId
 	if (Array.isArray(manifest.meta?.dagParts) && dagGroupId) {
-		const plain = await readManifestPlaintext(replicaUsername, manifest, opts)
+		const plain = await readManifestPlaintext(replicaUsername, manifest, options)
 		if (!plain) return null
 		return Readable.from([plain])
 	}
 
-	const username = opts.username || replicaUsername
-	if (!await ensureManifestPartsLocal(username, manifest, opts)) return null
+	const username = options.username || replicaUsername
+	if (!await ensureManifestPartsLocal(username, manifest, options)) return null
 
-	const deps = transferKeyDepsForReplica(replicaUsername, manifest)
-	const contentKey = await resolveContentKey(manifest.transferKeyDescriptor, manifest, deps)
+	const dependencies = transferKeyDependenciesForReplica(replicaUsername, manifest)
+	const contentKey = await resolveContentKey(manifest.transferKeyDescriptor, manifest, dependencies)
 	if (manifest.ceMode === 'random' && !contentKey) return null
 
 	const partStreams = manifest.parts.map(part => createChunkReadStream(part.hash))
@@ -219,16 +219,16 @@ export async function putFileManifestFromStream(params) {
  * @param {string} replicaUsername 副本用户名
  * @param {string} entityHash owner entityHash
  * @param {string} logicalPath EVFS 逻辑路径
- * @param {{ username?: string, fetchChunk?: Function }} [opts] miss 拉取
+ * @param {{ username?: string, fetchChunk?: Function }} [options] miss 拉取
  * @returns {Promise<Buffer | null>} 明文或 null
  */
-export async function readPublicFile(replicaUsername, entityHash, logicalPath, opts = {}) {
+export async function readPublicFile(replicaUsername, entityHash, logicalPath, options = {}) {
 	const { fetchPublicManifest } = await import('./manifest_fetch.mjs')
 	const manifest = await fetchPublicManifest({
-		username: opts.username || replicaUsername,
+		username: options.username || replicaUsername,
 		ownerEntityHash: entityHash,
 		logicalPath,
 	})
 	if (!manifest) return null
-	return readManifestPlaintext(replicaUsername, manifest, opts)
+	return readManifestPlaintext(replicaUsername, manifest, options)
 }

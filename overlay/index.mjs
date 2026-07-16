@@ -131,15 +131,15 @@ export function createOverlayRouter(registry, ttl = 3) {
 		/**
 		 * 发现到目标节点的签名路由路径。
 		 * @param {string} targetNodeHash 目标节点 64 hex
-		 * @param {object} [opts] 选项
-		 * @param {number} [opts.ttl] 路由 TTL
-		 * @param {number} [opts.timeoutMs] 超时毫秒
+		 * @param {object} [options] 选项
+		 * @param {number} [options.ttl] 路由 TTL
+		 * @param {number} [options.timeoutMs] 超时毫秒
 		 * @returns {Promise<string[]>} 从本节点到目标的 nodeHash 路径
 		 */
-		async discoverRoute(targetNodeHash, opts = {}) {
+		async discoverRoute(targetNodeHash, options = {}) {
 			const reqId = randomMsgIdHex()
-			const maxTtl = Number(opts.ttl) || ttl
-			const timeoutMs = Number(opts.timeoutMs) || 10_000
+			const maxTtl = Number(options.ttl) || ttl
+			const timeoutMs = Number(options.timeoutMs) || 10_000
 			const promise = new Promise((resolve, reject) => {
 				const timer = setTimeout(() => {
 					pendingRoutes.delete(reqId)

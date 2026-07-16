@@ -10,15 +10,15 @@ import { parseMailboxGive, parseMailboxPut, parseMailboxWant } from './parse.mjs
  */
 
 /**
- * @param {MailboxWireContext} ctx 入站上下文
+ * @param {MailboxWireContext} wireContext 入站上下文
  * @param {{ on: (name: string, handler: (payload: unknown, peerId: string) => void) => void, send: (name: string, payload: unknown, peerId: string | null) => void }} wire Trystero 适配器
  * @returns {void}
  */
-export function attachMailboxWire(ctx, wire) {
+export function attachMailboxWire(wireContext, wire) {
 	wire.on('mailbox_put', (payload, peerId) => {
 		const put = parseMailboxPut(payload)
 		if (!put.ok) return
-		void ingestMailboxPut(ctx, put.value, peerId).catch(err => console.error('mailbox: put ingest failed', err))
+		void ingestMailboxPut(wireContext, put.value, peerId).catch(err => console.error('mailbox: put ingest failed', err))
 	})
 
 	wire.on('mailbox_want', (payload, peerId) => {
@@ -35,6 +35,6 @@ export function attachMailboxWire(ctx, wire) {
 	wire.on('mailbox_give', payload => {
 		const give = parseMailboxGive(payload)
 		if (!give.ok) return
-		void ingestMailboxGive(ctx, give.value).catch(err => console.error('mailbox: give ingest failed', err))
+		void ingestMailboxGive(wireContext, give.value).catch(err => console.error('mailbox: give ingest failed', err))
 	})
 }

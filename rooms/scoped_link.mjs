@@ -9,17 +9,17 @@ import {
 
 /**
  * 在指定 scope 与 roomSecret 下创建 link 层房间（discovery + registry 转发）。
- * @param {object} opts 房间选项
- * @param {string} opts.scope link registry scope（如 `group:{id}`）
- * @param {string} opts.roomSecret 房间 rendezvous 密钥
- * @param {(nodeHash: string) => boolean} [opts.allowNode] 是否允许与某 nodeHash 通信
- * @returns {{ start: () => Promise<void>, leave: () => Promise<void>, makeAction: (name: string) => [(payload: unknown, peerId?: string | string[] | null) => Promise<void>, (handler: (payload: unknown, peerId: string) => void) => void], onPeerJoin: (cb: (peerId: string) => void) => () => void, onPeerLeave: (cb: (peerId: string) => void) => () => void, getPeers: () => Record<string, true> }} 房间句柄
+ * @param {object} options 房间选项
+ * @param {string} options.scope link registry scope（如 `group:{id}`）
+ * @param {string} options.roomSecret 房间 rendezvous 密钥
+ * @param {(nodeHash: string) => boolean} [options.allowNode] 是否允许与某 nodeHash 通信
+ * @returns {{ start: () => Promise<void>, leave: () => Promise<void>, makeAction: (name: string) => [(payload: unknown, peerId?: string | string[] | null) => Promise<void>, (handler: (payload: unknown, peerId: string) => void) => void], onPeerJoin: (callback: (peerId: string) => void) => () => void, onPeerLeave: (callback: (peerId: string) => void) => () => void, getPeers: () => Record<string, true> }} 房间句柄
  */
-export function createScopedLinkRoom(opts) {
+export function createScopedLinkRoom(options) {
 	const registry = getLinkRegistry()
-	const scope = String(opts.scope)
-	const topic = groupRendezvousTopic(opts.roomSecret)
-	const allowNode = typeof opts.allowNode === 'function' ? opts.allowNode : () => true
+	const scope = String(options.scope)
+	const topic = groupRendezvousTopic(options.roomSecret)
+	const allowNode = typeof options.allowNode === 'function' ? options.allowNode : () => true
 	/** @type {Set<string>} */
 	const discoveredPeers = new Set()
 	/** @type {Set<string>} */
@@ -156,24 +156,24 @@ export function createScopedLinkRoom(opts) {
 			]
 		},
 		/**
-		 * @param {(peerId: string) => void} cb 新 peer 上线回调
+		 * @param {(peerId: string) => void} callback 新 peer 上线回调
 		 * @returns {() => void} 取消订阅
 		 */
-		onPeerJoin(cb) {
-			joinListeners.add(cb)
+		onPeerJoin(callback) {
+			joinListeners.add(callback)
 			for (const peerId of activePeerIds())
 				announcedPeers.add(peerId)
 			for (const peerId of announcedPeers)
-				try { cb(peerId) } catch { /* ignore */ }
-			return () => joinListeners.delete(cb)
+				try { callback(peerId) } catch { /* ignore */ }
+			return () => joinListeners.delete(callback)
 		},
 		/**
-		 * @param {(peerId: string) => void} cb peer 离线回调
+		 * @param {(peerId: string) => void} callback peer 离线回调
 		 * @returns {() => void} 取消订阅
 		 */
-		onPeerLeave(cb) {
-			leaveListeners.add(cb)
-			return () => leaveListeners.delete(cb)
+		onPeerLeave(callback) {
+			leaveListeners.add(callback)
+			return () => leaveListeners.delete(callback)
 		},
 		/**
 		 * @returns {Record<string, true>} 当前活跃 peer 的 nodeHash 集合

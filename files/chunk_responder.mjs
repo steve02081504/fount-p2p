@@ -71,7 +71,7 @@ export function attachNodeScopeFedChunkResponder(username, wire) {
  * Trystero room：注册带 requestId 的 fed_chunk_* + fed_manifest_*（TrustGraph 全局 miss）。
  * @param {string} username 用户
  * @param {object} room Trystero room
- * @param {{ enqueue: (prio: number, fn: () => void) => void }} [fedOut] 出站队列
+ * @param {{ enqueue: (prio: number, cleanup: () => void) => void }} [fedOut] 出站队列
  * @param {(roomKey: string, action: string, rtcLimits: object) => boolean} [guardGet] RTC 负载守卫
  * @param {object} [rtcLimits] RTC 限额
  * @param {string} [roomKey] 房间键

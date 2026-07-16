@@ -141,7 +141,7 @@ export function selectExploreWithSourceQuota(exploreIds, exploreSources, k, maxP
  *   selfNodeHash: string,
  *   inRoomNodeHashes?: Set<string> | string[] 群内在线 node_id；有则优先，仅全不可达时用 explore 中非房内节点
  *   hintSources?: Map<string, string> explore 节点来源（用于配额）
- * }} opts 选取参数（roster、peers、rep、limits、selfNodeHash）
+ * }} options 选取参数（roster、peers、rep、limits、selfNodeHash）
  * @returns {string[]} 目标 Trystero peerId 列表（去重，长度 ≤ maxPeers）
  */
 export function selectPeerIdsFromPool({ roster, peers, rep, limits, selfNodeHash, inRoomNodeHashes, hintSources }) {
@@ -212,7 +212,7 @@ export function selectPeerIdsFromPool({ roster, peers, rep, limits, selfNodeHash
  *   peers: { trustedPeers: string[], explorePeers: string[], blockedPeers: string[], hintSources?: Map<string, string> },
  *   limits: ReturnType<typeof resolveFederationPoolLimits>,
  *   anchors?: Iterable<string>,
- * }} opts 选取参数（members、selfNodeHash、rep、peers、limits、anchors）
+ * }} options 选取参数（members、selfNodeHash、rep、peers、limits、anchors）
  * @returns {string[]} 应建链的 nodeHash 列表（去重）
  */
 export function selectLinkTargetsFromMembers({ members, selfNodeHash, rep, peers, limits, anchors = [] }) {
@@ -245,7 +245,7 @@ export function selectLinkTargetsFromMembers({ members, selfNodeHash, rep, peers
  *   rep: { byNodeHash?: Record<string, { score?: number }> },
  *   hints: string[],
  *   limits: ReturnType<typeof resolveFederationPoolLimits>,
- * }} opts 合并参数（peers、rep、hints、limits）
+ * }} options 合并参数（peers、rep、hints、limits）
  * @returns {{ trustedPeers: string[], explorePeers: string[] }} 更新后的 trusted/explore 列表
  */
 export function applyPexHints({ peers, rep, hints, limits }) {
@@ -275,7 +275,7 @@ export function applyPexHints({ peers, rep, hints, limits }) {
  *   rep: { byNodeHash?: Record<string, { score?: number }> },
  *   roster: Array<{ remoteNodeHash?: string }>,
  *   limits: ReturnType<typeof resolveFederationPoolLimits>,
- * }} opts roster 更新参数（peers、rep、roster、limits）
+ * }} options roster 更新参数（peers、rep、roster、limits）
  * @returns {{ trustedPeers: string[], explorePeers: string[] }} 更新后的 trusted/explore 列表
  */
 export function applyRosterToPeerPool({ peers, rep, roster, limits }) {

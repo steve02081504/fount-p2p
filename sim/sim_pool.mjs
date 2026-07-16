@@ -97,13 +97,13 @@ function runJobLocal(job) {
 
 /**
  * @param {SimJob[]} jobs 任务列表
- * @param {{ concurrency?: number }} [opts] 选项
+ * @param {{ concurrency?: number }} [options] 选项
  * @returns {Promise<SimJobResult[]>} 与 jobs 同序的结果
  */
-export async function runSimulationJobs(jobs, opts = {}) {
+export async function runSimulationJobs(jobs, options = {}) {
 	if (!jobs.length) return []
 
-	const concurrency = opts.concurrency ?? defaultConcurrency()
+	const concurrency = options.concurrency ?? defaultConcurrency()
 	if (concurrency <= 1 || typeof Worker === 'undefined')
 		return jobs.map(runJobLocal)
 

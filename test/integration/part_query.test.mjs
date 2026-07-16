@@ -21,11 +21,11 @@ const NODE_C = 'cc'.repeat(32)
  * @returns {{
  *   nodes: Map<string, object>
  *   forwardCounts: Map<string, number>
- *   queryFrom: (origin: string, opts?: object) => Promise<unknown[]>
+ *   queryFrom: (origin: string, options?: object) => Promise<unknown[]>
  * }} 测试网
  */
 function createFakeQueryNet(topology, localRowsFor) {
-	/** @type {Map<string, { state: ReturnType<typeof createPartQueryNodeState>, deps: object, handlers: Map<string, Set<Function>>, forwardCount: number }>} */
+	/** @type {Map<string, { state: ReturnType<typeof createPartQueryNodeState>, dependencies: object, handlers: Map<string, Set<Function>>, forwardCount: number }>} */
 	const nodes = new Map()
 	const forwardCounts = new Map()
 
@@ -59,7 +59,7 @@ function createFakeQueryNet(topology, localRowsFor) {
 				for (const handler of set) handler(payload, nodeHash)
 			},
 		}
-		const deps = {
+		const dependencies = {
 			state,
 			/**
 			 * @returns {string} 本节点 hash
@@ -86,8 +86,8 @@ function createFakeQueryNet(topology, localRowsFor) {
 				return true
 			},
 		}
-		attachPartQueryWire({ replicaUsername: 'alice' }, wire, deps)
-		nodes.set(nodeHash, { state, deps, handlers, wire })
+		attachPartQueryWire({ replicaUsername: 'alice' }, wire, dependencies)
+		nodes.set(nodeHash, { state, dependencies, handlers, wire })
 	}
 
 	return {
@@ -95,14 +95,14 @@ function createFakeQueryNet(topology, localRowsFor) {
 		forwardCounts,
 		/**
 		 * @param {string} origin 发起节点
-		 * @param {object} [opts] queryNetwork 选项
+		 * @param {object} [options] queryNetwork 选项
 		 * @returns {Promise<unknown[]>} rows
 		 */
-		queryFrom(origin, opts = {}) {
+		queryFrom(origin, options = {}) {
 			const node = nodes.get(origin)
 			assert(node, 'origin missing')
 			return queryNetwork('alice', 'shells/social', 'entity_search', { q: 'alice' }, {
-				...node.deps,
+				...node.dependencies,
 				ttl: 2,
 				timeoutMs: 200,
 				/**
@@ -110,7 +110,7 @@ function createFakeQueryNet(topology, localRowsFor) {
 				 * @returns {string} 去重键
 				 */
 				rowKey: row => String(row.id),
-				...opts,
+				...options,
 			})
 		},
 	}
@@ -199,7 +199,7 @@ test('cache hit skips forward; expiry resumes forward', async () => {
 		, state)
 		/** @type {Map<string, Set<Function>>} */
 		const handlers = new Map()
-		const deps = {
+		const dependencies = {
 			state,
 			/**
 			 * @returns {number} 可控时钟（毫秒）
@@ -248,8 +248,8 @@ test('cache hit skips forward; expiry resumes forward', async () => {
 				for (const handler of peer?.handlers.get(name) || []) handler(payload, nodeHash)
 			},
 		}
-		attachPartQueryWire({ replicaUsername: 'alice' }, wire, deps)
-		nodes.set(nodeHash, { state, deps, handlers })
+		attachPartQueryWire({ replicaUsername: 'alice' }, wire, dependencies)
+		nodes.set(nodeHash, { state, dependencies, handlers })
 	}
 
 	/**
@@ -259,7 +259,7 @@ test('cache hit skips forward; expiry resumes forward', async () => {
 	const rowKey = row => row.id
 	const origin = nodes.get(NODE_A)
 	const first = await queryNetwork('alice', 'shells/social', 'entity_search', { q: 'hot' }, {
-		...origin.deps,
+		...origin.dependencies,
 		ttl: 1,
 		timeoutMs: 200,
 		rowKey,
@@ -269,7 +269,7 @@ test('cache hit skips forward; expiry resumes forward', async () => {
 	assertEquals(forwardsAfterFirst >= 1, true)
 
 	const second = await queryNetwork('alice', 'shells/social', 'entity_search', { q: 'hot' }, {
-		...origin.deps,
+		...origin.dependencies,
 		ttl: 1,
 		timeoutMs: 200,
 		rowKey,
@@ -279,7 +279,7 @@ test('cache hit skips forward; expiry resumes forward', async () => {
 
 	now += 1001
 	const third = await queryNetwork('alice', 'shells/social', 'entity_search', { q: 'hot' }, {
-		...origin.deps,
+		...origin.dependencies,
 		ttl: 1,
 		timeoutMs: 200,
 		rowKey,

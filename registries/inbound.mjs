@@ -10,11 +10,11 @@
  */
 
 /**
- * @typedef {(ctx: InboundContext, message: object) => Promise<PartInvokeResponse | null>} RpcInboundHandler
+ * @typedef {(inboundContext: InboundContext, message: object) => Promise<PartInvokeResponse | null>} RpcInboundHandler
  */
 
 /**
- * @typedef {(ctx: InboundContext, message: object) => Promise<void>} DeliveryInboundHandler
+ * @typedef {(inboundContext: InboundContext, message: object) => Promise<void>} DeliveryInboundHandler
  */
 
 /** @type {Map<string, RpcInboundHandler>} */
@@ -42,27 +42,27 @@ export function registerDeliveryInboundHandler(type, handler) {
 }
 
 /**
- * @param {InboundContext} ctx 入站上下文
+ * @param {InboundContext} inboundContext 入站上下文
  * @param {object} message 已校验的线载荷（含 type）
  * @returns {Promise<PartInvokeResponse | null>} 处理器返回值
  */
-export async function dispatchRpcInbound(ctx, message) {
+export async function dispatchRpcInbound(inboundContext, message) {
 	const type = String(message?.type || '').trim()
 	if (!type) return null
 	const handler = rpcHandlers.get(type)
 	if (!handler) return null
-	return handler(ctx, message)
+	return handler(inboundContext, message)
 }
 
 /**
- * @param {InboundContext} ctx 入站上下文
+ * @param {InboundContext} inboundContext 入站上下文
  * @param {object} message 已校验的线载荷（含 type）
  * @returns {Promise<void>}
  */
-export async function dispatchDeliveryInbound(ctx, message) {
+export async function dispatchDeliveryInbound(inboundContext, message) {
 	const type = String(message?.type || '').trim()
 	if (!type) return
 	const handler = deliveryHandlers.get(type)
 	if (!handler) return
-	await handler(ctx, message)
+	await handler(inboundContext, message)
 }

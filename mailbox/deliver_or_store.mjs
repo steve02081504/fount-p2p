@@ -59,26 +59,26 @@ async function resolveRouting(username) {
 
 /**
  * @param {string} username 副本用户名（trust graph 投递上下文）
- * @param {object} opts 投递选项
+ * @param {object} options 投递选项
  * @returns {Promise<{ stored: boolean, delivered: boolean, relayed: number }>} 存转结果
  */
-export async function deliverOrStoreMailboxPut(username, opts) {
+export async function deliverOrStoreMailboxPut(username, options) {
 	const routing = await resolveRouting(username)
-	const toPubKeyHash = normalizeHex64(opts.toPubKeyHash)
+	const toPubKeyHash = normalizeHex64(options.toPubKeyHash)
 	if (!toPubKeyHash) return { stored: false, delivered: false, relayed: 0 }
-	const hop = normalizeMailboxHop(opts.hop)
+	const hop = normalizeMailboxHop(options.hop)
 	if (hop >= routing.maxHop) return { stored: false, delivered: false, relayed: 0 }
 	const tier = mailboxTierFromHop(hop)
 	const nodeHash = getNodeHash()
 	const record = {
-		...opts.record,
+		...options.record,
 		toPubKeyHash,
 		hop,
 		tier,
-		fromNodeHash: opts.record?.fromNodeHash || nodeHash,
+		fromNodeHash: options.record?.fromNodeHash || nodeHash,
 	}
 	const stored = await storeMailboxRecord(record)
-	const toNodeHash = opts.toNodeHash?.trim().toLowerCase()
+	const toNodeHash = options.toNodeHash?.trim().toLowerCase()
 	const delivered = toNodeHash && isMailboxRecordWithinSizeLimit(record)
 		? await requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER).sendToNode(username, toNodeHash, 'mailbox_put', { nodeHash, record })
 		: false
@@ -108,17 +108,17 @@ export async function publishMailboxRecord(username, toPubKeyHash, record, toNod
 }
 
 /**
- * @param {{ replicaUsername?: string }} ctx 入站上下文
+ * @param {{ replicaUsername?: string }} wireContext 入站上下文
  * @param {object} put 入站 mailbox_put
  * @param {string} [peerId] Trystero 对端 id（有则校验 nodeHash 绑定）
  * @returns {Promise<void>}
  */
-export async function ingestMailboxPut(ctx, put, peerId = '') {
+export async function ingestMailboxPut(wireContext, put, peerId = '') {
 	const { record } = put
 	if (!record?.envelope || !record?.toPubKeyHash) return
 	const fromNode = normalizeHex64(put.nodeHash)
 	if (!fromNode || !takeIncomingMailboxPutSlot(fromNode)) return
-	const username = String(ctx?.replicaUsername || '').trim()
+	const username = String(wireContext.replicaUsername || '').trim()
 	if (!username) return
 	if (peerId) {
 		const remote = await resolveRemoteNodeHashForPeer(username, peerId)
@@ -157,14 +157,14 @@ export async function respondMailboxWant(want, sendGive, peerId) {
 }
 
 /**
- * @param {{ replicaUsername?: string }} ctx 入站上下文
+ * @param {{ replicaUsername?: string }} wireContext 入站上下文
  * @param {object} give mailbox_give 载荷
  * @returns {Promise<number>} 投递给消费者的记录数
  */
-export async function ingestMailboxGive(ctx, give) {
+export async function ingestMailboxGive(wireContext, give) {
 	const records = (give.records || []).filter(isDeliverableMailboxRecord)
 	if (!records.length) return 0
-	const username = String(ctx?.replicaUsername || '').trim()
+	const username = String(wireContext.replicaUsername || '').trim()
 	if (!username) return 0
 	const { dispatchMailboxRecordsToConsumers } = await import('./consumer_registry.mjs')
 	const { deleteMailboxRecords } = await import('./store.mjs')

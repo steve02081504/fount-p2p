@@ -43,12 +43,12 @@ export function mergeTopologicalOrder(cachedOrder, events) {
 /**
  * @param {object[]} events 全量事件
  * @param {object | null} cache 磁盘缓存
- * @param {{ forceFull?: boolean }} [opts] 选项
+ * @param {{ forceFull?: boolean }} [options] 选项
  * @returns {string[]} 拓扑序 id 列表
  */
-export function resolveEventTopologicalOrder(events, cache, opts = {}) {
+export function resolveEventTopologicalOrder(events, cache, options = {}) {
 	if (!events.length) return []
-	if (opts.forceFull)
+	if (options.forceFull)
 		return topologicalCanonicalOrder(eventsToMetas(events))
 
 	const byId = new Map(events.map(event => [event.id, event]))

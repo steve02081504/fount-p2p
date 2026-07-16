@@ -73,27 +73,27 @@ function formatErrorReason(error) {
 
 /**
  * 建立 P2P link：WebRTC 双通道、握手、分帧收发与心跳。
- * @param {object} opts link 配置
- * @param {string | null} [opts.nodeHash] 期望的对端 nodeHash，省略则不校验
- * @param {boolean} opts.initiator 是否为连接发起方
- * @param {{ send: (message: unknown) => void | Promise<void>, onRemote: (handler: (message: unknown) => void) => (() => void) | void }} opts.signal 信令收发接口
- * @param {RTCConfiguration['iceServers']} [opts.iceServers] ICE 服务器列表
- * @param {number} [opts.heartbeatMs] 心跳间隔（毫秒）
- * @param {number} [opts.idleTimeoutMs] 无入站流量超时（毫秒）
- * @param {number} [opts.handshakeTimeoutMs] 握手超时（毫秒）
- * @param {{ RTCPeerConnection: typeof RTCPeerConnection } | null} [opts.rtc] RTC 构造器，省略则加载 polyfill
- * @param {{ nodeHash?: string, nodePubKey?: string, secretKey?: Uint8Array, nonce?: string } | null} [opts.localIdentity] 本地握手身份
- * @returns {Promise<{ ready: Promise<void>, get nodeHash(): string | null, send: (envelope: { scope: string, action: string, payload: unknown }) => Promise<boolean>, onEnvelope: (cb: (envelope: { scope: string, action: string, payload: unknown }, remoteNodeHash: string) => void) => () => void, onDown: (cb: (reason: string) => void) => () => void, close: (reason?: string) => Promise<void>, stats: () => object }>} link 句柄
+ * @param {object} options link 配置
+ * @param {string | null} [options.nodeHash] 期望的对端 nodeHash，省略则不校验
+ * @param {boolean} options.initiator 是否为连接发起方
+ * @param {{ send: (message: unknown) => void | Promise<void>, onRemote: (handler: (message: unknown) => void) => (() => void) | void }} options.signal 信令收发接口
+ * @param {RTCConfiguration['iceServers']} [options.iceServers] ICE 服务器列表
+ * @param {number} [options.heartbeatMs] 心跳间隔（毫秒）
+ * @param {number} [options.idleTimeoutMs] 无入站流量超时（毫秒）
+ * @param {number} [options.handshakeTimeoutMs] 握手超时（毫秒）
+ * @param {{ RTCPeerConnection: typeof RTCPeerConnection } | null} [options.rtc] RTC 构造器，省略则加载 polyfill
+ * @param {{ nodeHash?: string, nodePubKey?: string, secretKey?: Uint8Array, nonce?: string } | null} [options.localIdentity] 本地握手身份
+ * @returns {Promise<{ ready: Promise<void>, get nodeHash(): string | null, send: (envelope: { scope: string, action: string, payload: unknown }) => Promise<boolean>, onEnvelope: (callback: (envelope: { scope: string, action: string, payload: unknown }, remoteNodeHash: string) => void) => () => void, onDown: (callback: (reason: string) => void) => () => void, close: (reason?: string) => Promise<void>, stats: () => object }>} link 句柄
  */
-export async function createLink(opts) {
-	const heartbeatMs = Number(opts.heartbeatMs) || ms('15s')
-	const idleTimeoutMs = Number(opts.idleTimeoutMs) || ms('45s')
-	const handshakeTimeoutMs = Number(opts.handshakeTimeoutMs) || ms('10s')
+export async function createLink(options) {
+	const heartbeatMs = Number(options.heartbeatMs) || ms('15s')
+	const idleTimeoutMs = Number(options.idleTimeoutMs) || ms('45s')
+	const handshakeTimeoutMs = Number(options.handshakeTimeoutMs) || ms('10s')
 	const channelOpenTimeoutMs = Math.max(handshakeTimeoutMs, ms('30s'))
 	const trickleIceOff = getSignalingRuntimeConfig().trickleIceOff === true
-	const rtc = opts.rtc ?? await loadNodeRtcPolyfill()
-	const pc = new rtc.RTCPeerConnection(opts.iceServers?.length ? { iceServers: opts.iceServers } : undefined)
-	const targetNodeHash = normalizeHex64(opts.nodeHash || '')
+	const rtc = options.rtc ?? await loadNodeRtcPolyfill()
+	const pc = new rtc.RTCPeerConnection(options.iceServers?.length ? { iceServers: options.iceServers } : undefined)
+	const targetNodeHash = normalizeHex64(options.nodeHash || '')
 	const remoteSignalQueue = []
 	const seenRemoteSignals = createLruMap(1024)
 	let remoteDescriptionSet = false
@@ -142,7 +142,7 @@ export async function createLink(opts) {
 	 * @returns {Promise<void>}
 	 */
 	async function sendSignal(message) {
-		await Promise.resolve(opts.signal.send(message))
+		await Promise.resolve(options.signal.send(message))
 	}
 
 	/**
@@ -185,7 +185,7 @@ export async function createLink(opts) {
 		const fingerprint = localFingerprint()
 		if (!fingerprint) return
 		authSent = true
-		await sendRawControl(await buildAuth(remoteHello.nonce, fingerprint, opts.localIdentity ?? {}))
+		await sendRawControl(await buildAuth(remoteHello.nonce, fingerprint, options.localIdentity ?? {}))
 	}
 
 	/**
@@ -446,7 +446,7 @@ export async function createLink(opts) {
 		if (!helloSent) {
 			handshakeTimer = setTimeout(() => { void close('handshake-timeout') }, handshakeTimeoutMs)
 			helloSent = true
-			localHello = buildHello(opts.localIdentity ?? {})
+			localHello = buildHello(options.localIdentity ?? {})
 			await sendRawControl(localHello)
 		}
 		await maybeSendAuth()
@@ -507,7 +507,7 @@ export async function createLink(opts) {
 		emitListeners(downListeners, reason)
 	}
 
-	unlistenRemote = opts.signal.onRemote(message => {
+	unlistenRemote = options.signal.onRemote(message => {
 		void handleRemoteSignal(message).catch(error => close(`signal-error:${formatErrorReason(error)}`))
 	}) ?? null
 
@@ -535,7 +535,7 @@ export async function createLink(opts) {
 		}
 	}
 
-	if (opts.initiator) {
+	if (options.initiator) {
 		await attachChannel(pc.createDataChannel(CHANNEL_CONTROL))
 		await attachChannel(pc.createDataChannel(CHANNEL_BULK))
 		const offer = await pc.createOffer()
@@ -559,25 +559,25 @@ export async function createLink(opts) {
 		 * 本端是否为连接发起方。
 		 * @returns {boolean} 发起方标志
 		 */
-		get initiator() { return !!opts.initiator },
+		get initiator() { return !!options.initiator },
 		send,
 		/**
 		 * 订阅业务 envelope 入站。
-		 * @param {(envelope: { scope: string, action: string, payload: unknown }, remoteNodeHash: string) => void} cb 回调
+		 * @param {(envelope: { scope: string, action: string, payload: unknown }, remoteNodeHash: string) => void} callback 回调
 		 * @returns {() => void} 取消订阅函数
 		 */
-		onEnvelope(cb) {
-			envelopeListeners.add(cb)
-			return () => envelopeListeners.delete(cb)
+		onEnvelope(callback) {
+			envelopeListeners.add(callback)
+			return () => envelopeListeners.delete(callback)
 		},
 		/**
 		 * 订阅 link 断开事件。
-		 * @param {(reason: string) => void} cb 回调
+		 * @param {(reason: string) => void} callback 回调
 		 * @returns {() => void} 取消订阅函数
 		 */
-		onDown(cb) {
-			downListeners.add(cb)
-			return () => downListeners.delete(cb)
+		onDown(callback) {
+			downListeners.add(callback)
+			return () => downListeners.delete(callback)
 		},
 		close,
 		/**
@@ -597,7 +597,7 @@ export async function createLink(opts) {
 				ready,
 				nodeHash: remoteNodeHash,
 				targetNodeHash: targetNodeHash || null,
-				initiator: !!opts.initiator,
+				initiator: !!options.initiator,
 				connectionState: pc.connectionState,
 				iceConnectionState: pc.iceConnectionState,
 				lastInboundAt,

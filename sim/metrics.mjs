@@ -141,12 +141,12 @@ export function aggregateSnapshots(snaps, weights = DEFAULT_WEIGHTS) {
  * @param {import('./tunables_bundle.mjs').TunablesBundle} tunables 参数
  * @param {(scenario: import('./scenarios.mjs').SimScenario, seed: number, tunables: import('./tunables_bundle.mjs').TunablesBundle) => SimSnapshot} runSim 仿真函数
  * @param {MetricWeights} [weights] 权重
- * @param {EvalOpts} [opts] 评估选项
+ * @param {EvalOpts} [options] 评估选项
  * @returns {Promise<{ fitness: number, mean: number, min: number, max: number, std: number, byScenario: Record<string, ReturnType<typeof aggregateSnapshots>> }>} 跨场景评估结果
  */
-export async function evaluateTunables(scenarios, seeds, tunables, runSim, weights = DEFAULT_WEIGHTS, opts = {}) {
+export async function evaluateTunables(scenarios, seeds, tunables, runSim, weights = DEFAULT_WEIGHTS, options = {}) {
 	return evaluateTunablesAgainstAttacks(scenarios, seeds, tunables, [undefined], (scenario, seed, tunablesBundle, attackGenome) =>
-		runSim(scenario, seed, tunablesBundle, attackGenome), weights, opts)
+		runSim(scenario, seed, tunablesBundle, attackGenome), weights, options)
 }
 
 /**
@@ -229,20 +229,20 @@ function buildEvalFromGroupedSnaps(scenarios, seeds, panel, snapsByScenarioSeed,
  * @param {EvalCandidate[]} candidates 候选列表（各自 tunables + attackPanel）
  * @param {(scenario: import('./scenarios.mjs').SimScenario, seed: number, tunables: import('./tunables_bundle.mjs').TunablesBundle, attackGenome?: import('./attack_space.mjs').AttackGenome) => SimSnapshot} runSim 仿真
  * @param {MetricWeights} [weights] 权重
- * @param {EvalOpts} [opts] 评估选项
+ * @param {EvalOpts} [options] 评估选项
  * @returns {Promise<EvalResult[]>} 与 candidates 同序的评估结果
  */
-export async function evaluateManyAgainstAttacks(scenarios, seeds, candidates, runSim, weights = DEFAULT_WEIGHTS, opts = {}) {
+export async function evaluateManyAgainstAttacks(scenarios, seeds, candidates, runSim, weights = DEFAULT_WEIGHTS, options = {}) {
 	if (!candidates.length) return []
 
-	const concurrency = opts.concurrency ?? defaultConcurrency()
-	const usePool = !opts.serial && concurrency > 1 && runSim === runSimulation
+	const concurrency = options.concurrency ?? defaultConcurrency()
+	const usePool = !options.serial && concurrency > 1 && runSim === runSimulation
 
 	if (!usePool) {
 		const out = []
 		for (const cand of candidates) {
 			const panel = cand.attackPanel?.length ? cand.attackPanel : [undefined]
-			out.push(await evaluateTunablesAgainstAttacks(scenarios, seeds, cand.tunables, panel, runSim, weights, opts))
+			out.push(await evaluateTunablesAgainstAttacks(scenarios, seeds, cand.tunables, panel, runSim, weights, options))
 		}
 		return out
 	}
@@ -305,13 +305,13 @@ export async function evaluateManyAgainstAttacks(scenarios, seeds, candidates, r
  * @param {Array<import('./attack_space.mjs').AttackGenome | undefined>} attackPanel 攻击者面板
  * @param {(scenario: import('./scenarios.mjs').SimScenario, seed: number, tunables: import('./tunables_bundle.mjs').TunablesBundle, attackGenome?: import('./attack_space.mjs').AttackGenome) => SimSnapshot} runSim 仿真
  * @param {MetricWeights} [weights] 权重
- * @param {EvalOpts} [opts] 评估选项（concurrency / serial）
+ * @param {EvalOpts} [options] 评估选项（concurrency / serial）
  * @returns {Promise<{ fitness: number, mean: number, min: number, max: number, std: number, byScenario: Record<string, ReturnType<typeof aggregateSnapshots>> }>} 跨场景面板最差评估
  */
-export async function evaluateTunablesAgainstAttacks(scenarios, seeds, tunables, attackPanel, runSim, weights = DEFAULT_WEIGHTS, opts = {}) {
+export async function evaluateTunablesAgainstAttacks(scenarios, seeds, tunables, attackPanel, runSim, weights = DEFAULT_WEIGHTS, options = {}) {
 	const panel = attackPanel?.length ? attackPanel : [undefined]
-	const concurrency = opts.concurrency ?? defaultConcurrency()
-	const usePool = !opts.serial && concurrency > 1 && runSim === runSimulation
+	const concurrency = options.concurrency ?? defaultConcurrency()
+	const usePool = !options.serial && concurrency > 1 && runSim === runSimulation
 
 	/** @type {Record<string, ReturnType<typeof aggregateSnapshots>>} */
 	const byScenario = {}

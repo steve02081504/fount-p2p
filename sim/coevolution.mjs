@@ -45,20 +45,20 @@ function toRedHarmResults(results) {
 }
 
 /**
- * @param {object} opts 选项
- * @param {import('./scenarios.mjs').SimScenario[]} opts.scenarios 场景
- * @param {number} [opts.generations=20] 代数
- * @param {number} [opts.population=12] 蓝队种群
- * @param {number} [opts.redPopulation=8] 红队种群
- * @param {number[]} [opts.seeds] 种子
- * @param {number} [opts.seedBase=42] 搜索种子基
- * @param {import('./metrics.mjs').MetricWeights} [opts.weights] 权重
- * @param {number | null} [opts.durationMs] 时长上限
- * @param {import('./metrics.mjs').EvalOpts} [opts.evalOpts] 评估并行选项
- * @param {(info: import('./optimizer.mjs').OptimizerProgress) => void} [opts.onProgress] 进度
+ * @param {object} options 选项
+ * @param {import('./scenarios.mjs').SimScenario[]} options.scenarios 场景
+ * @param {number} [options.generations=20] 代数
+ * @param {number} [options.population=12] 蓝队种群
+ * @param {number} [options.redPopulation=8] 红队种群
+ * @param {number[]} [options.seeds] 种子
+ * @param {number} [options.seedBase=42] 搜索种子基
+ * @param {import('./metrics.mjs').MetricWeights} [options.weights] 权重
+ * @param {number | null} [options.durationMs] 时长上限
+ * @param {import('./metrics.mjs').EvalOpts} [options.evalOpts] 评估并行选项
+ * @param {(info: import('./optimizer.mjs').OptimizerProgress) => void} [options.onProgress] 进度
  * @returns {Promise<object>} 共演进结果
  */
-export async function runCoevolution(opts) {
+export async function runCoevolution(options) {
 	const {
 		scenarios,
 		generations = 20,
@@ -70,7 +70,7 @@ export async function runCoevolution(opts) {
 		durationMs = null,
 		evalOpts,
 		onProgress,
-	} = opts
+	} = options
 
 	const startedAt = Date.now()
 	const deadline = durationMs != null && durationMs > 0 ? startedAt + durationMs : null
