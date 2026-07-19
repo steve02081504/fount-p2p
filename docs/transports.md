@@ -24,7 +24,7 @@ Callers do **not** choose WebRTC, BLE, ICE, or DataChannels. If a path is unavai
 
 LinkHandle for upper layers: `ready` / `nodeHash` / `send` / `onEnvelope` / `onDown` / `close` / `stats`. Transport-specific fields are for in-package scheduling only.
 
-Provider optional hooks (package-internal): `ensureListening` (inbound accept), `localEndpoint` (e.g. LAN listen port for adverts), `canReach` (hint gate before dial). Discovery providers may expose `canSignalTo(to)` (e.g. BT needs a peer hint); `sendSignal` skips those that return false without warning.
+Provider optional hooks (package-internal): `ensureListening` (inbound accept), `localEndpoint` (e.g. LAN listen port for adverts), `canReach` (hint gate before dial). Discovery `sendSignal` may return `false` when the path is unavailable (e.g. BT with no peer hint); fan-out treats that as silent skip. Per-provider throw/false in discovery and link dial fallback are silent; only total failure of the abstraction surfaces to the caller.
 
 Each registry only calls `ensureListening` on **its own** `lan_tcp` / `ble_gatt` instances (unique registry ids like `lan_tcp:ab12cd34`). Never fan out listening to other registries' sockets — that would overwrite `localIdentity` / `onInbound`.
 
@@ -67,6 +67,6 @@ GATT write/notify; binding = shared `linkId`; needs BT peer hint (`peripheralId`
 
 ### Bluetooth discovery signal
 
-`discovery/bt` carries short signal blobs on a GATT characteristic so WebRTC can still negotiate near-field when LAN/nostr are dead. Implemented (internal); still not a shell-facing API.
+`discovery/bt` carries short signal blobs on GATT so WebRTC can negotiate near-field when LAN/nostr are unavailable (package-internal).
 
-Discovery peripheral (`…f017` service) and `ble_gatt` peripheral (`…f019` service) both use bleno + name `fount-bt`. On a single adapter they contend — last `setServices`/`startAdvertising` wins. Production: one node per process; do not expect both discovery-advertise and BLE data-accept on the same adapter without a future unified peripheral.
+Discovery peripheral (`…f017`) and `ble_gatt` (`…f019`) both use bleno + name `fount-bt`. On one adapter they contend — last `setServices`/`startAdvertising` wins. Production: one node per process.

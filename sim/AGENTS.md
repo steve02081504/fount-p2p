@@ -6,27 +6,27 @@ alwaysApply: false
 
 # P2P Sim Harness Guide
 
-An in-process simulation that co-evolves **tunables** (`*.tunables.json`) against an **attack genome**, scoring each candidate via `metrics.mjs`. It is a *search proxy*, **not** a wire-protocol replay. Know which side of the fidelity line you are on before touching a value.
+In-process co-evolution of **tunables** (`*.tunables.json`) against an **attack genome**, scored by `metrics.mjs`. Search proxy, **not** wire-protocol replay.
 
 ## Fidelity boundary
 
-- **Reused verbatim (never re-model these)** — sim imports the real decision functions, so they cannot drift:
-  - Reputation: `reputation/engine.mjs`, `reputation/math.mjs`, `sim/social_reputation.mjs` (`*Pure`).
-  - Trust graph: `pickTop` from `trust_graph/engine.mjs`.
-  - Tunables resolve: `resolveMailboxRelayFanout` / `resolveMailboxWantFanout` / `resolveArchiveQuorumPeerMin` / `resolveArchiveQuorumPeerStrictMin` (`trust_graph/resolve.mjs`).
-  - Admission PoW: `expectedJoinPowHashes` / `powVoluntaryBonus` (`governance/join_pow.mjs`).
-- **Tunables source**: `tunables_bundle.mjs` imports in-package `*.tunables.json` plus `sim/reputation_social.tunables.json` for simulation defaults. Writing social tunables back to the shell requires `--social-tunables PATH` on `cli.mjs mine` (see `apply.mjs`).
-- **`PARAM_SPACE` ↔ defaults**: every `PARAM_SPACE` key must exist in `loadDefaultTunables()`; clear both sides when deleting a key, otherwise `normalizeBundle` / `sampleParam` get `undefined`.
-- **`socialRepHideThreshold`**: hide only when `score < threshold`. Default `0` (only suppress negative scores); raise the threshold (e.g. `0.85`) to raise `falsePositiveRate` — do not encode "stricter" as a negative threshold.
-- **Heuristic proxy (intentional abstraction, NOT the real code path)** — `model.mjs` (`simulateMailbox` / `federationSaturatingReach`), `discovery.mjs` (`discoveryReach`), `transport.mjs` (`transportMetrics`), `integrity.mjs` (`simulateArchiveQuorum`). These approximate "parameters → defense" analytically; do not mistake them for the transport/routing implementation.
+- **Reused verbatim** (import real decision functions; do not re-model):
+  - Reputation: `reputation/engine.mjs`, `reputation/math.mjs`, `sim/social_reputation.mjs` (`*Pure`)
+  - Trust graph: `pickTop` (`trust_graph/engine.mjs`)
+  - Tunables resolve: `resolveMailboxRelayFanout` / `resolveMailboxWantFanout` / `resolveArchiveQuorumPeerMin` / `resolveArchiveQuorumPeerStrictMin` (`trust_graph/resolve.mjs`)
+  - Admission PoW: `expectedJoinPowHashes` / `powVoluntaryBonus` (`governance/join_pow.mjs`)
+- **Tunables source:** `tunables_bundle.mjs` loads in-package `*.tunables.json` plus `sim/reputation_social.tunables.json`. Writing social tunables back to the shell: `--social-tunables PATH` on `cli.mjs mine` (see `apply.mjs`).
+- **`PARAM_SPACE` ↔ defaults:** every `PARAM_SPACE` key must exist in `loadDefaultTunables()`; clear both sides when deleting a key.
+- **`socialRepHideThreshold`:** hide when `score < threshold`. Default `0` (suppress negatives only). Raise the threshold to raise `falsePositiveRate` — never use a negative threshold for "stricter".
+- **Heuristic proxy** (not the real path): `model.mjs`, `discovery.mjs`, `transport.mjs`, `integrity.mjs` — analytical "params → defense" only.
 
-## Anti-drift rules
+## Anti-drift
 
-- **Do not hand-copy runtime constants.** RTC budget defaults are derived from `transport/rtc_connection_budget.mjs` (`resolveRtcBudgetLimits()` + `MAX_SOURCE_SLOT_FRACTION`), not literals. `EXPLORE_MAX_PER_SOURCE` mirrors `transport/peer_pool.mjs` but is kept local (importing `peer_pool` pulls node-storage fs into the sim hot path) — `test/fidelity.test.mjs` asserts equality to catch drift.
-- **Signaling source names** (`DEFAULT_SIGNALING_SOURCES` in `transport.mjs`) must be real provider ids (`mdns` / `nostr` / `bt`), matching `transport/link_registry.mjs` registration. There is no `tracker` provider. `fidelity.test.mjs` guards this.
-- If you add a new sim constant that shadows a real one, add a matching assertion in `fidelity.test.mjs` (which now covers both determinism/parallelism **and** constant fidelity).
+- Do not hand-copy runtime constants. RTC budget from `transport/rtc_connection_budget.mjs` (`resolveRtcBudgetLimits()` + `MAX_SOURCE_SLOT_FRACTION`). `EXPLORE_MAX_PER_SOURCE` mirrors `peer_pool.mjs` but stays local (importing `peer_pool` pulls fs into the hot path) — `test/fidelity.test.mjs` asserts equality.
+- Signaling source names (`DEFAULT_SIGNALING_SOURCES`) must be real provider ids (`mdns` / `nostr` / `bt`). No `tracker` provider.
+- New sim constants that shadow real ones need a matching assertion in `fidelity.test.mjs`.
 
 ## Determinism
 
-- Everything is seeded via `rng.mjs` (`createRng`). `runSimulation(scenario, seed, tunables, genome)` must be pure/deterministic — `fidelity.test.mjs` asserts serial == parallel == batched snapshots byte-for-byte. Never introduce wall-clock or unseeded randomness; use `simulationContext.now` (virtual clock, advances 60s/round).
-- **Naming**: round state object is `simulationContext` (not `ctx`); `buildWorld` returns `{ simulationContext }`.
+- Seeded via `rng.mjs` (`createRng`). `runSimulation(...)` must be pure — `fidelity.test.mjs` asserts serial == parallel == batched snapshots. Use `simulationContext.now` (virtual clock, +60s/round); no wall-clock or unseeded RNG.
+- Round state object is `simulationContext` (not `ctx`); `buildWorld` returns `{ simulationContext }`.

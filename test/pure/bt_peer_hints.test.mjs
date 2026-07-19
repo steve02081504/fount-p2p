@@ -38,17 +38,20 @@ test('ble_gatt canReach follows bt peer hint', () => {
 	assertEquals(provider.canReach({ nodeHash }), false)
 })
 
-test('bt canSignalTo follows peer hint; sendSignal skips without warn path', async () => {
+test('bt sendSignal returns false without hint; fan-out still delivers via other provider', async () => {
 	clearBtPeerHints()
 	const nodeHash = 'ab'.repeat(32)
 	const bt = createBluetoothDiscoveryProvider()
-	assertEquals(bt.canSignalTo(nodeHash), false)
+	assertEquals(await bt.sendSignal('topic', nodeHash, new Uint8Array([1])), false)
 
 	let delivered = 0
 	const fallback = {
 		id: 'test-signal-fallback',
 		priority: 0,
 		caps: { canSignal: true },
+		/**
+		 *
+		 */
 		sendSignal() { delivered++ },
 	}
 	const stopBt = registerDiscoveryProvider(bt)
@@ -56,8 +59,6 @@ test('bt canSignalTo follows peer hint; sendSignal skips without warn path', asy
 	try {
 		await sendSignal('topic', nodeHash, new Uint8Array([1]))
 		assertEquals(delivered, 1)
-		noteBtPeerHint(nodeHash, 'aa:bb:cc:dd:ee:ff')
-		assertEquals(bt.canSignalTo(nodeHash), true)
 	}
 	finally {
 		stopBt()

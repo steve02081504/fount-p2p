@@ -7,66 +7,63 @@
 | L0 | `core/` | `hexIds`, `entity_id_parse`, `entity_id`, `logical_entity`, `canonical_json`, `bytes_codec` |
 | L1 | `crypto/`, `wire/`, `schemas/` | Cryptography, wire-protocol ingress, canonical validation |
 | L2 | `node/` | `initNode`, `identity`, `entity_store`, `denylist`, `reputation_store`, `storage_plugins` |
-| L3 | `discovery/`, `link/`, `transport/`, `rooms/` | Public API = fount network (registry/rooms); `link/providers` are in-package transport impls, not exported |
+| L3 | `discovery/`, `link/`, `transport/`, `rooms/` | Public API = fount network (registry/rooms); `link/providers` are in-package, not exported |
 | L4 | `trust_graph/`, `mailbox/`, `dag/`, `federation/`, `files/`, `governance/`, `reputation/` | Federation, store-and-forward, DAG, EVFS, tunables |
 
-**Outside the package (shell / frontend; p2p must not import):** Chat/Social semantics, frontend mention rendering, entity identity provisioning, etc. live in the upper shell. Standalone clients use `import { startNode } from '@steve02081504/fount-p2p'`.
+**Outside the package (shell / frontend; p2p must not import):** Chat/Social semantics, mention rendering, entity identity provisioning, etc. Standalone clients: `import { startNode } from '@steve02081504/fount-p2p'`.
 
-**Facade:** `index.mjs`; subpath exports mirror directories (`./transport/*`, `./registries/*`, `./core/*`, … wildcard exports).
+**Facade:** `index.mjs`; subpath exports mirror directories (`./transport/*`, `./registries/*`, `./core/*`, …).
 
-**File naming:** parent directory is scope — child `.mjs` files use short names (`mailbox/store.mjs`, `wire/ingress.mjs`, `registries/event_type.mjs`). Tunables default file is `<dir>/tunables.json`. Subpath `package.json` exports mirror filenames (`./trust_graph/resolve`, `./dag/canonicalize_row`, …).
+**File naming:** parent directory is scope — child `.mjs` files use short names (`mailbox/store.mjs`, `wire/ingress.mjs`). Tunables default: `<dir>/tunables.json`. Subpath `package.json` exports mirror filenames.
 
-Production import boundary: `test/integration/p2p_shell_import_guard.test.mjs`.
+**Import boundary:** `test/integration/p2p_shell_import_guard.test.mjs`.
 
-**Tests:** `npm test` — package pure logic (Node). `npm run test:fount` — cross-repo bridge (Deno; fount social uses `npm:`). Dev-time relative import check: `node scripts/check-imports.mjs`. Dead-export scan (pkg src / test+sim / fount cross-repo, `--fount <path>` optional): `node scripts/find-unused-exports.mjs`.
-
-**Test assertions:** `test/helpers/assert.mjs` re-exports `assert` / `assertEquals` / `assertThrows`; import from there in `test/` and `sim/test/` instead of inlining duplicate helpers. Fixed-seed node identity: `test/helpers/identity.mjs`（`test/live/helpers.mjs` 重导出）。
-
-Fount bridge: `test/fount/` + `test/helpers/fount_paths.mjs` (`fountBridgeSkipReason`: skip if not Deno / no fount / target file missing; hard-fail on import failure). `deno.json` must set `nodeModulesDir: "none"` to avoid polluting this repo's `node_modules`.
+**Tests / tools:**
+- `npm test` — package pure logic (Node)
+- `npm run test:fount` — cross-repo bridge (Deno; fount social uses `npm:`)
+- `node scripts/check-imports.mjs` — relative import check
+- `node scripts/find-unused-exports.mjs` — dead-export scan (`--fount <path>` optional)
+- Assertions: `test/helpers/assert.mjs` (`assert` / `assertEquals` / `assertThrows`) — use in `test/` and `sim/test/`
+- Fixed-seed identity: `test/helpers/identity.mjs` (re-exported by `test/live/helpers.mjs`)
+- Fount bridge: `test/fount/` + `test/helpers/fount_paths.mjs` (`fountBridgeSkipReason`: skip if not Deno / no fount / missing target; hard-fail on import failure). `deno.json` must set `nodeModulesDir: "none"`.
 
 ## Trust boundaries
 
-- **Untrusted ingress:** discovery adverts/signals, link/overlay envelopes, group WebSocket federation frames, `remoteIngest`, `part_timeline_put`/`part_invoke`, `part_query_req`/`part_query_res`, **public manifest (`fed_manifest_data`)** — validation and `canonicalize*` / `verifySignedPublicManifest` happen ONLY at this boundary.
-- **Trusted after disk:** once read from `events.jsonl`, only `stripDagEventLocalExtensions` runs; upper layers do NOT re-run hex canonicalization.
-- **Node data:** `initNode({ nodeDir })` singleton under `nodeDir` — `node.json`, `network.json`, `denylist.json`, `reputation.json`, `mailbox/`, `chunks/`. Default `EntityStore` root is `{nodeDir}/entities/` (shell may inject a custom store).
-- **Entity key chain:** `federation/entity_key_chain.mjs` — `entity_key_rotate` / `entity_key_revoke`; `state.entityKeyHistory`; revoke signature domain `ENTITY_KEY_REVOKE_DOMAIN` (`fount-entity-key-revoke`).
-- **TrustGraph fanout:** timeline/chunk exploration → `requireTrustGraphProvider().fanoutToTopNodes`; **targeted packets** (Mailbox) → `sendToNode`/User Room, never fanout.
-- **part_query:** multi-hop opaque query (`wire/part_query.mjs`); shell registers `registerQueryInboundHandler(partpath, kind, handler)`; initiator `queryNetwork(...)`; `part_query_res` returns along the reverse path so relays can cache; local cache hit skips broadcast (`wire/part_query_cache.mjs`, short TTL, unverified clues).
-- **Group room startup invariant:** `group_link_set.start()` / `rooms/scoped_link.start()` must call `registry.ensureRuntime()` before topic subscribe/advertise.
-- **User-room startup invariant:** `ensureUserRoom()` must call `registry.ensureRuntime()` on first init.
-- **Fount network:** shells use `startNode` / `ensureLinkToNode` / `sendToNodeLink` / rooms — never import `link/` or pick WebRTC/BLE/LAN TCP. Internal providers + fallback (`lan_tcp` → `webrtc` → `ble_gatt`): [docs/transports.md](docs/transports.md). Offer/answer glare is keyed by `caps.needsOfferAnswer` (not `id === 'webrtc'`). WebRTC glare/signal details: [docs/signaling.md](docs/signaling.md). LAN TCP learns `{host,port}` from discovery meta `address` + signed advert `tcpPort` on node **and** group/scoped topics (`discovery/advert_peer_hints.mjs`); each registry owns its own `lan_tcp:*` / `ble_gatt:*` listen instance and must not `ensureListening` on other registries'. BLE dial gated by `discovery/bt/peer_hints.mjs`. BT discovery signaling uses the same hint via optional `canSignalTo` — no hint means skip that provider (no warn). Bluetooth runtime helpers: `discovery/bt/runtime.mjs`；发现提供者：`discovery/bt/index.mjs`。
-- **Mailbox:** store-and-forward at `{nodeDir}/mailbox/store.jsonl`.
-- **Manifest ACL / transfer owner:** shells register matchers; P2P core does not hard-code chat/social types.
-- **Channel message encryption:** per-channel `K_ch`, wire scheme **`ckg`** (`crypto/channel.mjs`); CKG-decrypted payloads must not be trusted outside the DAG Ed25519 signature context.
-- **Denylist vs personal lists:** node-level `denylist.json` vs per-entity `personal_block.json`/`personal_hide.json` (under the EntityStore entity directory).
-- **Stale peer observability:** `transport/stale_peer_log.mjs` records federation/room identity-map lag; no fallback behavior, debug_logs only.
-- **Group storage plugins:** `node/storage_plugins.mjs` provides local reference impl; S3/federated backends are injected by the shell.
+- **Untrusted ingress:** discovery adverts/signals, link/overlay envelopes, group federation frames, `remoteIngest`, `part_timeline_*` / `part_invoke`, `part_query_*`, public manifest (`fed_manifest_data`). Validate / `canonicalize*` / `verifySignedPublicManifest` **only** here.
+- **Trusted after disk:** from `events.jsonl`, only `stripDagEventLocalExtensions`; no re-canonicalization upstream.
+- **Node data:** `initNode({ nodeDir })` — `node.json`, `network.json`, `denylist.json`, `reputation.json`, `mailbox/`, `chunks/`. Default EntityStore: `{nodeDir}/entities/` (shell may inject).
+- **Entity key chain:** `federation/entity_key_chain.mjs` — rotate/revoke; revoke domain `ENTITY_KEY_REVOKE_DOMAIN` (`fount-entity-key-revoke`).
+- **Fanout vs targeted:** timeline/chunk exploration → `fanoutToTopNodes`; Mailbox / targeted packets → `sendToNode` / User Room, never fanout.
+- **part_query:** multi-hop opaque query (`wire/part_query.mjs`); shell registers `registerQueryInboundHandler`; initiator `queryNetwork(...)`; responses reverse-path so relays can cache (`wire/part_query_cache.mjs`).
+- **Room startup:** `group_link_set.start()` / `scoped_link.start()` / first `ensureUserRoom()` must call `registry.ensureRuntime()` before subscribe/advertise.
+- **Fount network:** shells use `startNode` / `ensureLinkToNode` / `sendToNodeLink` / rooms — never import `link/` or pick a transport. Internals + silent multi-path degrade: [docs/transports.md](docs/transports.md). WebRTC glare/signal: [docs/signaling.md](docs/signaling.md).
+- **Mailbox:** `{nodeDir}/mailbox/store.jsonl`.
+- **Manifest ACL / transfer owner:** shells register matchers; core does not hard-code chat/social types.
+- **Channel encryption:** per-channel `K_ch`, scheme `ckg` (`crypto/channel.mjs`); decrypted payloads are untrusted outside DAG Ed25519 context.
+- **Denylist vs personal lists:** node `denylist.json` vs per-entity `personal_block.json` / `personal_hide.json`.
+- **Group storage plugins:** `node/storage_plugins.mjs` is the local reference; S3/federated backends are shell-injected.
 
 ## Subjective reputation (`reputation.json`)
 
-- **Single global score per peer** at `{nodeDir}/reputation.json`.
+- One global score per peer at `{nodeDir}/reputation.json`.
 - **Subjective slash:** `subjectiveSlashPenalty(claim, repSender, rep_max_eff)` — influence scales with sender trust.
 - **Anti-Sybil:** `applyDecayCollusionAfterSlash` after slash/kick/ban.
-- **Safe penalties:** relay bump, gossip unknown-want, message rate, chunk store/fetch, and other self-observed attributable signals.
-- **Do not add:** penalizing peers that merely relay invalid events; penalizing RPC timeouts or empty responses.
+- **Safe penalties:** self-observed attributable signals (relay bump, gossip unknown-want, message rate, chunk store/fetch, …).
+- **Do not add:** penalties for merely relaying invalid events; RPC timeouts or empty responses.
 
 ## Entity files (EVFS)
 
-- **Storage:** ciphertext chunks `{nodeDir}/chunks/` (CAS); logical manifest `{EntityStoreRoot}/{entityHash}/files/{path}.manifest.json`; default `EntityStoreRoot = {nodeDir}/entities`.
-- **Core modules:** `files/` — `evfs`, `evfs_ref`, `acl`, `manifest_acl_registry`, `public_manifest` / `manifest_fetch`.
-- **Public files:** `publishPublicFile` signs with the entity recovery key then persists; remote path is `fed_manifest_get` → verify signature → cache; `readPublicFile` / `fetchPublicManifest` unify local and network reads. The signature covers content fields only — after verification, incoming `meta` is dropped except `publicSig` (prevents `dagParts`/`groupId` injection). Profile / avatar display semantics live in the shell; this library does not hard-code them.
+- **Storage:** ciphertext chunks `{nodeDir}/chunks/` (CAS); manifests `{EntityStoreRoot}/{entityHash}/files/{path}.manifest.json`.
+- **Modules:** `files/` — `evfs`, `evfs_ref`, `acl`, `manifest_acl_registry`, `public_manifest` / `manifest_fetch`.
+- **Public files:** `publishPublicFile` signs with recovery key; remote path `fed_manifest_get` → verify → cache. Signature covers content fields only — after verify, drop incoming `meta` except `publicSig`. Profile/avatar semantics live in the shell.
 
 ## Tunables JSON
 
-Runtime defaults live next to the module that consumes them:
+Runtime defaults live next to the consuming module:
 
 | File | Directory |
 |---|---|
-| `tunables.json` | `reputation/` |
-| `tunables.json` | `trust_graph/` |
-| `tunables.json` | `mailbox/` |
-| `tunables.json` | `governance/` |
-| `tunables.json` | `dag/` |
+| `tunables.json` | `reputation/`, `trust_graph/`, `mailbox/`, `governance/`, `dag/` |
 | `part_query.tunables.json` | `wire/` |
 
-Sim harness aggregates these via `sim/tunables_bundle.mjs` (dev-only; not published).
+Sim harness aggregates via `sim/tunables_bundle.mjs` (dev-only; not published). See [sim/AGENTS.md](sim/AGENTS.md).

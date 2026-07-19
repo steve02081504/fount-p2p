@@ -347,9 +347,7 @@ export function createLinkRegistry(options = {}) {
 				})
 				if (typeof stop === 'function') stopLinkListeners.push(stop)
 			}
-			catch (error) {
-				console.warn(`p2p: link provider listening failed for ${provider.id}`, error)
-			}
+			catch { /* provider listen unavailable — normal degrade */ }
 		
 		if (listDiscoveryProviders().length) {
 			stopSignalListener = await listenSignals(selfTopic, bytes => {
@@ -591,16 +589,12 @@ export function createLinkRegistry(options = {}) {
 						// soft-fail 返回 null（不 throw）；必须 continue 才能落到更低 level。
 						const link = await dialOfferAnswer(provider, normalized)
 						if (link) return link
-						console.warn(`p2p: link dial failed for ${provider.id}: soft-fail`)
 						continue
 					}
 					const link = await dialProvider(provider, normalized)
 					if (link) return link
-					console.warn(`p2p: link dial failed for ${provider.id}: soft-fail`)
 				}
-				catch (error) {
-					console.warn(`p2p: link dial failed for ${provider.id}: ${error?.message ?? error}`)
-				}
+				catch { /* dial failed — try next provider */ }
 			
 			return null
 		})().finally(() => inflights.delete(normalized))

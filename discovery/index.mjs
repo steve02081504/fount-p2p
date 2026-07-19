@@ -1,4 +1,4 @@
-/** @typedef {{ id: string, priority: number, caps: { canDiscover?: boolean, canSignal?: boolean, canRelay?: boolean }, advertise?: (topic: string, bytes: Uint8Array) => (() => void) | Promise<() => void>, subscribe?: (topic: string, onAdvert: (bytes: Uint8Array, meta?: object) => void) => (() => void) | Promise<() => void>, canSignalTo?: (to: string) => boolean, sendSignal?: (topic: string, to: string, bytes: Uint8Array) => void | Promise<void>, onSignal?: (topic: string, onSignal: (bytes: Uint8Array, meta?: object) => void) => (() => void) | Promise<() => void> }} DiscoveryProvider */
+/** @typedef {{ id: string, priority: number, caps: { canDiscover?: boolean, canSignal?: boolean, canRelay?: boolean }, advertise?: (topic: string, bytes: Uint8Array) => (() => void) | Promise<() => void>, subscribe?: (topic: string, onAdvert: (bytes: Uint8Array, meta?: object) => void) => (() => void) | Promise<() => void>, sendSignal?: (topic: string, to: string, bytes: Uint8Array) => boolean | void | Promise<boolean | void>, onSignal?: (topic: string, onSignal: (bytes: Uint8Array, meta?: object) => void) => (() => void) | Promise<() => void> }} DiscoveryProvider */
 
 /** @type {Map<string, DiscoveryProvider>} */
 const providers = new Map()
@@ -33,6 +33,7 @@ export function listDiscoveryProviders() {
 
 /**
  * 通过所有可用 provider 广播 topic advert。
+ * 单路失败静默（正常降级）；其它 provider 仍可成功。
  * @param {string} topic advert 主题
  * @param {Uint8Array} bytes advert 载荷
  * @returns {Promise<() => void>} 统一取消函数
@@ -45,10 +46,7 @@ export async function advertiseTopic(topic, bytes) {
 		try {
 			cleanup = await provider.advertise(topic, bytes)
 		}
-		catch (error) {
-			console.warn(`p2p: discovery advertise failed for ${provider.id}`, error)
-			continue
-		}
+		catch { continue }
 		if (typeof cleanup === 'function') cleanups.push(cleanup)
 	}
 	return () => {
@@ -59,6 +57,7 @@ export async function advertiseTopic(topic, bytes) {
 
 /**
  * 通过所有可用 provider 订阅 topic advert。
+ * 单路失败静默（正常降级）。
  * @param {string} topic advert 主题
  * @param {(bytes: Uint8Array, meta?: object) => void} onAdvert advert 回调
  * @returns {Promise<() => void>} 统一取消函数
@@ -71,10 +70,7 @@ export async function subscribeTopic(topic, onAdvert) {
 		try {
 			cleanup = await provider.subscribe(topic, onAdvert)
 		}
-		catch (error) {
-			console.warn(`p2p: discovery subscribe failed for ${provider.id}`, error)
-			continue
-		}
+		catch { continue }
 		if (typeof cleanup === 'function') cleanups.push(cleanup)
 	}
 	return () => {
@@ -85,6 +81,8 @@ export async function subscribeTopic(topic, onAdvert) {
 
 /**
  * 通过 discovery provider 发送信令。
+ * provider 返回 `false` = 本路不可达（正常降级，不计成功）；其它返回值 / void = 已投递。
+ * 单路 throw 静默；全部未投递才 throw。
  * @param {string} topic 信令 topic
  * @param {string} to 目标节点标识
  * @param {Uint8Array} bytes 信令载荷
@@ -95,19 +93,19 @@ export async function sendSignal(topic, to, bytes) {
 	if (!capable.length) throw new Error('p2p: no discovery provider can signal')
 	let sent = false
 	let lastError = null
-	for (const provider of capable) if (provider?.canSignalTo?.(to)) try {
-		await Promise.resolve(provider.sendSignal(topic, to, bytes))
-		sent = true
+	for (const provider of capable) try {
+		if (await Promise.resolve(provider.sendSignal(topic, to, bytes)) !== false)
+			sent = true
 	}
 	catch (error) {
 		lastError = error
-		console.warn(`p2p: discovery signal failed for ${provider.id}`, error)
 	}
 	if (!sent) throw lastError || new Error('p2p: no discovery provider delivered signal')
 }
 
 /**
  * 通过所有可用 provider 监听信令。
+ * 单路失败静默（正常降级）。
  * @param {string} topic 信令 topic
  * @param {(bytes: Uint8Array, meta?: object) => void} onSignal 信令回调
  * @returns {Promise<() => void>} 统一取消函数
@@ -120,10 +118,7 @@ export async function listenSignals(topic, onSignal) {
 		try {
 			cleanup = await provider.onSignal(topic, onSignal)
 		}
-		catch (error) {
-			console.warn(`p2p: discovery signal listener failed for ${provider.id}`, error)
-			continue
-		}
+		catch { continue }
 		if (typeof cleanup === 'function') cleanups.push(cleanup)
 	}
 	return () => {

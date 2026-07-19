@@ -8,7 +8,7 @@ import { wrapRtcPeerConnectionForMdns } from '../transport/rtc_mdns_filter.mjs'
  * libdatachannel 的原生线程在 pc.close() 后仍需时间回收；进程退出时若原生资源未同步销毁，
  * Windows 上会触发堆损坏（退出码 0xC0000374）。
  */
-const { cleanup = undefined } = await import('node-datachannel').catch(console.error)
+const { cleanup = undefined } = await import('node-datachannel').catch(() => ({}))
 process.on('exit', () => {
 	try { cleanup?.() } catch { /* already torn down */ }
 })

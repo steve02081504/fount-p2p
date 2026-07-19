@@ -252,14 +252,15 @@ export function createBluetoothDiscoveryProvider() {
 
 	/**
 	 * Central：按 peer hint 连接并对端 signal characteristic 写短包。
+	 * 无 hint 时返回 false（正常降级，不算错误）。
 	 * @param {string} topic 信令 topic
 	 * @param {string} to 目标 nodeHash
 	 * @param {Uint8Array} bytes 载荷
-	 * @returns {Promise<void>}
+	 * @returns {Promise<boolean>} 是否投递
 	 */
 	async function sendSignalViaGatt(topic, to, bytes) {
 		const hint = getBtPeerHint(to)
-		if (!hint) throw new Error('p2p: bt signal missing peer hint')
+		if (!hint) return false
 		const blob = Buffer.from(JSON.stringify({
 			topic: String(topic),
 			to: String(to),
@@ -324,20 +325,13 @@ export function createBluetoothDiscoveryProvider() {
 		finally {
 			try { await peripheral.disconnectAsync() } catch { /* ignore */ }
 		}
+		return true
 	}
 
 	return {
 		id: 'bt',
 		priority: 20,
 		caps: { canDiscover: true, canSignal: true, canRelay: false },
-		/**
-		 * 是否具备对该 peer 的 GATT 信令能力（需未过期 BT peer hint）。
-		 * @param {string} to 目标 nodeHash
-		 * @returns {boolean} 有 hint 则可尝试
-		 */
-		canSignalTo(to) {
-			return !!getBtPeerHint(to)
-		},
 		/**
 		 * 广播指定 topic 的 advert。
 		 * @param {string} topic advert 主题
@@ -364,14 +358,14 @@ export function createBluetoothDiscoveryProvider() {
 			return addListener(advertListeners, String(topic), onAdvert)
 		},
 		/**
-		 * 经 GATT 向近场 peer 发送信令。
+		 * 经 GATT 向近场 peer 发送信令；无 peer hint 时返回 false。
 		 * @param {string} topic 信令 topic
 		 * @param {string} to 目标 nodeHash
 		 * @param {Uint8Array} bytes 载荷
-		 * @returns {Promise<void>}
+		 * @returns {Promise<boolean>} 是否投递
 		 */
-		async sendSignal(topic, to, bytes) {
-			await sendSignalViaGatt(topic, to, bytes)
+		sendSignal(topic, to, bytes) {
+			return sendSignalViaGatt(topic, to, bytes)
 		},
 		/**
 		 * 监听经本机 peripheral signal characteristic 写入的信令。

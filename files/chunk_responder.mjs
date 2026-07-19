@@ -94,14 +94,12 @@ export function attachTrustGraphFedChunkResponder(username, room, fedOut, guardG
 				 */
 				const send = () => {
 					try { sendChunkData(resp, pid) }
-					catch (error) {
-						console.warn('federation: trust-graph chunk response failed', error)
-					}
+					catch { /* peer gone — normal */ }
 				}
 				if (fedOut) fedOut.enqueue(6, send)
 				else send()
 			})
-		})().catch(error => console.warn('federation: trust-graph chunk handler failed', error))
+		})().catch(() => { /* peer/handler race — normal degrade */ })
 	})
 
 	getChunkData(data => {
@@ -120,14 +118,12 @@ export function attachTrustGraphFedChunkResponder(username, room, fedOut, guardG
 				 */
 				const send = () => {
 					try { sendManifestData(resp, pid) }
-					catch (error) {
-						console.warn('federation: trust-graph manifest response failed', error)
-					}
+					catch { /* peer gone — normal */ }
 				}
 				if (fedOut) fedOut.enqueue(6, send)
 				else send()
 			})
-		})().catch(error => console.warn('federation: trust-graph manifest handler failed', error))
+		})().catch(() => { /* peer/handler race — normal degrade */ })
 	})
 
 	getManifestData(data => {
