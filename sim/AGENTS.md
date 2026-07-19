@@ -16,8 +16,8 @@ An in-process simulation that co-evolves **tunables** (`*.tunables.json`) agains
   - Tunables resolve: `resolveMailboxRelayFanout` / `resolveMailboxWantFanout` / `resolveArchiveQuorumPeerMin` / `resolveArchiveQuorumPeerStrictMin` (`trust_graph/resolve.mjs`).
   - Admission PoW: `expectedJoinPowHashes` / `powVoluntaryBonus` (`governance/join_pow.mjs`).
 - **Tunables source**: `tunables_bundle.mjs` imports in-package `*.tunables.json` plus `sim/reputation_social.tunables.json` for simulation defaults. Writing social tunables back to the shell requires `--social-tunables PATH` on `cli.mjs mine` (see `apply.mjs`).
-- **`PARAM_SPACE` ↔ defaults**: every `PARAM_SPACE` key must exist in `loadDefaultTunables()`；删键时两边一起清，否则 `normalizeBundle` / `sampleParam` 会拿到 `undefined`。
-- **`socialRepHideThreshold`**: `score < threshold` 才 hide。默认 `0`（只压负分）；抬高阈值（如 `0.85`）才抬 `falsePositiveRate`——不要把「苛刻」写成负阈值。
+- **`PARAM_SPACE` ↔ defaults**: every `PARAM_SPACE` key must exist in `loadDefaultTunables()`; clear both sides when deleting a key, otherwise `normalizeBundle` / `sampleParam` get `undefined`.
+- **`socialRepHideThreshold`**: hide only when `score < threshold`. Default `0` (only suppress negative scores); raise the threshold (e.g. `0.85`) to raise `falsePositiveRate` — do not encode "stricter" as a negative threshold.
 - **Heuristic proxy (intentional abstraction, NOT the real code path)** — `model.mjs` (`simulateMailbox` / `federationSaturatingReach`), `discovery.mjs` (`discoveryReach`), `transport.mjs` (`transportMetrics`), `integrity.mjs` (`simulateArchiveQuorum`). These approximate "parameters → defense" analytically; do not mistake them for the transport/routing implementation.
 
 ## Anti-drift rules

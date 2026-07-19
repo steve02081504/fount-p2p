@@ -2,12 +2,22 @@ import { Buffer } from 'node:buffer'
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 
 import { compareHex64Asc, normalizeHex64 } from '../core/hexIds.mjs'
+import { normalizeTcpPort } from '../core/tcp_port.mjs'
 import { sha256Hex, keyPairFromSeed } from '../crypto/crypto.mjs'
+import { noteAdvertPeerHints } from '../discovery/advert_peer_hints.mjs'
 import { advertiseTopic, listenSignals, listDiscoveryProviders, registerDiscoveryProvider, sendSignal, subscribeTopic } from '../discovery/index.mjs'
 import { createMdnsDiscoveryProvider } from '../discovery/mdns.mjs'
 import { mergeSignalingRelayUrls, createNostrDiscoveryProvider } from '../discovery/nostr.mjs'
 import { buildSignedAdvert, verifySignedAdvert } from '../link/handshake.mjs'
-import { createLink } from '../link/link.mjs'
+import { createBleGattLinkProvider } from '../link/providers/ble_gatt.mjs'
+import {
+	listAvailableLinkProviders,
+	listLinkProviders,
+	registerLinkProvider,
+	unregisterLinkProvider,
+} from '../link/providers/index.mjs'
+import { createLanTcpLinkProvider } from '../link/providers/lan_tcp.mjs'
+import { createWebRtcLinkProvider } from '../link/providers/webrtc.mjs'
 import { ensureNodeSeed, getNodeHash, getNodeTransportSettings } from '../node/identity.mjs'
 import { getSignalingRuntimeConfig } from '../node/instance.mjs'
 import { createOverlayRouter } from '../overlay/index.mjs'
@@ -189,22 +199,22 @@ function subscribeBucket(buckets, key, listener) {
  * 创建 P2P 链路注册表（discovery、信令、直连与 overlay relay）。
  * @param {object} [options] 选项
  * @param {{ nodeHash?: string, nodePubKey?: string, secretKey?: Uint8Array }} [options.localIdentity] 本地身份
- * @param {typeof createLink} [options.createLink] 链路工厂（可注入 mock）
- * @param {RTCConfiguration['iceServers']} [options.iceServers] ICE 服务器列表
+ * @param {RTCConfiguration['iceServers']} [options.iceServers] ICE 服务器列表（包内 webrtc provider 使用）
  * @param {number} [options.maxActive] 最大并发活跃链路数
  * @param {boolean} [options.autoRegisterDiscoveryProviders] 是否自动注册 discovery provider
- * @returns {object} link registry 接口
+ * @param {boolean} [options.autoRegisterLinkProviders] 是否自动注册内置 link provider
+ * @returns {object} link registry 接口（对上层即 fount 网络：ensure/send/subscribe，无传输类型）
  */
 export function createLinkRegistry(options = {}) {
 	const localIdentity = resolveLocalIdentity(options.localIdentity)
-	const createLinkImpl = options.createLink ?? createLink
 	const iceServers = options.iceServers?.length ? options.iceServers : DEFAULT_ICE_SERVERS
 	const maxActive = Math.max(4, Number(options.maxActive) || 32)
 	const autoRegisterDiscoveryProviders = options.autoRegisterDiscoveryProviders !== false
+	const autoRegisterLinkProviders = options.autoRegisterLinkProviders !== false
 	const selfTopic = nodeRendezvousTopic(localIdentity.nodeHash)
-	/** @type {Map<string, Awaited<ReturnType<typeof createLinkImpl>>>} */
+	/** @type {Map<string, object>} */
 	const links = new Map()
-	/** @type {Map<string, Promise<Awaited<ReturnType<typeof createLinkImpl>> | null>>} 按 nodeHash 去重的主动外拨 */
+	/** @type {Map<string, Promise<object | null>>} 按 nodeHash 去重的主动外拨 */
 	const inflights = new Map()
 	/** @type {Map<string, ReturnType<typeof createBufferedSignalSession>>} 按 connId 索引的信令会话（每条 PC 一个方向） */
 	const signalSessions = new Map()
@@ -222,21 +232,73 @@ export function createLinkRegistry(options = {}) {
 	let runtimeStarted = false
 	let stopAdvert = null
 	let stopSignalListener = null
+	/** @type {Array<() => void>} */
+	const stopLinkListeners = []
 	let overlayRouter = null
+	/** @type {ReturnType<typeof createLanTcpLinkProvider> | null} 本 registry 持有的 lan_tcp 实例 */
+	let ownedLanTcp = null
+	/** @type {ReturnType<typeof createBleGattLinkProvider> | null} 本 registry 持有的 ble_gatt 实例 */
+	let ownedBleGatt = null
 
 	/**
-	 * 启动 discovery runtime（advert + signal listener）。
+	 * 自动注册默认 LinkProvider（lan_tcp / webrtc / ble_gatt）。
+	 * lan_tcp / ble_gatt 每 registry 一个实例（避免 ensureListening 覆盖他人的 localIdentity）；
+	 * webrtc 按 id 单例注册。拨号时再经 isAvailable / canReach 跳过。
+	 * @returns {Promise<void>}
+	 */
+	async function ensureLinkProviders() {
+		if (!autoRegisterLinkProviders) return
+		if (!ownedLanTcp) {
+			ownedLanTcp = createLanTcpLinkProvider()
+			registerLinkProvider(ownedLanTcp)
+		}
+		if (!ownedBleGatt) {
+			ownedBleGatt = createBleGattLinkProvider()
+			registerLinkProvider(ownedBleGatt)
+		}
+		const ids = new Set(listLinkProviders().map(provider => provider.id))
+		if (!ids.has('webrtc'))
+			registerLinkProvider(createWebRtcLinkProvider())
+	}
+
+	/**
+	 * 本 registry 的 LAN TCP 监听端口。
+	 * @returns {number | null} listen 端口；未 listen 为 null
+	 */
+	function resolveLanTcpPort() {
+		const endpoint = typeof ownedLanTcp?.localEndpoint === 'function' ? ownedLanTcp.localEndpoint() : null
+		return normalizeTcpPort(endpoint?.port)
+	}
+
+	/**
+	 * 构造带本机身份与（若已 listen）tcpPort 的签名 advert。
+	 * node / group / scoped 广播共用，保证 LAN hint 可从任意 topic 学到。
+	 * @param {string} topic 广播主题
+	 * @returns {Promise<{ nodeHash: string, nodePubKey: string, ts: number, sig: string, tcpPort?: number }>} 签名 advert
+	 */
+	async function buildLocalAdvert(topic) {
+		const tcpPort = resolveLanTcpPort()
+		return await buildSignedAdvert(topic, Date.now(), {
+			...localIdentity,
+			...tcpPort != null ? { tcpPort } : {},
+		})
+	}
+
+	/**
+	 * 启动 discovery + link provider listening。
+	 * 先 ensureListening（拿到 lan_tcp 端口），再广播带 tcpPort 的 advert。
 	 * @returns {Promise<void>}
 	 */
 	async function ensureDiscoveryRuntime() {
 		if (runtimeStarted) return
 		runtimeStarted = true
+		await ensureLinkProviders()
 		if (autoRegisterDiscoveryProviders) {
 			const providerIds = new Set(listDiscoveryProviders().map(provider => provider.id))
 			if (!providerIds.has('mdns'))
 				registerDiscoveryProvider(createMdnsDiscoveryProvider())
 			if (!providerIds.has('bt')) {
-				const bt = await import('../discovery/bt.mjs').catch(() => null)
+				const bt = await import('../discovery/bt/index.mjs').catch(() => null)
 				if (await bt?.canUseBluetoothDiscovery?.())
 					registerDiscoveryProvider(bt.createBluetoothDiscoveryProvider())
 			}
@@ -248,14 +310,56 @@ export function createLinkRegistry(options = {}) {
 						?? mergeSignalingRelayUrls(getNodeTransportSettings().relayUrls),
 				}))
 		}
-		if (!listDiscoveryProviders().length) return
-		stopSignalListener = await listenSignals(selfTopic, bytes => {
-			void handleIncomingSignal(bytes).catch(() => { })
-		})
-		stopAdvert = await advertiseTopic(selfTopic, encryptSignalPacket(selfTopic, {
-			type: 'advert',
-			body: await buildSignedAdvert(selfTopic, Date.now(), localIdentity),
-		}))
+		// 只对本 registry 持有的 lan_tcp / ble_gatt 调用 ensureListening。
+		// 切勿遍历其它 registry 的 lan_tcp:* / ble_gatt:* ——会覆盖其 localIdentity/onInbound。
+		/** @type {import('../link/providers/index.mjs').LinkProvider[]} */
+		const listenProviders = []
+		if (ownedLanTcp) listenProviders.push(ownedLanTcp)
+		if (ownedBleGatt) listenProviders.push(ownedBleGatt)
+		for (const provider of await listAvailableLinkProviders()) {
+			const id = String(provider.id)
+			if (id.startsWith('lan_tcp') || id.startsWith('ble_gatt')) continue
+			if (typeof provider.ensureListening === 'function')
+				listenProviders.push(provider)
+		}
+		for (const provider of listenProviders) 
+			try {
+				const stop = await provider.ensureListening({
+					localIdentity,
+					/**
+					 * @param {object} link 入站链路
+					 * @returns {void}
+					 */
+					onInbound(link) {
+						void (async () => {
+							try {
+								await link.ready
+								const remote = normalizeHex64(link.nodeHash)
+								if (!remote) {
+									await link.close('inbound-no-nodehash')
+									return
+								}
+								await registerResolvedLink(remote, link)
+							}
+							catch { /* ignore failed inbound */ }
+						})()
+					},
+				})
+				if (typeof stop === 'function') stopLinkListeners.push(stop)
+			}
+			catch (error) {
+				console.warn(`p2p: link provider listening failed for ${provider.id}`, error)
+			}
+		
+		if (listDiscoveryProviders().length) {
+			stopSignalListener = await listenSignals(selfTopic, bytes => {
+				void handleIncomingSignal(bytes).catch(() => { })
+			})
+			stopAdvert = await advertiseTopic(selfTopic, encryptSignalPacket(selfTopic, {
+				type: 'advert',
+				body: await buildLocalAdvert(selfTopic),
+			}))
+		}
 	}
 
 	/**
@@ -290,12 +394,16 @@ export function createLinkRegistry(options = {}) {
 	}
 
 	/**
-	 * 保留由较小 nodeHash 发起的那条链（两端对任意一条链算出一致结论），用于双 PC glare 择一。
-	 * @param {Awaited<ReturnType<typeof createLinkImpl>>} link 链路实例
+	 * 择链：更高 level 优先；同 level 时保留由较小 nodeHash 发起的那条（glare 两端一致）。
+	 * @param {object} link 链路实例
 	 * @param {string} remoteNodeHash 远端节点 64 hex
+	 * @param {object | null} [against] 现有规范链
 	 * @returns {boolean} 本条链应保留则 true
 	 */
-	function linkIsPreferred(link, remoteNodeHash) {
+	function linkIsPreferred(link, remoteNodeHash, against = null) {
+		const level = Number(link.level) || 0
+		const againstLevel = Number(against?.level) || 0
+		if (against && level !== againstLevel) return level > againstLevel
 		const cmp = compareHex64Asc(localIdentity.nodeHash, remoteNodeHash)
 		return link.initiator ? cmp < 0 : cmp > 0
 	}
@@ -303,7 +411,7 @@ export function createLinkRegistry(options = {}) {
 	/**
 	 * 为链路绑定 envelope 派发与 down 回调。
 	 * @param {string} remoteNodeHash 远端节点 64 hex
-	 * @param {Awaited<ReturnType<typeof createLinkImpl>>} link 链路实例
+	 * @param {object} link 链路实例
 	 * @returns {void}
 	 */
 	function wireLink(remoteNodeHash, link) {
@@ -321,40 +429,52 @@ export function createLinkRegistry(options = {}) {
 	}
 
 	/**
-	 * 注册已建立的链路，并做双 PC glare 择一：同一对节点若因双向同时发起而建成两条 PC，
-	 * 保留由较小 nodeHash 发起的那条（两端一致），关闭另一条。单条链路（常态）直接安装。
+	 * 注册已建立的链路：level 优先，同 level 再按 initiator/nodeHash glare 规则择一。
 	 * @param {string} remoteNodeHash 远端节点 64 hex
-	 * @param {Awaited<ReturnType<typeof createLinkImpl>>} candidate 候选链路
+	 * @param {object} candidate 候选链路
 	 * @returns {Promise<void>}
 	 */
 	async function registerResolvedLink(remoteNodeHash, candidate) {
 		const normalized = normalizeHex64(remoteNodeHash)
 		const existing = links.get(normalized)
-		// 已有规范链且候选不优先：候选出局，保留现有。
-		if (existing && existing !== candidate && !linkIsPreferred(candidate, normalized)) {
-			await candidate.close('glare-loser')
+		if (existing && existing !== candidate && !linkIsPreferred(candidate, normalized, existing)) {
+			await candidate.close(Number(candidate.level) !== Number(existing.level) ? 'provider-loser' : 'glare-loser')
 			return
 		}
-		// 候选胜出（或无现有）：先把 candidate 设为规范链，再关旧链——
-		// 这样旧链 onDown 时 links.get 已指向 candidate，不会被误判为规范链而对外报 linkDown。
 		links.set(normalized, candidate)
 		wireLink(normalized, candidate)
 		if (existing && existing !== candidate)
-			await existing.close('glare-replaced')
+			await existing.close(Number(candidate.level) !== Number(existing.level) ? 'provider-replaced' : 'glare-replaced')
 		for (const listener of linkUpListeners)
 			try { listener(normalized, candidate) } catch { /* ignore */ }
 	}
 
 	/**
-	 * 为一条 connId 会话建 PC 并走 glare 择一：建 link → 绑 onDown 清 session → ready → registerResolvedLink。
-	 * initiator 侧建链前先 trimToBudget 腾预算。出错则清理该 connId 会话。
-	 * @param {{ remoteNodeHash: string, connId: string, session: ReturnType<typeof createBufferedSignalSession>, initiator: boolean }} options 建链参数
-	 * @returns {Promise<Awaited<ReturnType<typeof createLinkImpl>> | null>} 当前规范链（本条可能因 glare 被关，取 links 现值）；失败 null
+	 * 找已注册的 offer/answer provider（按 level 降序的第一个）。
+	 * @returns {import('../link/providers/index.mjs').LinkProvider | null} 命中的 provider
 	 */
-	async function buildConnLink({ remoteNodeHash, connId, session, initiator }) {
+	function findOfferAnswerProvider() {
+		return listLinkProviders().find(provider => provider.caps?.needsOfferAnswer) ?? null
+	}
+
+	/**
+	 * Offer/answer provider：为一条 connId 会话建链并走 glare 择一。
+	 * @param {{ provider: import('../link/providers/index.mjs').LinkProvider, remoteNodeHash: string, connId: string, session: ReturnType<typeof createBufferedSignalSession>, initiator: boolean }} options 建链参数
+	 * @returns {Promise<object | null>} 当前规范链；失败 null
+	 */
+	async function buildConnLink({ provider, remoteNodeHash, connId, session, initiator }) {
 		try {
 			if (initiator) await trimToBudget()
-			const link = await createLinkImpl({ nodeHash: remoteNodeHash, initiator, signal: session, iceServers, localIdentity })
+			const link = await (initiator ? provider.dial : provider.accept)({
+				nodeHash: remoteNodeHash,
+				signal: session,
+				iceServers,
+				localIdentity,
+			})
+			if (!link) {
+				signalSessions.delete(connId)
+				return null
+			}
 			link.onDown(() => signalSessions.delete(connId))
 			await link.ready
 			await registerResolvedLink(remoteNodeHash, link)
@@ -377,14 +497,17 @@ export function createLinkRegistry(options = {}) {
 		const remoteNodeHash = normalizeHex64(packet.from)
 		const connId = String(packet.connId || '')
 		if (!remoteNodeHash || remoteNodeHash === localIdentity.nodeHash || !connId) return
+		// 仅 needsOfferAnswer 走双 PC glare；其它 provider 不吃 SDP 信令。
 		let session = signalSessions.get(connId)
 		if (!session) {
 			// 只有全新的 offer 才开一条独立应答 PC；answer/ice 若无对应 connId 会话则是迟到/无效帧，丢弃。
 			// 应答 PC 按 connId 独立创建，不受按 nodeHash 去重的 inflight 阻挡——这是支持双向同时建链的关键。
 			if (!isOfferSignalBody(packet.body)) return
+			const provider = findOfferAnswerProvider()
+			if (!provider) return
 			session = createConnSession(remoteNodeHash, connId)
 			signalSessions.set(connId, session)
-			void buildConnLink({ remoteNodeHash, connId, session, initiator: false })
+			void buildConnLink({ provider, remoteNodeHash, connId, session, initiator: false })
 		}
 		session.deliver(packet.body)
 	}
@@ -414,9 +537,41 @@ export function createLinkRegistry(options = {}) {
 	}
 
 	/**
-	 * 主动建链到远端节点（initiator）。
+	 * 经 offer/answer provider 拨号（discovery signal + glare）。
+	 * @param {import('../link/providers/index.mjs').LinkProvider} provider 链路提供者
+	 * @param {string} remoteNodeHash 远端 64 hex
+	 * @returns {Promise<object | null>} 当前规范链；失败 null
+	 */
+	async function dialOfferAnswer(provider, remoteNodeHash) {
+		const connId = randomBytes(16).toString('hex')
+		const session = createConnSession(remoteNodeHash, connId)
+		signalSessions.set(connId, session)
+		return await buildConnLink({ provider, remoteNodeHash, connId, session, initiator: true })
+	}
+
+	/**
+	 * 经非 offer/answer provider 拨号。
+	 * @param {import('../link/providers/index.mjs').LinkProvider} provider 链路提供者
+	 * @param {string} remoteNodeHash 远端 64 hex
+	 * @returns {Promise<object | null>} 当前规范链；失败 null
+	 */
+	async function dialProvider(provider, remoteNodeHash) {
+		await trimToBudget()
+		const link = await provider.dial({
+			nodeHash: remoteNodeHash,
+			localIdentity,
+			iceServers,
+		})
+		if (!link) return null
+		await link.ready
+		await registerResolvedLink(remoteNodeHash, link)
+		return links.get(remoteNodeHash) ?? null
+	}
+
+	/**
+	 * 按 level 降序尝试各 LinkProvider，不可用/不可达/失败则回落。
 	 * @param {string} remoteNodeHash 远端节点 64 hex
-	 * @returns {Promise<Awaited<ReturnType<typeof createLinkImpl>> | null>} 链路实例；失败时 null
+	 * @returns {Promise<object | null>} 链路实例；失败时 null
 	 */
 	async function ensureDirectLinkToNode(remoteNodeHash) {
 		await ensureDiscoveryRuntime()
@@ -424,13 +579,31 @@ export function createLinkRegistry(options = {}) {
 		if (!normalized || normalized === localIdentity.nodeHash) return null
 		if (links.has(normalized)) return links.get(normalized)
 		if (inflights.has(normalized)) return await inflights.get(normalized)
-		// 想连就直拨（单向零额外成本）；若对端也在同时拨，双方各建一条 PC，由 registerResolvedLink 择一。
-		// buildConnLink 成功时返回的是规范链而非本条 candidate——glare 双 PC 择一时本条可能是被关闭的败者。
-		const connId = randomBytes(16).toString('hex')
-		const session = createConnSession(normalized, connId)
-		signalSessions.set(connId, session)
-		const task = buildConnLink({ remoteNodeHash: normalized, connId, session, initiator: true })
-			.finally(() => inflights.delete(normalized))
+		const task = (async () => {
+			const providers = await listAvailableLinkProviders()
+			for (const provider of providers) 
+				try {
+					if (typeof provider.canReach === 'function') {
+						const reachable = await Promise.resolve(provider.canReach({ nodeHash: normalized }))
+						if (!reachable) continue
+					}
+					if (provider.caps?.needsOfferAnswer) {
+						// soft-fail 返回 null（不 throw）；必须 continue 才能落到更低 level。
+						const link = await dialOfferAnswer(provider, normalized)
+						if (link) return link
+						console.warn(`p2p: link dial failed for ${provider.id}: soft-fail`)
+						continue
+					}
+					const link = await dialProvider(provider, normalized)
+					if (link) return link
+					console.warn(`p2p: link dial failed for ${provider.id}: soft-fail`)
+				}
+				catch (error) {
+					console.warn(`p2p: link dial failed for ${provider.id}: ${error?.message ?? error}`)
+				}
+			
+			return null
+		})().finally(() => inflights.delete(normalized))
 		inflights.set(normalized, task)
 		return await task
 	}
@@ -465,7 +638,7 @@ export function createLinkRegistry(options = {}) {
 			sendToNodeLink: sendDirectToNodeLink,
 			/**
 			 * 列出当前所有活跃链路。
-			 * @returns {Array<{ nodeHash: string, link: Awaited<ReturnType<typeof createLinkImpl>> }>} 链路列表
+			 * @returns {Array<{ nodeHash: string, link: object }>} 链路列表
 			 */
 			listLinks() {
 				return [...links.entries()].map(([nodeHash, link]) => ({ nodeHash, link }))
@@ -499,7 +672,7 @@ export function createLinkRegistry(options = {}) {
 	/**
 	 * 确保到远端节点的链路（直连或被动应答）。
 	 * @param {string} remoteNodeHash 远端节点 64 hex
-	 * @returns {Promise<Awaited<ReturnType<typeof createLinkImpl>> | null>} 链路实例
+	 * @returns {Promise<object | null>} 链路实例
 	 */
 	async function ensureLinkToNode(remoteNodeHash) {
 		return await ensureDirectLinkToNode(remoteNodeHash)
@@ -520,7 +693,7 @@ export function createLinkRegistry(options = {}) {
 	 * 将入站 envelope 派发到 scope 监听器（经 authorizer 校验）。
 	 * @param {string} senderNodeHash 发送方节点 64 hex
 	 * @param {{ scope: string, action: string, payload: unknown }} envelope 信封
-	 * @param {Awaited<ReturnType<typeof createLinkImpl>>} link 来源链路
+	 * @param {object} link 来源链路
 	 * @returns {Promise<void>}
 	 */
 	async function dispatchEnvelope(senderNodeHash, envelope, link) {
@@ -539,7 +712,7 @@ export function createLinkRegistry(options = {}) {
 	/**
 	 * 订阅指定 scope 前缀的 envelope。
 	 * @param {string} prefix scope 前缀
-	 * @param {(senderNodeHash: string, envelope: { scope: string, action: string, payload: unknown }, link: Awaited<ReturnType<typeof createLinkImpl>>) => void | Promise<void>} listener 监听器
+	 * @param {(senderNodeHash: string, envelope: { scope: string, action: string, payload: unknown }, link: object) => void | Promise<void>} listener 监听器
 	 * @returns {() => void} 取消订阅函数
 	 */
 	function subscribeScope(prefix, listener) {
@@ -549,7 +722,7 @@ export function createLinkRegistry(options = {}) {
 	/**
 	 * 注册 scope 前缀的 authorizer（入站校验）。
 	 * @param {string} prefix scope 前缀
-	 * @param {(scope: string, senderNodeHash: string, envelope: object, link: Awaited<ReturnType<typeof createLinkImpl>>) => boolean | Promise<boolean>} authorizer 校验函数
+	 * @param {(scope: string, senderNodeHash: string, envelope: object, link: object) => boolean | Promise<boolean>} authorizer 校验函数
 	 * @returns {() => void} 取消注册函数
 	 */
 	function registerScopeAuthorizer(prefix, authorizer) {
@@ -559,19 +732,21 @@ export function createLinkRegistry(options = {}) {
 
 	return {
 		localIdentity,
+		buildLocalAdvert,
+		lanTcpPort: resolveLanTcpPort,
 		ensureRuntime: ensureDiscoveryRuntime,
 		ensureLinkToNode,
 		/**
 		 * 获取到指定节点的活跃链路。
 		 * @param {string} nodeHash 节点 64 hex
-		 * @returns {Awaited<ReturnType<typeof createLinkImpl>> | null} 链路实例；不存在时 null
+		 * @returns {object | null} 链路实例；不存在时 null
 		 */
 		getLink(nodeHash) {
 			return links.get(normalizeHex64(nodeHash)) || null
 		},
 		/**
 		 * 列出所有活跃链路。
-		 * @returns {Array<{ nodeHash: string, link: Awaited<ReturnType<typeof createLinkImpl>> }>} 链路列表
+		 * @returns {Array<{ nodeHash: string, link: object }>} 链路列表
 		 */
 		listLinks() {
 			return [...links.entries()].map(([nodeHash, link]) => ({ nodeHash, link }))
@@ -634,11 +809,12 @@ export function createLinkRegistry(options = {}) {
 		 */
 		async subscribeNodeAdvert(nodeHash, onAdvert) {
 			const topic = nodeRendezvousTopic(nodeHash)
-			return await subscribeTopic(topic, async bytes => {
+			return await subscribeTopic(topic, async (bytes, meta) => {
 				const packet = decryptSignalPacket(topic, bytes)
 				if (packet?.type !== 'advert') return
 				const verifiedNodeHash = await verifySignedAdvert(topic, packet.body)
 				if (!verifiedNodeHash) return
+				noteAdvertPeerHints(verifiedNodeHash, packet.body, meta)
 				recentAdverts.touch(verifiedNodeHash, Date.now())
 				await Promise.resolve(onAdvert(verifiedNodeHash, packet.body))
 			})
@@ -652,6 +828,8 @@ export function createLinkRegistry(options = {}) {
 		async shutdown() {
 			stopAdvert?.()
 			stopSignalListener?.()
+			for (const stop of stopLinkListeners.splice(0))
+				try { stop() } catch { /* ignore */ }
 			overlayRouter?.close()
 			overlayRouter = null
 			for (const link of links.values())
@@ -660,6 +838,15 @@ export function createLinkRegistry(options = {}) {
 			inflights.clear()
 			for (const session of signalSessions.values()) session.clear()
 			signalSessions.clear()
+			if (ownedLanTcp) {
+				unregisterLinkProvider(ownedLanTcp.id)
+				ownedLanTcp = null
+			}
+			if (ownedBleGatt) {
+				unregisterLinkProvider(ownedBleGatt.id)
+				ownedBleGatt = null
+			}
+			runtimeStarted = false
 		},
 	}
 }

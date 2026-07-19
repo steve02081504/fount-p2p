@@ -38,7 +38,7 @@ export function createMdnsDiscoveryProvider(options = {}) {
 						resolve()
 					})
 				})
-				socket.on('message', raw => {
+				socket.on('message', (raw, rinfo) => {
 					let packet
 					try { packet = JSON.parse(String(raw)) } catch { return }
 					const listeners = packet.type === 'advert'
@@ -46,8 +46,12 @@ export function createMdnsDiscoveryProvider(options = {}) {
 						: signalListeners.get(String(packet.topic || ''))
 					if (!listeners?.size) return
 					const bytes = Uint8Array.from(Buffer.from(String(packet.data || ''), 'base64'))
+					const meta = {
+						provider: 'mdns',
+						address: String(rinfo?.address || ''),
+					}
 					for (const listener of listeners)
-						listener(bytes, { provider: 'mdns' })
+						listener(bytes, meta)
 				})
 				bound = true
 			})()

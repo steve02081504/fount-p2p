@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 
-import { waitPoweredOn } from '../../discovery/bt.mjs'
+import { waitPoweredOn } from '../../discovery/bt/index.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 
 test('waitPoweredOn prefers waitForPoweredOnAsync', async () => {

@@ -6,7 +6,7 @@ import { test } from 'node:test'
 
 import { keyPairFromSeed, pubKeyHash } from '../../crypto/crypto.mjs'
 import { buildAuth, buildHello } from '../../link/handshake.mjs'
-import { createLink } from '../../link/link.mjs'
+import { createWebRtcLink } from '../../link/providers/webrtc.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 
 /**
@@ -170,7 +170,7 @@ test({
 			onRemote(handler) { signalHandler = handler; return () => { signalHandler = null } },
 		}
 
-		const link = await createLink({
+		const link = await createWebRtcLink({
 			nodeHash: aliceNodeHash,
 			initiator: false,
 			signal,

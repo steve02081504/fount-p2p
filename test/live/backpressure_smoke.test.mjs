@@ -1,9 +1,7 @@
 import { test } from 'node:test'
 
-
-
 import { configureBufferedAmountLowThreshold, onBufferedAmountLow, readBufferedAmount } from '../../link/channel_mux.mjs'
-import { createLink } from '../../link/link.mjs'
+import { createWebRtcLink } from '../../link/providers/webrtc.mjs'
 import { waitForChannelState } from '../../link/rtc.mjs'
 import { DEFAULT_ICE_SERVERS } from '../../transport/ice_servers.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
@@ -70,14 +68,14 @@ test({
 		const alice = identity(31)
 		const bob = identity(32)
 		const signals = createSignalPair()
-		const aliceLink = await createLink({
+		const aliceLink = await createWebRtcLink({
 			nodeHash: bob.nodeHash,
 			initiator: true,
 			signal: signals.left,
 			iceServers: DEFAULT_ICE_SERVERS,
 			localIdentity: alice,
 		})
-		const bobLink = await createLink({
+		const bobLink = await createWebRtcLink({
 			nodeHash: alice.nodeHash,
 			initiator: false,
 			signal: signals.right,
@@ -86,8 +84,8 @@ test({
 		})
 		try {
 			await Promise.all([aliceLink.ready, bobLink.ready])
-			const sender = aliceLink.channel('bulk')
-			const receiver = bobLink.channel('bulk')
+			const sender = aliceLink._channelForTest('bulk')
+			const receiver = bobLink._channelForTest('bulk')
 			if (!sender || !receiver) throw new Error('bulk channel unavailable after link ready')
 			await Promise.all([waitForChannelState(sender, 'open', 30_000), waitForChannelState(receiver, 'open', 30_000)])
 			const basicMessage = waitForMessage(sender, 10_000)

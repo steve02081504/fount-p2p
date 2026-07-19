@@ -7,7 +7,7 @@
 | L0 | `core/` | `hexIds`, `entity_id_parse`, `entity_id`, `logical_entity`, `canonical_json`, `bytes_codec` |
 | L1 | `crypto/`, `wire/`, `schemas/` | Cryptography, wire-protocol ingress, canonical validation |
 | L2 | `node/` | `initNode`, `identity`, `entity_store`, `denylist`, `reputation_store`, `storage_plugins` |
-| L3 | `discovery/`, `link/`, `transport/`, `rooms/` | Discovery, RTC links, rooms |
+| L3 | `discovery/`, `link/`, `transport/`, `rooms/` | Public API = fount network (registry/rooms); `link/providers` are in-package transport impls, not exported |
 | L4 | `trust_graph/`, `mailbox/`, `dag/`, `federation/`, `files/`, `governance/`, `reputation/` | Federation, store-and-forward, DAG, EVFS, tunables |
 
 **Outside the package (shell / frontend; p2p must not import):** Chat/Social semantics, frontend mention rendering, entity identity provisioning, etc. live in the upper shell. Standalone clients use `import { startNode } from '@steve02081504/fount-p2p'`.
@@ -20,7 +20,7 @@ Production import boundary: `test/integration/p2p_shell_import_guard.test.mjs`.
 
 **Tests:** `npm test` — package pure logic (Node). `npm run test:fount` — cross-repo bridge (Deno; fount social uses `npm:`). Dev-time relative import check: `node scripts/check-imports.mjs`. Dead-export scan (pkg src / test+sim / fount cross-repo, `--fount <path>` optional): `node scripts/find-unused-exports.mjs`.
 
-**Test assertions:** `test/helpers/assert.mjs` re-exports `assert` / `assertEquals` / `assertThrows`; import from there in `test/` and `sim/test/` instead of inlining duplicate helpers.
+**Test assertions:** `test/helpers/assert.mjs` re-exports `assert` / `assertEquals` / `assertThrows`; import from there in `test/` and `sim/test/` instead of inlining duplicate helpers. Fixed-seed node identity: `test/helpers/identity.mjs`（`test/live/helpers.mjs` 重导出）。
 
 Fount bridge: `test/fount/` + `test/helpers/fount_paths.mjs` (`fountBridgeSkipReason`: skip if not Deno / no fount / target file missing; hard-fail on import failure). `deno.json` must set `nodeModulesDir: "none"` to avoid polluting this repo's `node_modules`.
 
@@ -34,7 +34,7 @@ Fount bridge: `test/fount/` + `test/helpers/fount_paths.mjs` (`fountBridgeSkipRe
 - **part_query:** multi-hop opaque query (`wire/part_query.mjs`); shell registers `registerQueryInboundHandler(partpath, kind, handler)`; initiator `queryNetwork(...)`; `part_query_res` returns along the reverse path so relays can cache; local cache hit skips broadcast (`wire/part_query_cache.mjs`, short TTL, unverified clues).
 - **Group room startup invariant:** `group_link_set.start()` / `rooms/scoped_link.start()` must call `registry.ensureRuntime()` before topic subscribe/advertise.
 - **User-room startup invariant:** `ensureUserRoom()` must call `registry.ensureRuntime()` on first init.
-- **Signaling & linking:** see [docs/signaling.md](docs/signaling.md).
+- **Fount network:** shells use `startNode` / `ensureLinkToNode` / `sendToNodeLink` / rooms — never import `link/` or pick WebRTC/BLE/LAN TCP. Internal providers + fallback (`lan_tcp` → `webrtc` → `ble_gatt`): [docs/transports.md](docs/transports.md). Offer/answer glare is keyed by `caps.needsOfferAnswer` (not `id === 'webrtc'`). WebRTC glare/signal details: [docs/signaling.md](docs/signaling.md). LAN TCP learns `{host,port}` from discovery meta `address` + signed advert `tcpPort` on node **and** group/scoped topics (`discovery/advert_peer_hints.mjs`); each registry owns its own `lan_tcp:*` / `ble_gatt:*` listen instance and must not `ensureListening` on other registries'. BLE dial gated by `discovery/bt/peer_hints.mjs`. Bluetooth runtime helpers: `discovery/bt/runtime.mjs`；发现提供者：`discovery/bt/index.mjs`。
 - **Mailbox:** store-and-forward at `{nodeDir}/mailbox/store.jsonl`.
 - **Manifest ACL / transfer owner:** shells register matchers; P2P core does not hard-code chat/social types.
 - **Channel message encryption:** per-channel `K_ch`, wire scheme **`ckg`** (`crypto/channel.mjs`); CKG-decrypted payloads must not be trusted outside the DAG Ed25519 signature context.

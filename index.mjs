@@ -1,6 +1,7 @@
 /**
- * Federation P2P 门面：通用引导与房间/发现入口。
- * 重型子系统请直接从子路径导入（如 `./dag/index.mjs`）。
+ * Federation P2P 门面：fount 网络引导与房间/发现入口。
+ * 上层只面对 nodeHash + envelope，不选择 WebRTC/BLE 等传输。
+ * 重型子系统请从子路径导入（如 `./dag`）；勿导入未导出的 `link/`。
  */
 import { registerDiscoveryProvider } from './discovery/index.mjs'
 import { ensureNodeDefaults, getNodeHash } from './node/identity.mjs'

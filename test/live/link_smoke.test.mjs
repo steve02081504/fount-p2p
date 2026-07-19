@@ -2,7 +2,7 @@ import { test } from 'node:test'
 
 
 
-import { createLink } from '../../link/link.mjs'
+import { createWebRtcLink } from '../../link/providers/webrtc.mjs'
 import { DEFAULT_ICE_SERVERS } from '../../transport/ice_servers.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 
@@ -19,14 +19,14 @@ test({
 		const alice = identity(1)
 		const bob = identity(2)
 		const signals = createSignalPair()
-		const aliceLink = await createLink({
+		const aliceLink = await createWebRtcLink({
 			nodeHash: bob.nodeHash,
 			initiator: true,
 			signal: signals.left,
 			iceServers: DEFAULT_ICE_SERVERS,
 			localIdentity: alice,
 		})
-		const bobLink = await createLink({
+		const bobLink = await createWebRtcLink({
 			nodeHash: alice.nodeHash,
 			initiator: false,
 			signal: signals.right,

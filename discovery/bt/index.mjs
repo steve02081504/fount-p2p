@@ -1,55 +1,18 @@
 import { Buffer } from 'node:buffer'
-import process from 'node:process'
+
+import { getBtPeerHint } from './peer_hints.mjs'
+import { loadBleno, loadNoble, resolveBtRole, waitPoweredOn } from './runtime.mjs'
+
+/** 重导出 waitPoweredOn，供 discovery 调用方使用。 */
+export { waitPoweredOn } from './runtime.mjs'
 
 const BT_SERVICE_UUID = 'f017f017f017f017f017f017f017f017'
 const BT_CHARACTERISTIC_UUID = 'f017f017f017f017f017f017f017f018'
+const BT_SIGNAL_CHAR_UUID = 'f017f017f017f017f017f017f017f01b'
 const BT_DEVICE_NAME = 'fount-bt'
 const MAX_ADVERT_BLOB_BYTES = 12 * 1024
+const MAX_SIGNAL_BLOB_BYTES = 8 * 1024
 const PERIPHERAL_RESCAN_MS = 15_000
-
-/**
- * 解析 Bluetooth 发现角色（scan / dual）。
- * @returns {'scan' | 'dual'} 当前平台或环境变量指定的角色
- */
-function resolveBtRole() {
-	const override = String(process.env.FOUNT_BT_DISCOVERY_ROLE || '').trim().toLowerCase()
-	if (override === 'dual') return 'dual'
-	if (override === 'scan') return 'scan'
-	return process.platform === 'win32' ? 'scan' : 'dual'
-}
-
-/**
- * 加载 Noble BLE central 库。
- * @returns {Promise<any>} Noble 运行时实例
- */
-async function loadNoble() {
-	const mod = await import('@stoprocent/noble')
-	if (typeof mod.withBindings === 'function') return mod.withBindings('default')
-	return mod.default ?? mod
-}
-
-/**
- * 加载 Bleno BLE peripheral 库。
- * @returns {Promise<any>} Bleno 运行时实例
- */
-async function loadBleno() {
-	const mod = await import('@stoprocent/bleno')
-	if (typeof mod.withBindings === 'function') return mod.withBindings('default')
-	return mod.default ?? mod
-}
-
-/**
- * 等待 BLE 运行时进入 poweredOn（兼容 noble v1/v2 与 bleno）。
- * @param {*} runtime noble 或 bleno 实例
- * @param {number} [timeout] 超时毫秒
- * @returns {Promise<void>}
- */
-export async function waitPoweredOn(runtime, timeout) {
-	const wait = runtime.waitForPoweredOnAsync ?? runtime.waitForPoweredOn
-	if (typeof wait !== 'function')
-		throw new Error('p2p: bluetooth runtime missing waitForPoweredOn(Async)')
-	return wait.call(runtime, timeout)
-}
 
 /**
  * 探测本机 noble 运行时是否具备 BT 扫描所需 API。
@@ -125,6 +88,7 @@ function addListener(bucket, topic, listener) {
  * - 默认在 Windows 上只启用 scan 侧发现（单适配器 central+peripheral 常冲突）
  * - 其他平台默认 dual：advertise + scan
  * - 通过固定 BLE service + read characteristic 传输完整 advert 列表，避免 31-byte 广告包限制
+ * - dual 下额外暴露 write characteristic 传短信令；central 可按 peer hint 写信令
  *
  * @returns {import('./index.mjs').DiscoveryProvider} Bluetooth 发现提供者
  */
@@ -134,6 +98,8 @@ export function createBluetoothDiscoveryProvider() {
 	const adverts = new Map()
 	/** @type {Map<string, Set<Function>>} */
 	const advertListeners = new Map()
+	/** @type {Map<string, Set<Function>>} */
+	const signalListeners = new Map()
 	/** @type {Map<string, number>} */
 	const inspectedAt = new Map()
 	let nobleRuntime = null
@@ -149,17 +115,17 @@ export function createBluetoothDiscoveryProvider() {
 		if (role === 'scan') return null
 		if (blenoRuntime) return blenoRuntime
 		const bleno = await loadBleno()
-		const characteristic = new bleno.Characteristic({
+		const advertCharacteristic = new bleno.Characteristic({
 			uuid: BT_CHARACTERISTIC_UUID,
 			properties: ['read'],
 			/**
-			 * BLE characteristic 读请求回调。
-			 * @param {*} _handle Bleno handle（未使用）
-			 * @param {number} offset 读取偏移
-			 * @param {Function} callback Bleno 结果回调
+			 * stoprocent/bleno onReadRequest(connection, offset, callback)
+			 * @param {*} _connection 连接句柄
+			 * @param {number} offset 偏移
+			 * @param {Function} callback 结果
 			 * @returns {void}
 			 */
-			onReadRequest(_handle, offset, callback) {
+			onReadRequest(_connection, offset, callback) {
 				try {
 					const blob = serializeAdvertBlob(adverts)
 					if (offset > blob.length) {
@@ -173,11 +139,39 @@ export function createBluetoothDiscoveryProvider() {
 				}
 			},
 		})
+		const signalCharacteristic = new bleno.Characteristic({
+			uuid: BT_SIGNAL_CHAR_UUID,
+			properties: ['write', 'writeWithoutResponse'],
+			/**
+			 * stoprocent/bleno onWriteRequest(connection, data, offset, withoutResponse, callback)
+			 * @param {*} _connection 连接句柄
+			 * @param {Buffer} data 信令 blob
+			 * @param {number} _offset 偏移
+			 * @param {boolean} _withoutResponse 无响应写
+			 * @param {Function} callback 结果
+			 * @returns {void}
+			 */
+			onWriteRequest(_connection, data, _offset, _withoutResponse, callback) {
+				try {
+					const parsed = JSON.parse(Buffer.from(data).toString('utf8'))
+					const topic = String(parsed?.topic || '')
+					const bytes = Uint8Array.from(Buffer.from(String(parsed?.data || ''), 'base64'))
+					if (topic && bytes.byteLength) 
+						for (const listener of signalListeners.get(topic) || [])
+							listener(bytes, { provider: 'bt' })
+					
+					callback(bleno.Characteristic.RESULT_SUCCESS)
+				}
+				catch {
+					callback(bleno.Characteristic.RESULT_UNLIKELY_ERROR)
+				}
+			},
+		})
 		await waitPoweredOn(bleno, 5_000)
 		await bleno.setServicesAsync([
 			new bleno.PrimaryService({
 				uuid: BT_SERVICE_UUID,
-				characteristics: [characteristic],
+				characteristics: [advertCharacteristic, signalCharacteristic],
 			}),
 		])
 		blenoRuntime = bleno
@@ -192,14 +186,14 @@ export function createBluetoothDiscoveryProvider() {
 		if (role === 'scan') return
 		const bleno = await ensurePeripheralRuntime()
 		if (!bleno) return
-		if (!adverts.size) {
+		if (!adverts.size && !signalListeners.size) {
 			if (advertisingStarted) {
 				await bleno.stopAdvertisingAsync().catch(() => { })
 				advertisingStarted = false
 			}
 			return
 		}
-		serializeAdvertBlob(adverts)
+		if (adverts.size) serializeAdvertBlob(adverts)
 		if (!advertisingStarted) {
 			await bleno.startAdvertisingAsync(BT_DEVICE_NAME, [BT_SERVICE_UUID])
 			advertisingStarted = true
@@ -256,10 +250,86 @@ export function createBluetoothDiscoveryProvider() {
 		scanningStarted = true
 	}
 
+	/**
+	 * Central：按 peer hint 连接并对端 signal characteristic 写短包。
+	 * @param {string} topic 信令 topic
+	 * @param {string} to 目标 nodeHash
+	 * @param {Uint8Array} bytes 载荷
+	 * @returns {Promise<void>}
+	 */
+	async function sendSignalViaGatt(topic, to, bytes) {
+		const hint = getBtPeerHint(to)
+		if (!hint) throw new Error('p2p: bt signal missing peer hint')
+		const blob = Buffer.from(JSON.stringify({
+			topic: String(topic),
+			to: String(to),
+			data: Buffer.from(bytes).toString('base64'),
+		}), 'utf8')
+		if (blob.byteLength > MAX_SIGNAL_BLOB_BYTES)
+			throw new Error(`p2p: bt signal blob exceeds ${MAX_SIGNAL_BLOB_BYTES} bytes`)
+		await ensureScanRuntime()
+		const noble = nobleRuntime
+		const wantId = hint.peripheralId
+		/**
+		 * 先查 noble 已缓存的 peripheral，避免只等下一次 advertise 漏报。
+		 * @returns {*|null} 已缓存的 peripheral，未命中为 null
+		 */
+		function cachedPeripheral() {
+			const table = noble?._peripherals
+			if (!table || typeof table !== 'object') return null
+			for (const found of Object.values(table)) {
+				const id = String(found?.id || found?.address || '')
+				if (id === wantId) return found
+			}
+			return null
+		}
+		const peripheral = cachedPeripheral() ?? await new Promise((resolve, reject) => {
+			const deadline = setTimeout(() => {
+				cleanup()
+				reject(new Error('p2p: bt signal peripheral timeout'))
+			}, 8_000)
+			/**
+			 * @returns {void}
+			 */
+			function cleanup() {
+				clearTimeout(deadline)
+				noble.removeListener('discover', onDiscover)
+			}
+			/**
+			 * @param {*} found peripheral
+			 * @returns {void}
+			 */
+			function onDiscover(found) {
+				const id = String(found?.id || found?.address || '')
+				if (id !== wantId) return
+				cleanup()
+				resolve(found)
+			}
+			noble.on('discover', onDiscover)
+			const again = cachedPeripheral()
+			if (again) {
+				cleanup()
+				resolve(again)
+			}
+		})
+		try {
+			await peripheral.connectAsync()
+			const { characteristics } = await peripheral.discoverSomeServicesAndCharacteristicsAsync(
+				[BT_SERVICE_UUID],
+				[BT_SIGNAL_CHAR_UUID],
+			)
+			if (!characteristics?.length) throw new Error('p2p: bt signal characteristic missing')
+			await characteristics[0].writeAsync(blob, false)
+		}
+		finally {
+			try { await peripheral.disconnectAsync() } catch { /* ignore */ }
+		}
+	}
+
 	return {
 		id: 'bt',
 		priority: 20,
-		caps: { canDiscover: true, canSignal: false, canRelay: false },
+		caps: { canDiscover: true, canSignal: true, canRelay: false },
 		/**
 		 * 广播指定 topic 的 advert。
 		 * @param {string} topic advert 主题
@@ -284,6 +354,32 @@ export function createBluetoothDiscoveryProvider() {
 		async subscribe(topic, onAdvert) {
 			await ensureScanRuntime()
 			return addListener(advertListeners, String(topic), onAdvert)
+		},
+		/**
+		 * 经 GATT 向近场 peer 发送信令。
+		 * @param {string} topic 信令 topic
+		 * @param {string} to 目标 nodeHash
+		 * @param {Uint8Array} bytes 载荷
+		 * @returns {Promise<void>}
+		 */
+		async sendSignal(topic, to, bytes) {
+			await sendSignalViaGatt(topic, to, bytes)
+		},
+		/**
+		 * 监听经本机 peripheral signal characteristic 写入的信令。
+		 * @param {string} topic 信令 topic
+		 * @param {Function} onSignal 回调
+		 * @returns {Promise<() => void>} 取消订阅
+		 */
+		async onSignal(topic, onSignal) {
+			if (role === 'scan') return () => { }
+			await ensurePeripheralRuntime()
+			await refreshAdvertising()
+			const stop = addListener(signalListeners, String(topic), onSignal)
+			return () => {
+				stop()
+				void refreshAdvertising().catch(() => { })
+			}
 		},
 	}
 }

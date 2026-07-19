@@ -1,5 +1,6 @@
+import { noteAdvertPeerHints } from '../discovery/advert_peer_hints.mjs'
 import { advertiseTopic, subscribeTopic } from '../discovery/index.mjs'
-import { buildSignedAdvert, verifySignedAdvert } from '../link/handshake.mjs'
+import { verifySignedAdvert } from '../link/handshake.mjs'
 import {
 	groupRendezvousTopic,
 	decryptSignalPacket,
@@ -102,18 +103,19 @@ export function createScopedLinkRoom(options) {
 				if (!discoveredPeers.has(nodeHash)) return
 				notePeerLeave(nodeHash)
 			}))
-			cleanups.add(await subscribeTopic(topic, async bytes => {
+			cleanups.add(await subscribeTopic(topic, async (bytes, meta) => {
 				const packet = decryptSignalPacket(topic, bytes)
 				if (packet?.type !== 'advert' || !packet.body) return
 				const verifiedNodeHash = await verifySignedAdvert(topic, packet.body)
 				if (!verifiedNodeHash || !allowNode(verifiedNodeHash)) return
+				noteAdvertPeerHints(verifiedNodeHash, packet.body, meta)
 				discoveredPeers.add(verifiedNodeHash)
 				await registry.ensureLinkToNode(verifiedNodeHash).catch(() => null)
 				if (registry.getLink(verifiedNodeHash)) notePeerJoin(verifiedNodeHash)
 			}))
 			cleanups.add(await advertiseTopic(topic, encryptSignalPacket(topic, {
 				type: 'advert',
-				body: await buildSignedAdvert(topic, Date.now(), registry.localIdentity),
+				body: await registry.buildLocalAdvert(topic),
 			})))
 			for (const peerId of activePeerIds())
 				notePeerJoin(peerId)

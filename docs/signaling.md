@@ -1,15 +1,17 @@
 # P2P signaling notes
 
+Maintainer notes for the **internal** WebRTC provider (`needsOfferAnswer`). Shells should not depend on this path; see [transports.md](transports.md) for the public fount-network boundary.
+
 ## connId dual-PC pick-one (glare elimination)
 
-`link.mjs` is a stateless dumb pipe — it does not do WebRTC perfect-negotiation/rollback (the `node-datachannel` polyfill's `setLocalDescription` is a no-op for anything but an offer, and `rollback` is unavailable). The root cause of glare errors is an offer/answer state-machine conflict on a **single PeerConnection**: both sides enter `have-local-offer` at nearly the same time and `setRemoteDescription(offer)` throws `InvalidStateError`.
+`link/pipe.mjs` is a stateless dumb pipe — it does not do WebRTC perfect-negotiation/rollback (the `node-datachannel` polyfill's `setLocalDescription` is a no-op for anything but an offer, and `rollback` is unavailable). The root cause of glare errors is an offer/answer state-machine conflict on a **single PeerConnection**: both sides enter `have-local-offer` at nearly the same time and `setRemoteDescription(offer)` throws `InvalidStateError`.
 
 So link setup is "both sides dial directly; on a true simultaneous dial build two PCs, then deterministically drop one". The logic all lives in `link_registry.mjs`:
 
-- **Dial directly when you want to connect — zero extra cost for a one-way dial.** `ensureDirectLinkToNode` generates a random `connId`, then builds `createConnSession(remote, connId)` + `createLink({ initiator: true })`. Every outbound signal frame looks like `{ type: 'signal', from, connId, body }`, and `signalSessions` is indexed by `connId`.
+- **Dial directly when you want to connect — zero extra cost for a one-way dial.** `ensureDirectLinkToNode` generates a random `connId`, then builds `createConnSession(remote, connId)` + webrtc provider `dial`. Every outbound signal frame looks like `{ type: 'signal', from, connId, body }`, and `signalSessions` is indexed by `connId`.
 - **Inbound `handleIncomingSignal` routes by connId**:
   - Session already exists for that `connId` → deliver the body (follow-up answer/ice for a connection we initiated or are answering).
-  - No session for that `connId` and body is an offer → build a **new independent answer PC**: `createConnSession` + `createLink({ initiator: false })`. The answer PC is created independently per `connId` and is **not blocked by the per-nodeHash `inflights` dedupe** — this is the key that allows simultaneous bidirectional setup.
+  - No session for that `connId` and body is an offer → build a **new independent answer PC**: `createConnSession` + webrtc provider `accept`. The answer PC is created independently per `connId` and is **not blocked by the per-nodeHash `inflights` dedupe** — this is the key that allows simultaneous bidirectional setup.
   - No session for that `connId` and not an offer (a late ice/answer) → drop it.
 - **Deterministic pick-one** `registerResolvedLink`: keep the link "initiated by the smaller nodeHash" (`linkIsPreferred`: `initiator ? local<remote : remote<local`), so both ends reach the same conclusion for any given link. The winner is set as the canonical link before the old link is closed (so on the old link's `onDown`, `links.get` already points at the winner and no spurious linkDown fires); the loser is closed silently with `close('glare-loser')`. **Only the final canonical link fires `linkUp`.**
 - **`onDown` only emits `linkDown` when the link being closed is the current canonical one**, avoiding a spurious peer-leave when the loser is closed while both PCs coexist.
@@ -19,7 +21,7 @@ In the normal case (one side online, the other just booting a one-way dial) no s
 
 ## hello/auth handshake frame ordering
 
-The link handshake rides two control-channel frames: each side sends `hello` (`{ v, nodeHash, nodePubKey, nonce }`), then replies `auth` (`sign(peerNonce + localFingerprint + localNodeHash)`) once it has seen the peer's `hello`. On a simultaneous bidirectional dial these frames can arrive out of order: the initiator's `localDescription` is ready early, so it replies `auth` as soon as it receives our `hello` — before it emits its own `hello` (which waits for the data channel to open). An `auth` that lands before the peer's `hello` **must be buffered and verified once `hello` arrives, never dropped** — dropping it leaves the responder's `remoteAuthVerified` permanently false, so the handshake times out, the link collapses, and federation never reaches `members>=2`. Fixed in `link/link.mjs` (`pendingAuth` buffer); regression guard: `test/pure/link_handshake_reorder.test.mjs`.
+The link handshake rides two control-channel frames: each side sends `hello` (`{ v, nodeHash, nodePubKey, nonce }`), then replies `auth` (`sign(peerNonce + localBinding + localNodeHash)`) once it has seen the peer's `hello`. On a simultaneous bidirectional dial these frames can arrive out of order: the initiator's `localDescription` is ready early, so it replies `auth` as soon as it receives our `hello` — before it emits its own `hello` (which waits for the data channel to open). An `auth` that lands before the peer's `hello` **must be buffered and verified once `hello` arrives, never dropped** — dropping it leaves the responder's `remoteAuthVerified` permanently false, so the handshake times out, the link collapses, and federation never reaches `members>=2`. Fixed in `link/pipe.mjs` (`pendingAuth` buffer); regression guard: `test/pure/link_handshake_reorder.test.mjs`.
 
 ## Sparse group linking (peer_pool)
 

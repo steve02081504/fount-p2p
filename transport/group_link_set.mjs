@@ -1,5 +1,6 @@
+import { noteAdvertPeerHints } from '../discovery/advert_peer_hints.mjs'
 import { advertiseTopic, subscribeTopic } from '../discovery/index.mjs'
-import { buildSignedAdvert, verifySignedAdvert } from '../link/handshake.mjs'
+import { verifySignedAdvert } from '../link/handshake.mjs'
 import { loadPeerPoolView } from '../node/network.mjs'
 import { loadReputation } from '../node/reputation_store.mjs'
 
@@ -186,17 +187,18 @@ export function createGroupLinkSet(options) {
 			if (!members.has(nodeHash) || nodeHash === selfNodeHash) return
 			notePeerLeave(nodeHash)
 		}))
-		registerCleanup(await subscribeTopic(topic, async bytes => {
+		registerCleanup(await subscribeTopic(topic, async (bytes, meta) => {
 			const packet = decryptSignalPacket(topic, bytes)
 			if (packet?.type !== 'advert' || !packet.body) return
 			const verifiedNodeHash = await verifySignedAdvert(topic, packet.body)
 			if (!verifiedNodeHash || verifiedNodeHash === selfNodeHash) return
+			noteAdvertPeerHints(verifiedNodeHash, packet.body, meta)
 			// 发现新成员：并入成员集并去抖重算稀疏建链目标（notePeerCandidate 内部会 scheduleDial）。
 			notePeerCandidate(verifiedNodeHash)
 		}))
 		registerCleanup(await advertiseTopic(topic, encryptSignalPacket(topic, {
 			type: 'advert',
-			body: await buildSignedAdvert(topic, Date.now(), registry.localIdentity),
+			body: await registry.buildLocalAdvert(topic),
 		})))
 		if (autoconnect) selectAndDial()
 		for (const { peerId } of activeRoster())
