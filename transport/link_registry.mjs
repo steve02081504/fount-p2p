@@ -315,7 +315,9 @@ export function createLinkRegistry(options = {}) {
 		/** @type {import('../link/providers/index.mjs').LinkProvider[]} */
 		const listenProviders = []
 		if (ownedLanTcp) listenProviders.push(ownedLanTcp)
-		if (ownedBleGatt) listenProviders.push(ownedBleGatt)
+		// 无适配器时 isAvailable 应在 import native 前返回 false；勿无条件 ensureListening（会 loadBleno）。
+		if (ownedBleGatt && await Promise.resolve(ownedBleGatt.isAvailable()))
+			listenProviders.push(ownedBleGatt)
 		for (const provider of await listAvailableLinkProviders()) {
 			const id = String(provider.id)
 			if (id.startsWith('lan_tcp') || id.startsWith('ble_gatt')) continue

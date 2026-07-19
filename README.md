@@ -54,7 +54,7 @@ During development: `node scripts/check-imports.mjs` validates relative imports.
 
 ## Optional dependencies
 
-- `@stoprocent/noble` / `@stoprocent/bleno` — Bluetooth discovery (attempted by default; skipped when not installed)
+- `@stoprocent/noble` / `@stoprocent/bleno` — Bluetooth (optionalDependencies). Unavailable when there is no adapter, load fails, or the radio never reaches poweredOn — other discovery/link paths continue.
 
 Group chunk remote storage (S3, etc.) is implemented by the shell as `GroupStoragePlugin` and injected; see `node/storage_plugins.mjs` for the local reference implementation.
 

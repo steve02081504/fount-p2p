@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto'
 
 import { normalizeHex64 } from '../../core/hexIds.mjs'
 import { getBtPeerHint } from '../../discovery/bt/peer_hints.mjs'
-import { loadBleno, loadNoble, resolveBtRole, waitPoweredOn } from '../../discovery/bt/runtime.mjs'
+import { canUseBluetoothRuntime, loadBleno, loadNoble, resolveBtRole, waitPoweredOn } from '../../discovery/bt/runtime.mjs'
 import { asLinkHandle, coercePipeInbound, createLinkPipe } from '../pipe.mjs'
 
 import { LINK_LEVEL_BLE_GATT } from './levels.mjs'
@@ -14,23 +14,12 @@ export const BLE_DATA_SERVICE_UUID = 'f017f017f017f017f017f017f017f019'
 export const BLE_DATA_CHAR_UUID = 'f017f017f017f017f017f017f017f01a'
 const BT_DEVICE_NAME = 'fount-bt'
 
-let cachedAvailable = null
-
 /**
- * 探测 BLE GATT 数据链路是否可用（至少 noble central）。
+ * 探测 BLE GATT 数据链路是否可用；失败则回落其它 link provider。
  * @returns {Promise<boolean>} 可用为 true
  */
 export async function canUseBleGattLink() {
-	if (cachedAvailable !== null) return cachedAvailable
-	try {
-		const noble = await loadNoble()
-		const wait = noble.waitForPoweredOnAsync ?? noble.waitForPoweredOn
-		cachedAvailable = typeof noble.startScanningAsync === 'function' && typeof wait === 'function'
-	}
-	catch {
-		cachedAvailable = false
-	}
-	return cachedAvailable
+	return canUseBluetoothRuntime()
 }
 
 /**

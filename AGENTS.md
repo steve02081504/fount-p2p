@@ -37,6 +37,7 @@
 - **part_query:** multi-hop opaque query (`wire/part_query.mjs`); shell registers `registerQueryInboundHandler`; initiator `queryNetwork(...)`; responses reverse-path so relays can cache (`wire/part_query_cache.mjs`).
 - **Room startup:** `group_link_set.start()` / `scoped_link.start()` / first `ensureUserRoom()` must call `registry.ensureRuntime()` before subscribe/advertise.
 - **Fount network:** shells use `startNode` / `ensureLinkToNode` / `sendToNodeLink` / rooms — never import `link/` or pick a transport. Internals + silent multi-path degrade: [docs/transports.md](docs/transports.md). WebRTC glare/signal: [docs/signaling.md](docs/signaling.md).
+- **Bluetooth:** optionalDependencies `@stoprocent/noble` / `bleno`. `canUseBluetoothRuntime` (hardware probe → load → poweredOn) returns false on any failure so discovery/link fall back to other paths; skip native import when no adapter is present (avoids CI SIGSEGV). Do not add env kill-switches to disable BT.
 - **Mailbox:** `{nodeDir}/mailbox/store.jsonl`.
 - **Manifest ACL / transfer owner:** shells register matchers; core does not hard-code chat/social types.
 - **Channel encryption:** per-channel `K_ch`, scheme `ckg` (`crypto/channel.mjs`); decrypted payloads are untrusted outside DAG Ed25519 context.

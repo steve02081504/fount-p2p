@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 
 import { getBtPeerHint } from './peer_hints.mjs'
-import { loadBleno, loadNoble, resolveBtRole, waitPoweredOn } from './runtime.mjs'
+import { canUseBluetoothRuntime, loadBleno, loadNoble, resolveBtRole, waitPoweredOn } from './runtime.mjs'
 
 /** 重导出 waitPoweredOn，供 discovery 调用方使用。 */
 export { waitPoweredOn } from './runtime.mjs'
@@ -15,19 +15,11 @@ const MAX_SIGNAL_BLOB_BYTES = 8 * 1024
 const PERIPHERAL_RESCAN_MS = 15_000
 
 /**
- * 探测本机 noble 运行时是否具备 BT 扫描所需 API。
- * @returns {Promise<boolean>} noble 可加载且具备 startScanningAsync 与 waitForPoweredOn(Async) 时为 true
+ * 探测本机 BT discovery 是否可用；失败则回落其它 discovery，不抛错。
+ * @returns {Promise<boolean>} 可用为 true
  */
 export async function canUseBluetoothDiscovery() {
-	try {
-		const noble = await loadNoble()
-		if (typeof noble.startScanningAsync !== 'function') return false
-		const wait = noble.waitForPoweredOnAsync ?? noble.waitForPoweredOn
-		return typeof wait === 'function'
-	}
-	catch {
-		return false
-	}
+	return canUseBluetoothRuntime()
 }
 
 /**
