@@ -1,4 +1,4 @@
-/** @typedef {{ id: string, priority: number, caps: { canDiscover?: boolean, canSignal?: boolean, canRelay?: boolean }, advertise?: (topic: string, bytes: Uint8Array) => (() => void) | Promise<() => void>, subscribe?: (topic: string, onAdvert: (bytes: Uint8Array, meta?: object) => void) => (() => void) | Promise<() => void>, sendSignal?: (topic: string, to: string, bytes: Uint8Array) => void | Promise<void>, onSignal?: (topic: string, onSignal: (bytes: Uint8Array, meta?: object) => void) => (() => void) | Promise<() => void> }} DiscoveryProvider */
+/** @typedef {{ id: string, priority: number, caps: { canDiscover?: boolean, canSignal?: boolean, canRelay?: boolean }, advertise?: (topic: string, bytes: Uint8Array) => (() => void) | Promise<() => void>, subscribe?: (topic: string, onAdvert: (bytes: Uint8Array, meta?: object) => void) => (() => void) | Promise<() => void>, canSignalTo?: (to: string) => boolean, sendSignal?: (topic: string, to: string, bytes: Uint8Array) => void | Promise<void>, onSignal?: (topic: string, onSignal: (bytes: Uint8Array, meta?: object) => void) => (() => void) | Promise<() => void> }} DiscoveryProvider */
 
 /** @type {Map<string, DiscoveryProvider>} */
 const providers = new Map()
@@ -95,15 +95,14 @@ export async function sendSignal(topic, to, bytes) {
 	if (!capable.length) throw new Error('p2p: no discovery provider can signal')
 	let sent = false
 	let lastError = null
-	for (const provider of capable)
-		try {
-			await Promise.resolve(provider.sendSignal(topic, to, bytes))
-			sent = true
-		}
-		catch (error) {
-			lastError = error
-			console.warn(`p2p: discovery signal failed for ${provider.id}`, error)
-		}
+	for (const provider of capable) if (provider?.canSignalTo?.(to)) try {
+		await Promise.resolve(provider.sendSignal(topic, to, bytes))
+		sent = true
+	}
+	catch (error) {
+		lastError = error
+		console.warn(`p2p: discovery signal failed for ${provider.id}`, error)
+	}
 	if (!sent) throw lastError || new Error('p2p: no discovery provider delivered signal')
 }
 

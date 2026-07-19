@@ -331,6 +331,14 @@ export function createBluetoothDiscoveryProvider() {
 		priority: 20,
 		caps: { canDiscover: true, canSignal: true, canRelay: false },
 		/**
+		 * 是否具备对该 peer 的 GATT 信令能力（需未过期 BT peer hint）。
+		 * @param {string} to 目标 nodeHash
+		 * @returns {boolean} 有 hint 则可尝试
+		 */
+		canSignalTo(to) {
+			return !!getBtPeerHint(to)
+		},
+		/**
 		 * 广播指定 topic 的 advert。
 		 * @param {string} topic advert 主题
 		 * @param {Uint8Array} bytes advert 载荷

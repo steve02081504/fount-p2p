@@ -1,11 +1,16 @@
 import { test } from 'node:test'
 
+import { createBluetoothDiscoveryProvider } from '../../discovery/bt/index.mjs'
 import {
 	BT_PEER_HINT_TTL_MS,
 	clearBtPeerHints,
 	getBtPeerHint,
 	noteBtPeerHint,
 } from '../../discovery/bt/peer_hints.mjs'
+import {
+	registerDiscoveryProvider,
+	sendSignal,
+} from '../../discovery/index.mjs'
 import { createBleGattLinkProvider } from '../../link/providers/ble_gatt.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 
@@ -31,4 +36,32 @@ test('ble_gatt canReach follows bt peer hint', () => {
 	assertEquals(provider.canReach({ nodeHash }), true)
 	clearBtPeerHints()
 	assertEquals(provider.canReach({ nodeHash }), false)
+})
+
+test('bt canSignalTo follows peer hint; sendSignal skips without warn path', async () => {
+	clearBtPeerHints()
+	const nodeHash = 'ab'.repeat(32)
+	const bt = createBluetoothDiscoveryProvider()
+	assertEquals(bt.canSignalTo(nodeHash), false)
+
+	let delivered = 0
+	const fallback = {
+		id: 'test-signal-fallback',
+		priority: 0,
+		caps: { canSignal: true },
+		sendSignal() { delivered++ },
+	}
+	const stopBt = registerDiscoveryProvider(bt)
+	const stopFallback = registerDiscoveryProvider(fallback)
+	try {
+		await sendSignal('topic', nodeHash, new Uint8Array([1]))
+		assertEquals(delivered, 1)
+		noteBtPeerHint(nodeHash, 'aa:bb:cc:dd:ee:ff')
+		assertEquals(bt.canSignalTo(nodeHash), true)
+	}
+	finally {
+		stopBt()
+		stopFallback()
+		clearBtPeerHints()
+	}
 })
