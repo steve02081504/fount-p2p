@@ -23,7 +23,7 @@ export function resolveRtcBudgetLimits(limits = {}) {
 		maxActive: Math.max(4, Math.min(128, Number(limits.maxActive) || 32)),
 		maxJoinsPerMin: Math.max(1, Math.min(120, Number(limits.maxJoinsPerMin) || 12)),
 		overloadCooldownMs: Math.max(1000, Number(limits.overloadCooldownMs) || 15_000),
-		trustedPeers: Array.isArray(limits.trustedPeers) ? limits.trustedPeers.map(String) : [],
+		trustedPeers: limits.trustedPeers || [],
 		trustedReserveFraction: Math.max(0.1, Math.min(0.5, Number(limits.trustedReserveFraction) || DEFAULT_TRUSTED_RESERVE_FRACTION)),
 		minTrustedReserved: Math.max(1, Math.floor(Number(limits.minTrustedReserved) || DEFAULT_MIN_TRUSTED_RESERVED)),
 	}
@@ -85,10 +85,14 @@ export function takeRtcJoinSlot(roomKey, peerId, limits = {}, sourceId = 'peer')
 	const isTrusted = peerId && bucket.trustedPeers.has(peerId)
 	const trustedReserved = Math.max(minTrustedReserved, Math.floor(maxActive * trustedReserveFraction))
 	const maxNonTrusted = Math.max(1, maxActive - trustedReserved)
-	const nonTrustedCount = [...bucket.active].filter(id => !bucket.trustedPeers.has(id)).length
+	let nonTrustedCount = 0
+	for (const id of bucket.active)
+		if (!bucket.trustedPeers.has(id)) nonTrustedCount++
 	if (!isTrusted) {
 		const source = String(sourceId || 'peer')
-		const sameSource = [...bucket.sourceByPeer.entries()].filter(([, s]) => s === source).length
+		let sameSource = 0
+		for (const peerSource of bucket.sourceByPeer.values())
+			if (peerSource === source) sameSource++
 		const sourceCap = Math.max(1, Math.floor(maxActive * MAX_SOURCE_SLOT_FRACTION))
 		if (sameSource >= sourceCap) return false
 		if (nonTrustedCount >= maxNonTrusted && bucket.active.size >= maxActive) {
@@ -149,6 +153,16 @@ export function releaseRtcPeer(roomKey, peerId) {
 	bucket.active.delete(peerId)
 	bucket.sourceByPeer.delete(peerId)
 	bucket.peerNodeHash.delete(peerId)
+	// 房间空闲后丢掉桶，避免 leave 过的 roomKey 永久占内存
+	if (!bucket.active.size) budgets.delete(roomKey)
+}
+
+/**
+ * 当前预算桶数量（测试用）。
+ * @returns {number} 房间桶数
+ */
+export function rtcBudgetRoomCount() {
+	return budgets.size
 }
 
 /** RTC 过载时跳过的非关键联邦 action */
@@ -180,5 +194,5 @@ const NON_CRITICAL_FED_ACTIONS = new Set([
  */
 export function isFederationActionAllowedUnderLoad(roomKey, actionName, limits = {}) {
 	if (!isRtcRoomOverloaded(roomKey, limits)) return true
-	return !NON_CRITICAL_FED_ACTIONS.has(String(actionName || '').trim())
+	return !NON_CRITICAL_FED_ACTIONS.has(actionName)
 }

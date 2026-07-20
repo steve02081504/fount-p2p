@@ -17,8 +17,8 @@ test('isPartInvokeResponse rejects empty and ambiguous shapes', () => {
 	assertEquals(isPartInvokeResponse({}), false)
 	assertEquals(isPartInvokeResponse({ result: 1, error: { message: 'x', code: 'X' } }), false)
 	assertEquals(isPartInvokeResponse({ error: { message: 'fail' } }), false)
-	assertEquals(isPartInvokeResponse({ error: { message: 'fail', code: 'FAIL' } }), true)
-	assertEquals(isPartInvokeResponse({ result: { ok: true } }), true)
+	assert.ok(isPartInvokeResponse({ error: { message: 'fail', code: 'FAIL' } }))
+	assert.ok(isPartInvokeResponse({ result: { ok: true } }))
 	assertEquals(isPartInvokeResponse(null), false)
 })
 

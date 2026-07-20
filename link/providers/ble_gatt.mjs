@@ -4,9 +4,10 @@ import { randomBytes } from 'node:crypto'
 import { normalizeHex64 } from '../../core/hexIds.mjs'
 import { getBtPeerHint } from '../../discovery/bt/peer_hints.mjs'
 import { canUseBluetoothRuntime, loadBleno, loadNoble, resolveBtRole, waitPoweredOn } from '../../discovery/bt/runtime.mjs'
-import { asLinkHandle, coercePipeInbound, createLinkPipe } from '../pipe.mjs'
+import { asLinkHandle } from '../pipe.mjs'
 
 import { LINK_LEVEL_BLE_GATT } from './levels.mjs'
+import { buildLinkOpen, createLinkIdBoundPipe, parseLinkOpen } from './link_id_pipe.mjs'
 
 /** BLE GATT 数据 service UUID。 */
 export const BLE_DATA_SERVICE_UUID = 'f017f017f017f017f017f017f017f019'
@@ -28,19 +29,13 @@ export async function canUseBleGattLink() {
  * @returns {Promise<import('./index.mjs').LinkHandle>} 已启动握手的 link
  */
 async function openGattPipe(options) {
-	const linkId = normalizeHex64(options.linkId)
-	if (!linkId) throw new Error('p2p: ble_gatt linkId required')
-
-	const pipe = createLinkPipe({
+	const pipe = createLinkIdBoundPipe({
 		providerId: 'ble_gatt',
 		level: LINK_LEVEL_BLE_GATT,
 		initiator: !!options.initiator,
+		linkId: options.linkId,
 		nodeHash: options.nodeHash,
 		localIdentity: options.localIdentity,
-		/** @returns {string} 本端 binding（linkId） */
-		getLocalBinding: () => linkId,
-		/** @returns {string} 对端 binding（linkId） */
-		getRemoteBinding: () => linkId,
 		/**
 		 * @param {string} text control JSON
 		 * @returns {Promise<void>}
@@ -60,18 +55,17 @@ async function openGattPipe(options) {
 	})
 
 	const stopNotify = options.onNotify(data => {
-		pipe.handleInbound(coercePipeInbound(data))
+		pipe.handleInbound(data)
 	})
 	pipe.onDown(() => {
 		try { stopNotify() } catch { /* ignore */ }
 	})
 
 	if (options.initiator)
-		await Promise.resolve(options.write(Buffer.from(JSON.stringify({
-			type: 'link-open',
-			linkId,
-			from: options.localIdentity?.nodeHash || '',
-		}), 'utf8')))
+		await Promise.resolve(options.write(Buffer.from(
+			buildLinkOpen(normalizeHex64(options.linkId), options.localIdentity?.nodeHash),
+			'utf8',
+		)))
 
 	await pipe.startHandshake()
 	return asLinkHandle(pipe)
@@ -131,7 +125,7 @@ async function dialBleGatt(options) {
 	/** @type {Set<(data: Buffer) => void>} */
 	const notifyHandlers = new Set()
 	characteristic.on('data', data => {
-		if (data == null) return
+		if (!data) return
 		for (const handler of notifyHandlers)
 			handler(Buffer.from(data))
 	})
@@ -239,20 +233,14 @@ export function createBleGattLinkProvider() {
 	 */
 	async function acceptPeripheralWrite(buf) {
 		if (activeInbound || acceptInflight || !onInbound || !localIdentity) return
-		let parsed
-		try {
-			parsed = JSON.parse(Buffer.from(buf).toString('utf8'))
-		}
-		catch {
-			return
-		}
-		if (parsed?.type !== 'link-open' || !parsed.linkId) return
+		const opened = parseLinkOpen(buf)
+		if (!opened) return
 		acceptInflight = true
 		try {
 			const link = await openGattPipe({
 				initiator: false,
-				linkId: parsed.linkId,
-				nodeHash: normalizeHex64(parsed.from) || null,
+				linkId: opened.linkId,
+				nodeHash: opened.from,
 				localIdentity,
 				/**
 				 * @param {Buffer} data 出站

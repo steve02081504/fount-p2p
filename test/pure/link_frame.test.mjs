@@ -10,7 +10,7 @@ test('encodeFrames and createReassembler round-trip a multi-frame payload', () =
 	const frames = encodeFrames('ab'.repeat(16), payload)
 	assertEquals(frames.length > 1, true)
 	const first = decodeFrame(frames[0])
-	assertEquals(first.msgId, 'ab'.repeat(16))
+	assertEquals(first.frameId, 'ab'.repeat(16))
 	assertEquals(first.seq, 0)
 	assertEquals(first.total, frames.length)
 	const reassembler = createReassembler()

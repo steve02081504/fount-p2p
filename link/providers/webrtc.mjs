@@ -11,10 +11,11 @@ import {
 } from '../channel_mux.mjs'
 import { asLinkHandle, createLinkPipe } from '../pipe.mjs'
 import {
+	attachChannelMessageListener,
 	attachDataChannelListener,
 	attachIceCandidateListener,
 	loadNodeRtcPolyfill,
-	signalDataToBytes,
+	dataToBytes,
 	waitForChannelState,
 } from '../rtc.mjs'
 import { extractDtlsFingerprint } from '../sdp_fingerprint.mjs'
@@ -28,22 +29,6 @@ import { LINK_LEVEL_WEBRTC } from './levels.mjs'
  */
 function formatErrorReason(error) {
 	return String(error?.message ?? error ?? 'unknown-error').replace(/\s+/g, ' ').slice(0, 240)
-}
-
-/**
- * 绑定 data channel message 回调。
- * @param {RTCDataChannel} channel RTC 数据通道
- * @param {(data: unknown) => void} handler 消息处理器
- * @returns {void}
- */
-function attachChannelMessageListener(channel, handler) {
-	channel.addEventListener?.('message', event => handler(event?.data))
-	/**
-	 * @param {MessageEvent} event 消息事件
-	 * @returns {void}
-	 */
-	channel.onmessage = event => handler(event?.data)
-	channel.onMessage?.subscribe(message => handler(message))
 }
 
 let cachedAvailable = null
@@ -83,7 +68,7 @@ export async function createWebRtcLink(options) {
 	const channelOpenTimeoutMs = Math.max(handshakeTimeoutMs, ms('30s'))
 	const trickleIceOff = getSignalingRuntimeConfig().trickleIceOff === true
 	const rtc = options.rtc ?? await loadNodeRtcPolyfill()
-	const pc = new rtc.RTCPeerConnection(options.iceServers?.length ? { iceServers: options.iceServers } : undefined)
+	const peerConnection = new rtc.RTCPeerConnection(options.iceServers?.length ? { iceServers: options.iceServers } : undefined)
 	const remoteSignalQueue = []
 	const seenRemoteSignals = createLruMap(1024)
 	let remoteDescriptionSet = false
@@ -113,9 +98,9 @@ export async function createWebRtcLink(options) {
 		idleTimeoutMs: options.idleTimeoutMs,
 		handshakeTimeoutMs,
 		/** @returns {string} 本端 DTLS fingerprint */
-		getLocalBinding: () => extractDtlsFingerprint(pc.localDescription?.sdp || ''),
+		getLocalBinding: () => extractDtlsFingerprint(peerConnection.localDescription?.sdp || ''),
 		/** @returns {string} 对端 DTLS fingerprint */
-		getRemoteBinding: () => extractDtlsFingerprint(pc.remoteDescription?.sdp || ''),
+		getRemoteBinding: () => extractDtlsFingerprint(peerConnection.remoteDescription?.sdp || ''),
 		/**
 		 * @param {string} text control JSON
 		 * @returns {void}
@@ -141,15 +126,15 @@ export async function createWebRtcLink(options) {
 			sendQueues?.clear()
 			try { controlChannel?.close() } catch { /* ignore */ }
 			try { bulkChannel?.close() } catch { /* ignore */ }
-			try { await pc.close() } catch { /* ignore */ }
+			try { await peerConnection.close() } catch { /* ignore */ }
 		},
 		/**
 		 * @returns {object} WebRTC 附加 stats
 		 */
 		extraStats() {
 			return {
-				connectionState: pc.connectionState,
-				iceConnectionState: pc.iceConnectionState,
+				connectionState: peerConnection.connectionState,
+				iceConnectionState: peerConnection.iceConnectionState,
 				reconnectCount,
 				pending: sendQueues?.pending() ?? { control: 0, bulk: 0 },
 				controlBufferedAmount: controlChannel?.bufferedAmount ?? 0,
@@ -167,10 +152,14 @@ export async function createWebRtcLink(options) {
 	function attachBackpressurePump(channel) {
 		configureBufferedAmountLowThreshold(channel, CHANNEL_LOW_THRESHOLD_BYTES)
 		onBufferedAmountLow(channel, () => {
-			if (channel.label === CHANNEL_CONTROL) controlLowEvents++
-			if (channel.label === CHANNEL_BULK) bulkLowEvents++
-			if (channel.label === CHANNEL_CONTROL) sendQueues?.flush(CHANNEL_CONTROL)
-			if (channel.label === CHANNEL_BULK) sendQueues?.flush(CHANNEL_BULK)
+			if (channel.label === CHANNEL_CONTROL) {
+				controlLowEvents++
+				sendQueues?.flush(CHANNEL_CONTROL)
+			}
+			else if (channel.label === CHANNEL_BULK) {
+				bulkLowEvents++
+				sendQueues?.flush(CHANNEL_BULK)
+			}
 		})
 	}
 
@@ -179,7 +168,7 @@ export async function createWebRtcLink(options) {
 	 * @returns {Promise<void>}
 	 */
 	async function applyRemoteDescription(description) {
-		await pc.setRemoteDescription(description)
+		await peerConnection.setRemoteDescription(description)
 		remoteDescriptionSet = true
 		await flushQueuedIceCandidates()
 	}
@@ -196,9 +185,9 @@ export async function createWebRtcLink(options) {
 	 * @returns {Promise<void>}
 	 */
 	async function waitForIceGatheringComplete() {
-		if (!trickleIceOff || pc.iceGatheringState === 'complete') return
+		if (!trickleIceOff || peerConnection.iceGatheringState === 'complete') return
 		const deadline = Date.now() + handshakeTimeoutMs
-		while (pc.iceGatheringState !== 'complete' && Date.now() < deadline)
+		while (peerConnection.iceGatheringState !== 'complete' && Date.now() < deadline)
 			await new Promise(resolve => setTimeout(resolve, 50))
 	}
 
@@ -206,11 +195,11 @@ export async function createWebRtcLink(options) {
 	 * @returns {Promise<void>}
 	 */
 	async function flushQueuedIceCandidates() {
-		if (!remoteDescriptionSet || !pc.localDescription) return
+		if (!remoteDescriptionSet || !peerConnection.localDescription) return
 		while (remoteSignalQueue.length) {
 			const candidate = remoteSignalQueue.shift()
 			try {
-				await pc.addIceCandidate(candidate)
+				await peerConnection.addIceCandidate(candidate)
 			}
 			catch (error) {
 				if (shouldRetryQueuedIce(error)) {
@@ -227,33 +216,35 @@ export async function createWebRtcLink(options) {
 	 * @returns {Promise<void>}
 	 */
 	async function handleRemoteSignal(message) {
-		if (!message || typeof message !== 'object') return
-		const signalKey = JSON.stringify(message)
+		if (!message?.type) return
+		const signalKey = message.type === 'ice' && message.candidate
+			? `ice:${message.candidate.candidate ?? ''}:${message.candidate.sdpMid ?? ''}:${message.candidate.sdpMLineIndex ?? ''}`
+			: JSON.stringify(message)
 		if (seenRemoteSignals.has(signalKey)) return
 		seenRemoteSignals.touch(signalKey, true)
 		if (message.type === 'description' && message.description) {
-			if (message.description.type === 'answer' && pc.signalingState === 'stable') return
+			if (message.description.type === 'answer' && peerConnection.signalingState === 'stable') return
 			await applyRemoteDescription(message.description)
 			if (message.description.type === 'offer') {
-				const answer = await pc.createAnswer()
-				await pc.setLocalDescription(answer)
+				const answer = await peerConnection.createAnswer()
+				await peerConnection.setLocalDescription(answer)
 				await flushQueuedIceCandidates()
 				await waitForIceGatheringComplete()
 				await sendSignal({
 					type: 'description',
-					description: pc.localDescription?.toJSON?.() ?? pc.localDescription ?? answer,
+					description: peerConnection.localDescription?.toJSON?.() ?? peerConnection.localDescription ?? answer,
 				})
 				await pipe.maybeSendAuth()
 			}
 			return
 		}
 		if (message.type === 'ice' && message.candidate) {
-			if (!remoteDescriptionSet || !pc.localDescription || pc.signalingState !== 'stable') {
+			if (!remoteDescriptionSet || !peerConnection.localDescription || peerConnection.signalingState !== 'stable') {
 				remoteSignalQueue.push(message.candidate)
 				return
 			}
 			try {
-				await pc.addIceCandidate(message.candidate)
+				await peerConnection.addIceCandidate(message.candidate)
 			}
 			catch (error) {
 				if (shouldRetryQueuedIce(error)) {
@@ -276,7 +267,7 @@ export async function createWebRtcLink(options) {
 		attachChannelMessageListener(channel, data => {
 			try {
 				if (typeof data === 'string') pipe.handleInbound(data)
-				else pipe.handleInbound(signalDataToBytes(data))
+				else pipe.handleInbound(dataToBytes(data))
 			}
 			catch { /* drop */ }
 		})
@@ -307,36 +298,36 @@ export async function createWebRtcLink(options) {
 		void handleRemoteSignal(message).catch(error => pipe.close(`signal-error:${formatErrorReason(error)}`))
 	}) ?? null
 
-	attachIceCandidateListener(pc, event => {
+	attachIceCandidateListener(peerConnection, event => {
 		if (trickleIceOff || !event.candidate) return
 		void sendSignal({
 			type: 'ice',
 			candidate: typeof event.candidate.toJSON === 'function' ? event.candidate.toJSON() : event.candidate,
 		}).catch(error => pipe.close(`signal-send-failed:${formatErrorReason(error)}`))
 	})
-	attachDataChannelListener(pc, event => {
+	attachDataChannelListener(peerConnection, event => {
 		void attachChannel(event.channel)
 			.then(() => maybeStartPostOpenFlow())
 			.catch(error => pipe.close(`channel-attach-failed:${error?.message ?? error}`))
 	})
 
 	/** 连接失败/关闭时关掉 pipe。 */
-	pc.onconnectionstatechange = () => {
-		if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) {
+	peerConnection.onconnectionstatechange = () => {
+		if (['failed', 'closed', 'disconnected'].includes(peerConnection.connectionState)) {
 			reconnectCount++
-			void pipe.close(`connection-${pc.connectionState}`)
+			void pipe.close(`connection-${peerConnection.connectionState}`)
 		}
 	}
 
 	if (options.initiator) {
-		await attachChannel(pc.createDataChannel(CHANNEL_CONTROL))
-		await attachChannel(pc.createDataChannel(CHANNEL_BULK))
-		const offer = await pc.createOffer()
-		await pc.setLocalDescription(offer)
+		await attachChannel(peerConnection.createDataChannel(CHANNEL_CONTROL))
+		await attachChannel(peerConnection.createDataChannel(CHANNEL_BULK))
+		const offer = await peerConnection.createOffer()
+		await peerConnection.setLocalDescription(offer)
 		await waitForIceGatheringComplete()
 		await sendSignal({
 			type: 'description',
-			description: pc.localDescription?.toJSON?.() ?? pc.localDescription ?? offer,
+			description: peerConnection.localDescription?.toJSON?.() ?? peerConnection.localDescription ?? offer,
 		})
 	}
 

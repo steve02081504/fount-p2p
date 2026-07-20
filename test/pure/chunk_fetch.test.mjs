@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { test } from 'node:test'
 
 
-import { u8ToB64 } from '../../core/bytes_codec.mjs'
+import { bytesToBase64 } from '../../core/bytes_codec.mjs'
 import {
 	pendingChunkFetches,
 	resolvePendingChunkFetch,
@@ -67,10 +67,10 @@ test('chunkBytesMatchHash rejects mismatched digest', () => {
 test('resolvePendingChunkFetch ignores hash mismatch until valid response', () => {
 	const requestId = 'req-mismatch-then-match'
 	const waiter = installChunkFetchWaiter(requestId)
-	resolvePendingChunkFetch({ requestId, dataB64: u8ToB64(BAD_BYTES) })
+	resolvePendingChunkFetch({ requestId, dataBase64: bytesToBase64(BAD_BYTES) })
 	assertEquals(waiter.resolved(), undefined)
 	assertEquals(pendingChunkFetches.has(requestId), true)
-	resolvePendingChunkFetch({ requestId, dataB64: u8ToB64(GOOD_BYTES) })
+	resolvePendingChunkFetch({ requestId, dataBase64: bytesToBase64(GOOD_BYTES) })
 	assertEquals(waiter.resolved()?.byteLength, GOOD_BYTES.byteLength)
 	assertEquals(pendingChunkFetches.has(requestId), false)
 })
@@ -78,6 +78,6 @@ test('resolvePendingChunkFetch ignores hash mismatch until valid response', () =
 test('resolvePendingChunkFetch accepts matching hash', () => {
 	const requestId = 'req-match'
 	const waiter = installChunkFetchWaiter(requestId)
-	resolvePendingChunkFetch({ requestId, dataB64: u8ToB64(GOOD_BYTES) })
+	resolvePendingChunkFetch({ requestId, dataBase64: bytesToBase64(GOOD_BYTES) })
 	assertEquals(waiter.resolved()?.byteLength, GOOD_BYTES.byteLength)
 })

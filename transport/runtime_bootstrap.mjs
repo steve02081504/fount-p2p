@@ -40,7 +40,7 @@ export function collectFastListenProviders(ownedLanTcp) {
 		if (id.startsWith('lan_tcp') || id.startsWith('ble_gatt')) continue
 		if (typeof provider.ensureListening !== 'function') continue
 		if (providerHasNativeProbe(provider)) continue
-		if (typeof provider.isAvailable === 'function') {
+		if (typeof provider.isAvailable === 'function')
 			try {
 				const available = provider.isAvailable()
 				// 未标 probe:native 却返回 thenable：跳过，勿 await。
@@ -48,7 +48,7 @@ export function collectFastListenProviders(ownedLanTcp) {
 				if (!available) continue
 			}
 			catch { continue }
-		}
+
 		listenProviders.push(provider)
 	}
 	return listenProviders
@@ -200,6 +200,9 @@ export function createRuntimeBootstrap(deps) {
 	function chainStop(kind, stop) {
 		if (kind === 'signal') {
 			const prev = stopSignalListener
+			/**
+			 *
+			 */
 			stopSignalListener = () => {
 				try { stop() } catch { /* ignore */ }
 				prev?.()
@@ -207,6 +210,9 @@ export function createRuntimeBootstrap(deps) {
 			return
 		}
 		const prev = stopAdvert
+		/**
+		 *
+		 */
 		stopAdvert = () => {
 			try { stop() } catch { /* ignore */ }
 			prev?.()

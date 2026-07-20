@@ -4,9 +4,10 @@ import net from 'node:net'
 
 import { normalizeHex64 } from '../../core/hexIds.mjs'
 import { getLanPeerHint } from '../../discovery/lan_peer_hints.mjs'
-import { asLinkHandle, coercePipeInbound, createLinkPipe } from '../pipe.mjs'
+import { asLinkHandle } from '../pipe.mjs'
 
 import { LINK_LEVEL_LAN_TCP } from './levels.mjs'
+import { buildLinkOpen, createLinkIdBoundPipe, parseLinkOpen } from './link_id_pipe.mjs'
 
 const MAX_FRAME_BYTES = 1 << 20
 
@@ -85,22 +86,17 @@ function attachLengthPrefix(socket, onPayload) {
 /**
  * 在已挂 codec 的 socket 上创建 pipe。
  * @param {object} options 配置
- * @returns {ReturnType<typeof createLinkPipe>} pipe 句柄
+ * @returns {ReturnType<typeof createLinkIdBoundPipe>} pipe 句柄
  */
 function createTcpPipe(options) {
-	const linkId = normalizeHex64(options.linkId)
-	if (!linkId) throw new Error('p2p: lan_tcp linkId required')
 	const { socket, codec } = options
-	const pipe = createLinkPipe({
+	const pipe = createLinkIdBoundPipe({
 		providerId: 'lan_tcp',
 		level: LINK_LEVEL_LAN_TCP,
 		initiator: !!options.initiator,
+		linkId: options.linkId,
 		nodeHash: options.nodeHash,
 		localIdentity: options.localIdentity,
-		/** @returns {string} 本端 binding（linkId） */
-		getLocalBinding: () => linkId,
-		/** @returns {string} 对端 binding（linkId） */
-		getRemoteBinding: () => linkId,
 		/**
 		 * @param {string} text control JSON
 		 * @returns {void}
@@ -141,8 +137,8 @@ function createTcpPipe(options) {
  * @returns {Promise<import('./index.mjs').LinkHandle>} 已启动握手的 link
  */
 async function openTcpPipe(options) {
-	const socket = options.socket
-	/** @type {ReturnType<typeof createLinkPipe> | null} */
+	const { socket } = options
+	/** @type {ReturnType<typeof createLinkIdBoundPipe> | null} */
 	let pipe = null
 	/** @type {Buffer[]} */
 	const pending = []
@@ -151,19 +147,15 @@ async function openTcpPipe(options) {
 			pending.push(payload)
 			return
 		}
-		pipe.handleInbound(coercePipeInbound(payload))
+		pipe.handleInbound(payload)
 	})
 
 	pipe = createTcpPipe({ ...options, codec, socket })
 	for (const payload of pending.splice(0))
-		pipe.handleInbound(coercePipeInbound(payload))
+		pipe.handleInbound(payload)
 
 	if (options.initiator)
-		codec.write(JSON.stringify({
-			type: 'link-open',
-			linkId: normalizeHex64(options.linkId),
-			from: options.localIdentity?.nodeHash || '',
-		}))
+		codec.write(buildLinkOpen(normalizeHex64(options.linkId), options.localIdentity?.nodeHash))
 
 	await pipe.startHandshake()
 	return asLinkHandle(pipe)
@@ -238,30 +230,23 @@ export function createLanTcpLinkProvider() {
 			socket.destroy()
 			return
 		}
-		/** @type {ReturnType<typeof createLinkPipe> | null} */
+		/** @type {ReturnType<typeof createLinkIdBoundPipe> | null} */
 		let pipe = null
 		const codec = attachLengthPrefix(socket, payload => {
 			if (pipe) {
-				pipe.handleInbound(coercePipeInbound(payload))
+				pipe.handleInbound(payload)
 				return
 			}
-			let parsed
-			try {
-				parsed = JSON.parse(payload.toString('utf8'))
-			}
-			catch {
-				socket.destroy()
-				return
-			}
-			if (parsed?.type !== 'link-open' || !parsed.linkId) {
+			const opened = parseLinkOpen(payload)
+			if (!opened) {
 				socket.destroy()
 				return
 			}
 			try {
 				pipe = createTcpPipe({
 					initiator: false,
-					linkId: parsed.linkId,
-					nodeHash: normalizeHex64(parsed.from) || null,
+					linkId: opened.linkId,
+					nodeHash: opened.from,
 					localIdentity,
 					socket,
 					codec,
@@ -324,7 +309,7 @@ export function createLanTcpLinkProvider() {
 					server.listen(0, '0.0.0.0', () => {
 						server.off('error', reject)
 						const addr = server.address()
-						listenPort = typeof addr === 'object' && addr ? addr.port : 0
+						listenPort = addr?.port || 0
 						resolve()
 					})
 				})

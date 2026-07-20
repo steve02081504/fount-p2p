@@ -30,8 +30,8 @@ export function parsePullAttestation(attestation) {
 	const signature = String(attestation.signature || '').trim().toLowerCase()
 	if (!isHex64(requesterPubKeyHash) || !groupId || !Number.isFinite(timestamp) || !isSignatureHex128(signature))
 		return null
-	const wantIds = Array.isArray(attestation.wantIds)
-		? [...new Set(attestation.wantIds.map(id => String(id).trim().toLowerCase()).filter(id => EVENT_ID_HEX.test(id)))]
+	const wantIds = attestation.wantIds?.length
+		? [...new Set(attestation.wantIds.map(id => id.trim().toLowerCase()).filter(id => EVENT_ID_HEX.test(id)))]
 		: undefined
 	return {
 		requesterPubKeyHash,

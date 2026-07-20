@@ -6,6 +6,9 @@ import { listLinkProviders } from '../link/providers/index.mjs'
 
 import { decryptSignalPacket, encryptSignalPacket, nodeRendezvousTopic } from './signal_crypto.mjs'
 
+/** accept/dial 挂起期间 ICE 信令 backlog 上限，防无 handler 时无限堆积 */
+const SIGNAL_BACKLOG_MAX = 64
+
 /**
  * 创建带 backlog 的缓冲信令会话。
  * @param {(message: unknown) => Promise<void>} sendRemote 远端发送回调
@@ -37,12 +40,13 @@ export function createBufferedSignalSession(sendRemote) {
 			return () => handlers.delete(handler)
 		},
 		/**
-		 * 投递信令消息；无 handler 时入 backlog。
+		 * 投递信令消息；无 handler 时入 backlog（有界）。
 		 * @param {unknown} message 信令消息
 		 * @returns {void}
 		 */
 		deliver(message) {
 			if (!handlers.size) {
+				if (backlog.length >= SIGNAL_BACKLOG_MAX) backlog.shift()
 				backlog.push(message)
 				return
 			}
@@ -157,7 +161,7 @@ export function createOfferAnswerDial(deps) {
 	 */
 	async function handleIncomingSignal(bytes) {
 		const packet = decryptSignalPacket(selfTopic, bytes)
-		if (!packet || packet.type !== 'signal') return
+		if (packet?.type !== 'signal') return
 		const remoteNodeHash = normalizeHex64(packet.from)
 		const connId = String(packet.connId || '')
 		if (!remoteNodeHash || remoteNodeHash === localIdentity.nodeHash || !connId) return

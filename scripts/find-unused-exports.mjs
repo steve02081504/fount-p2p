@@ -49,9 +49,9 @@ function walk(dir) {
 function namedExportsOf(text) {
 	/** @type {Set<string>} */
 	const names = new Set()
-	for (const m of text.matchAll(/^export\s+(?:async\s+)?(?:function\s*\*?|class|const|let)\s+([A-Za-z_$][\w$]*)/gmu))
+	for (const m of text.matchAll(/^export\s+(?:async\s+)?(?:function\s*\*?|class|const|let)\s+([$A-Z_a-z][\w$]*)/gmu))
 		names.add(m[1])
-	for (const m of text.matchAll(/^export\s*\{([^}]*)\}/gmu))
+	for (const m of text.matchAll(/^export\s*{([^}]*)}/gmu))
 		for (const piece of m[1].split(',')) {
 			const name = piece.split(/\s+as\s+/u).pop()?.trim()
 			if (name && name !== 'default') names.add(name)
@@ -62,7 +62,7 @@ function namedExportsOf(text) {
 const repoFiles = walk(ROOT)
 const packageFiles = repoFiles.filter(file => {
 	const rel = file.slice(ROOT.length + 1)
-	return !NON_PACKAGE_DIRS.has(rel.split(/[\\/]/u)[0])
+	return !NON_PACKAGE_DIRS.has(rel.split(/[/\\]/u)[0])
 })
 
 /** @type {Array<{ file: string, text: string }>} 引用侧全集：本仓 + 可选 fount */

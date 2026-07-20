@@ -49,9 +49,9 @@ export function isSignedCheckpoint(checkpoint) {
  * @returns {Promise<{ valid: boolean, reason?: string }>} 校验结果；`valid` 为 false 时 `reason` 说明原因
  */
 export async function verifyRemoteCheckpoint(checkpoint) {
-	if (!checkpoint || typeof checkpoint !== 'object')
+	if (!checkpoint)
 		return { valid: false, reason: 'checkpoint missing or not an object' }
-	if (!Array.isArray(checkpoint.eventIdsInEpoch) || checkpoint.eventIdsInEpoch.length === 0)
+	if (!checkpoint.eventIdsInEpoch?.length)
 		return { valid: false, reason: 'eventIdsInEpoch missing or empty' }
 	const root = merkleRoot(checkpoint.eventIdsInEpoch)
 	if (checkpoint.epoch_root_hash !== root)

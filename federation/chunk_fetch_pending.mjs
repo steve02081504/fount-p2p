@@ -1,4 +1,4 @@
-import { b64ToU8 } from '../core/bytes_codec.mjs'
+import { base64ToBytes } from '../core/bytes_codec.mjs'
 import { verifiedChunkBytes } from '../files/chunk_fetch_verify.mjs'
 
 /** @type {Map<string, { expectedHash: string, timer: ReturnType<typeof setTimeout>, resolve: (v: Uint8Array | null) => void, reject?: (e: Error) => void }>} */
@@ -109,14 +109,13 @@ export function resolveChunkFetchWait(key, expectedHash, bytes) {
  * @returns {boolean} 是否命中 pending
  */
 export function resolvePendingChunkFetch(payload) {
-	const requestId = String(payload?.requestId || '')
+	const requestId = typeof payload?.requestId === 'string' ? payload.requestId : ''
 	if (!requestId) return false
 	const entry = pendingChunkFetches.get(requestId)
 	if (!entry) return false
-	if (payload?.dataB64) {
+	if (typeof payload?.dataBase64 === 'string') {
 		try {
-			const bytes = b64ToU8(String(payload.dataB64))
-			return resolveChunkFetchWait(requestId, entry.expectedHash, bytes)
+			return resolveChunkFetchWait(requestId, entry.expectedHash, base64ToBytes(payload.dataBase64))
 		}
 		catch { /* keep waiting */ }
 		return false

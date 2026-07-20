@@ -116,7 +116,7 @@ export async function handleIncomingPartInvokeRequest(wireContext, payload, wire
 	if (!partpath || !payload.requestId) return
 
 	const response = await dispatchPartInvoke(wireContext, { ...payload, peerId })
-	if (response == null || !isPartInvokeResponse(response)) return
+	if (!isPartInvokeResponse(response)) return
 
 	try {
 		wire.send('part_invoke_response', {
@@ -159,14 +159,12 @@ export async function handleIncomingPartInvokeFireAndForget(wireContext, payload
  * @returns {void}
  */
 export function handleIncomingPartInvokeResponse(payload, peerId = '') {
-	const pending = pendingPartInvoke.get(String(payload?.requestId || ''))
-	if (!pending || payload?.response == null) return
-	const peerKey = String(peerId || payload?.nodeHash || '').trim()
-	if (peerKey) {
-		if (pending.respondedPeers.has(peerKey)) return
-		pending.respondedPeers.add(peerKey)
+	const pending = pendingPartInvoke.get(payload.requestId)
+	if (!pending || !isPartInvokeResponse(payload.response)) return
+	if (peerId) {
+		if (pending.respondedPeers.has(peerId)) return
+		pending.respondedPeers.add(peerId)
 	}
-	if (!isPartInvokeResponse(payload.response)) return
 	pending.responses.push(payload.response)
 	if (pending.responses.length >= pending.maxResponses) pending.finish()
 }

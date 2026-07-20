@@ -56,7 +56,7 @@ export function resolveEventTopologicalOrder(events, cache, options = {}) {
 	const tipsHash = computeLocalTipsHash(tips)
 	const eventCount = events.length
 
-	if (cache && Array.isArray(cache.order) && cache.order.length) {
+	if (cache?.order?.length) {
 		if (cache.tipsHash === tipsHash && cache.eventCount === eventCount) {
 			const ok = cache.order.length === eventCount && cache.order.every(id => byId.has(id))
 			if (ok) return cache.order

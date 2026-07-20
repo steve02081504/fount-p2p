@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { schnorr } from '@noble/curves/secp256k1.js'
 import WebSocket from 'ws'
 
+import { base64ToBytes, hexToBytes, bytesToBase64, bytesToHex } from '../core/bytes_codec.mjs'
 import { sha256Hex } from '../crypto/crypto.mjs'
 
 /** 默认 Nostr 中继 URL 列表。 */
@@ -57,15 +58,9 @@ function dropWebSocket(ws) {
  */
 function dedupeRelayUrls(urls) {
 	const seen = new Set()
-	/** @type {string[]} */
-	const out = []
-	for (const url of Array.isArray(urls) ? urls : []) {
-		const trimmed = String(url || '').trim()
-		if (!trimmed || seen.has(trimmed)) continue
-		seen.add(trimmed)
-		out.push(trimmed)
-	}
-	return out
+	return (urls || [])
+		.map(url => url.trim())
+		.filter(trimmed => trimmed && !seen.has(trimmed) && (seen.add(trimmed), true))
 }
 
 /**
@@ -74,48 +69,8 @@ function dedupeRelayUrls(urls) {
  * @returns {string[]} 合并后的中继 URL 列表
  */
 export function mergeSignalingRelayUrls(userRelayUrls) {
-	const merged = dedupeRelayUrls([...DEFAULT_RELAY_URLS, ...Array.isArray(userRelayUrls) ? userRelayUrls : []])
+	const merged = dedupeRelayUrls([...DEFAULT_RELAY_URLS, ...userRelayUrls || []])
 	return merged.length ? merged : [...DEFAULT_RELAY_URLS]
-}
-
-/**
- * 字节数组转十六进制字符串。
- * @param {Uint8Array} bytes 输入字节
- * @returns {string} 小写 hex 字符串
- */
-function bytesToHex(bytes) {
-	return [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('')
-}
-
-/**
- * 十六进制字符串转字节数组。
- * @param {string} hex 输入 hex 字符串
- * @returns {Uint8Array} 解码后的字节
- */
-function hexToBytes(hex) {
-	const normalized = String(hex || '').trim().toLowerCase()
-	const out = new Uint8Array(Math.floor(normalized.length / 2))
-	for (let index = 0; index < out.length; index++)
-		out[index] = parseInt(normalized.slice(index * 2, index * 2 + 2), 16)
-	return out
-}
-
-/**
- * 字节数组转 base64 字符串。
- * @param {Uint8Array} bytes 输入字节
- * @returns {string} base64 编码
- */
-function bytesToBase64(bytes) {
-	return btoa(String.fromCharCode(...bytes))
-}
-
-/**
- * base64 字符串转字节数组。
- * @param {string} base64 输入 base64 字符串
- * @returns {Uint8Array} 解码后的字节
- */
-function base64ToBytes(base64) {
-	return Uint8Array.from(atob(base64).split('').map(ch => ch.charCodeAt(0)))
 }
 
 /**
@@ -232,6 +187,37 @@ function connectRelaysProgressive(relayUrls, onOpen, signal, sockets) {
 }
 
 /**
+ * 订阅指定 kind 的 Nostr 事件（渐进连中继，立即返回 cleanup）。
+ * @param {string[]} relayUrls 中继 URL 列表
+ * @param {{ kind: number, topic: string, tagX: string, onPayload: (bytes: Uint8Array, meta: { relayUrl: string, event: object }) => void }} options 订阅选项
+ * @returns {() => void} 取消订阅
+ */
+function subscribeNostrKind(relayUrls, options) {
+	const { kind, topic, tagX, onPayload } = options
+	const abortController = new AbortController()
+	/** @type {import('ws').WebSocket[]} */
+	const sockets = []
+	const subscriptionId = randomBytes(8).toString('hex')
+	connectRelaysProgressive(relayUrls, (ws, relayUrl) => {
+		ws.on('message', data => {
+			if (abortController.signal.aborted) return
+			let parsed
+			try { parsed = JSON.parse(String(data)) } catch { return }
+			if (parsed?.[0] !== 'EVENT') return
+			const nostrEvent = parsed[2]
+			if (nostrEvent?.kind !== kind) return
+			try { onPayload(base64ToBytes(nostrEvent.content), { relayUrl, event: nostrEvent }) }
+			catch { /* ignore */ }
+		})
+		ws.send(JSON.stringify(['REQ', subscriptionId, { kinds: [kind], '#t': [topic], '#x': [tagX] }]))
+	}, abortController.signal, sockets)
+	return () => {
+		abortController.abort()
+		for (const ws of sockets) dropWebSocket(ws)
+	}
+}
+
+/**
  * 创建 Nostr discovery provider。
  * subscribe/onSignal/advertise 首调用不阻塞等公网中继；连上后渐进生效。
  * `options.relayUrls` 为最终列表（调用方 `mergeSignalingRelayUrls`，或直接传入 `relayOverride`）。
@@ -240,9 +226,7 @@ function connectRelaysProgressive(relayUrls, onOpen, signal, sockets) {
  * @returns {import('./index.mjs').DiscoveryProvider} Nostr 发现提供者
  */
 export function createNostrDiscoveryProvider(options = {}) {
-	const relayUrls = options.relayUrls != null
-		? dedupeRelayUrls(options.relayUrls)
-		: [...DEFAULT_RELAY_URLS]
+	const relayUrls = dedupeRelayUrls(options.relayUrls || DEFAULT_RELAY_URLS)
 	const secretKey = randomBytes(32)
 	return {
 		id: 'nostr',
@@ -255,25 +239,25 @@ export function createNostrDiscoveryProvider(options = {}) {
 		 * @returns {Promise<() => void>} 取消广播函数
 		 */
 		async advertise(topic, bytes) {
-			const ac = new AbortController()
+			const abortController = new AbortController()
 			/**
 			 * 向中继发布当前 advert。
 			 * @returns {Promise<void>}
 			 */
 			const publish = async () => {
-				if (ac.signal.aborted) return
+				if (abortController.signal.aborted) return
 				const event = await signNostrEvent(
 					NOSTR_ADVERT_KIND,
 					[['t', topic], ['x', 'advert']],
 					bytesToBase64(bytes),
 					secretKey,
 				)
-				await publishEvent(relayUrls, event, ac.signal)
+				await publishEvent(relayUrls, event, abortController.signal)
 			}
 			void publish().catch(() => { })
 			const timer = setInterval(() => { void publish().catch(() => { }) }, 5 * 60_000)
 			return () => {
-				ac.abort()
+				abortController.abort()
 				clearInterval(timer)
 			}
 		},
@@ -284,27 +268,12 @@ export function createNostrDiscoveryProvider(options = {}) {
 		 * @returns {Promise<() => void>} 取消订阅函数
 		 */
 		async subscribe(topic, onAdvert) {
-			const ac = new AbortController()
-			/** @type {import('ws').WebSocket[]} */
-			const sockets = []
-			const subscriptionId = randomBytes(8).toString('hex')
-			connectRelaysProgressive(relayUrls, (ws, relayUrl) => {
-				ws.on('message', data => {
-					if (ac.signal.aborted) return
-					let parsed
-					try { parsed = JSON.parse(String(data)) } catch { return }
-					if (!Array.isArray(parsed) || parsed[0] !== 'EVENT') return
-					const nostrEvent = parsed[2]
-					if (nostrEvent?.kind !== NOSTR_ADVERT_KIND) return
-					try { onAdvert(base64ToBytes(String(nostrEvent.content || '')), { relayUrl, event: nostrEvent }) }
-					catch { /* ignore */ }
-				})
-				ws.send(JSON.stringify(['REQ', subscriptionId, { kinds: [NOSTR_ADVERT_KIND], '#t': [topic], '#x': ['advert'] }]))
-			}, ac.signal, sockets)
-			return () => {
-				ac.abort()
-				for (const ws of sockets) dropWebSocket(ws)
-			}
+			return subscribeNostrKind(relayUrls, {
+				kind: NOSTR_ADVERT_KIND,
+				topic,
+				tagX: 'advert',
+				onPayload: onAdvert,
+			})
 		},
 		/**
 		 * 向中继发布 signal 事件（按需发送，仍等待至少一路成功）。
@@ -329,27 +298,12 @@ export function createNostrDiscoveryProvider(options = {}) {
 		 * @returns {Promise<() => void>} 取消订阅函数
 		 */
 		async onSignal(topic, onSignal) {
-			const ac = new AbortController()
-			/** @type {import('ws').WebSocket[]} */
-			const sockets = []
-			const subscriptionId = randomBytes(8).toString('hex')
-			connectRelaysProgressive(relayUrls, (ws, relayUrl) => {
-				ws.on('message', data => {
-					if (ac.signal.aborted) return
-					let parsed
-					try { parsed = JSON.parse(String(data)) } catch { return }
-					if (!Array.isArray(parsed) || parsed[0] !== 'EVENT') return
-					const nostrEvent = parsed[2]
-					if (nostrEvent?.kind !== NOSTR_SIGNAL_KIND) return
-					try { onSignal(base64ToBytes(String(nostrEvent.content || '')), { relayUrl, event: nostrEvent }) }
-					catch { /* ignore */ }
-				})
-				ws.send(JSON.stringify(['REQ', subscriptionId, { kinds: [NOSTR_SIGNAL_KIND], '#t': [topic], '#x': ['signal'] }]))
-			}, ac.signal, sockets)
-			return () => {
-				ac.abort()
-				for (const ws of sockets) dropWebSocket(ws)
-			}
+			return subscribeNostrKind(relayUrls, {
+				kind: NOSTR_SIGNAL_KIND,
+				topic,
+				tagX: 'signal',
+				onPayload: onSignal,
+			})
 		},
 	}
 }

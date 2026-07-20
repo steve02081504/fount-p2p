@@ -1,8 +1,8 @@
+import { spawn } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { spawn } from 'node:child_process'
 
 /**
  * 解析 Bluetooth 角色（scan / dual）。
@@ -92,14 +92,14 @@ export async function canUseBluetoothRuntime(timeoutMs = 3000) {
 		cachedRuntimeOk = false
 		return false
 	}
-	if (!probeInflight) {
+	if (!probeInflight)
 		probeInflight = probeBluetoothInSubprocess(timeoutMs)
 			.then(ok => {
 				cachedRuntimeOk = ok
 				return ok
 			})
 			.finally(() => { probeInflight = null })
-	}
+
 	return probeInflight
 }
 

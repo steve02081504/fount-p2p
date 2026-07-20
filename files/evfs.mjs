@@ -86,7 +86,7 @@ export async function storeManifestParts(manifest, partBytes) {
  */
 export async function readManifestPlaintext(replicaUsername, manifest, options = {}) {
 	const dagGroupId = manifest.meta?.groupId
-	if (Array.isArray(manifest.meta?.dagParts) && dagGroupId) {
+	if (manifest.meta?.dagParts?.length && dagGroupId) {
 		const dagPlain = await readDagManifestPlaintext(replicaUsername, manifest)
 		if (dagPlain) return dagPlain
 	}
@@ -110,7 +110,7 @@ export async function readManifestPlaintext(replicaUsername, manifest, options =
  */
 export async function readManifestPlaintextStream(replicaUsername, manifest, options = {}) {
 	const dagGroupId = manifest.meta?.groupId
-	if (Array.isArray(manifest.meta?.dagParts) && dagGroupId) {
+	if (manifest.meta?.dagParts?.length && dagGroupId) {
 		const plain = await readManifestPlaintext(replicaUsername, manifest, options)
 		if (!plain) return null
 		return Readable.from([plain])

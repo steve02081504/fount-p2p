@@ -145,7 +145,7 @@ export async function verifyAuth(hello, auth, expectedNonce, remoteBinding) {
 export function buildAdvertMessage(topic, ts, nodeHash, tcpPort = null) {
 	const base = `fount-advert\0${String(topic)}\0${String(ts)}\0${normalizeHex64(nodeHash)}`
 	const port = normalizeTcpPort(tcpPort)
-	return Buffer.from(port == null ? base : `${base}\0${port}`, 'utf8')
+	return Buffer.from(port ? `${base}\0${port}` : base, 'utf8')
 }
 
 /**
@@ -165,7 +165,7 @@ export async function buildSignedAdvert(topic, ts = Date.now(), options = null) 
 	if (pubKeyHash(Buffer.from(nodePubKey, 'hex')) !== nodeHash)
 		throw new Error('p2p: advert nodePubKey does not match nodeHash')
 	const tcpPort = normalizeTcpPort(options?.tcpPort)
-	if (options?.tcpPort != null && options.tcpPort !== '' && tcpPort == null)
+	if (options?.tcpPort && !tcpPort)
 		throw new Error('p2p: advert tcpPort invalid')
 	const message = buildAdvertMessage(topic, ts, nodeHash, tcpPort)
 	const sig = await sign(message, secretKey)
@@ -175,7 +175,7 @@ export async function buildSignedAdvert(topic, ts = Date.now(), options = null) 
 		ts,
 		sig: Buffer.from(sig).toString('hex'),
 	}
-	if (tcpPort != null) advert.tcpPort = tcpPort
+	if (tcpPort) advert.tcpPort = tcpPort
 	return advert
 }
 
@@ -193,9 +193,9 @@ export async function verifySignedAdvert(topic, advert, now = Date.now(), maxSke
 	const ts = Number(advert?.ts)
 	const sig = String(advert?.sig ?? '').trim().toLowerCase()
 	if (!Number.isFinite(ts) || Math.abs(now - ts) > maxSkewMs || !/^[\da-f]{128}$/u.test(sig)) return null
-	const hasTcpPortField = advert?.tcpPort != null && advert.tcpPort !== ''
+	const hasTcpPortField = !!advert?.tcpPort
 	const tcpPort = normalizeTcpPort(advert?.tcpPort)
-	if (hasTcpPortField && tcpPort == null) return null
+	if (hasTcpPortField && !tcpPort) return null
 	const message = buildAdvertMessage(topic, ts, parsedHello.nodeHash, tcpPort)
 	const ok = await verify(Buffer.from(sig, 'hex'), message, Buffer.from(parsedHello.nodePubKey, 'hex'))
 	return ok ? parsedHello.nodeHash : null

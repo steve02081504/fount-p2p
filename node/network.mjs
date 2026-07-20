@@ -52,18 +52,18 @@ export function normalizeNetwork(raw) {
 	 * @returns {string[]} 去重 nodeHash 列表
 	 */
 	const pickIds = key => [...new Set(
-		(Array.isArray(file[key]) ? file[key] : [])
-			.map(id => normalizeHex64(id) || String(id).trim())
+		(file[key] || [])
+			.map(id => normalizeHex64(id) || id.trim())
 			.filter(id => isHex64(id)),
 	)]
-	const hints = (Array.isArray(file.hints) ? file.hints : [])
+	const hints = (file.hints || [])
 		.map(hint => ({
-			nodeHash: normalizeHex64(hint?.nodeHash) || '',
-			source: String(hint?.source || '').trim(),
-			kind: String(hint?.kind || '').trim(),
-			weight: Number.isFinite(Number(hint?.weight)) ? Number(hint.weight) : 0.1,
-			expiresAt: Number(hint?.expiresAt) || 0,
-			...hint?.groupId ? { groupId: String(hint.groupId).trim() } : {},
+			nodeHash: normalizeHex64(hint.nodeHash) || '',
+			source: hint.source?.trim() || '',
+			kind: hint.kind?.trim() || '',
+			weight: Number.isFinite(Number(hint.weight)) ? Number(hint.weight) : 0.1,
+			expiresAt: Number(hint.expiresAt) || 0,
+			...hint.groupId ? { groupId: hint.groupId.trim() } : {},
 		}))
 		.filter(hint => isHex64(hint.nodeHash))
 	return {

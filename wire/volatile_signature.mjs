@@ -17,7 +17,7 @@ export const MAX_STREAM_VOLATILE_SLICES = 256
  * @returns {object[] | null} 合法切片或 null
  */
 export function boundStreamSlices(slices) {
-	if (!Array.isArray(slices) || slices.length > MAX_STREAM_VOLATILE_SLICES) return null
+	if (!slices?.length || slices.length > MAX_STREAM_VOLATILE_SLICES) return null
 	return slices
 }
 

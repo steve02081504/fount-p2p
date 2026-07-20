@@ -131,9 +131,8 @@ export function reduceEntityKeyRotate(state, event) {
 export function reduceEntityKeyRevoke(state, event) {
 	const newGeneration = Number(event.content?.newGeneration)
 	const activePubKeyHex = normalizeHex64(event.content?.activePubKeyHex || '')
-	const revokeGenerations = Array.isArray(event.content?.revokeGenerations)
-		? event.content.revokeGenerations.map(g => Number(g)).filter(Number.isFinite)
-		: []
+	const revokeGenerations = (event.content?.revokeGenerations || [])
+		.map(Number).filter(Number.isFinite)
 	if (!Number.isFinite(newGeneration) || newGeneration < 0 || !isHex64(activePubKeyHex))
 		return state
 	state.entityKeyHistory = state.entityKeyHistory || []
@@ -181,7 +180,7 @@ export function foldEntityKeyHistoryFromEvents(events) {
  */
 export function entityKeyRevokeSignBytes(revokeBody) {
 	const body = {
-		revokeGenerations: (revokeBody.revokeGenerations || []).map(g => Number(g)),
+		revokeGenerations: (revokeBody.revokeGenerations || []).map(Number),
 		newGeneration: Number(revokeBody.newGeneration),
 		activePubKeyHex: normalizeHex64(revokeBody.activePubKeyHex || ''),
 		entityHash: String(revokeBody.entityHash || '').trim().toLowerCase(),

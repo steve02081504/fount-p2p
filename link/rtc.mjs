@@ -1,5 +1,6 @@
 import process from 'node:process'
 
+import { toBytes } from '../core/bytes_codec.mjs'
 import { getSignalingRuntimeConfig } from '../node/instance.mjs'
 import { wrapRtcPeerConnectionForMdns } from '../transport/rtc_mdns_filter.mjs'
 
@@ -96,14 +97,25 @@ export function waitForChannelState(channel, eventName, timeoutMs) {
 }
 
 /**
- * 将信令/消息数据统一转为 Uint8Array。
- * @param {unknown} data 原始数据（字符串、ArrayBuffer、TypedArray 等）
- * @returns {Uint8Array} 字节视图
+ * 绑定 data channel message 回调（addEventListener / onmessage / onMessage.subscribe）。
+ * @param {RTCDataChannel} channel data channel
+ * @param {(data: unknown) => void} handler 消息回调
+ * @returns {void}
  */
-export function signalDataToBytes(data) {
-	if (data instanceof Uint8Array) return data
-	if (data instanceof ArrayBuffer) return new Uint8Array(data)
-	if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-	if (typeof data === 'string') return new TextEncoder().encode(data)
-	return new TextEncoder().encode(String(data ?? ''))
+export function attachChannelMessageListener(channel, handler) {
+	channel.addEventListener?.('message', event => handler(event?.data))
+	/**
+	 * @param {{ data?: unknown }} event message 事件
+	 * @returns {void}
+	 */
+	channel.onmessage = event => handler(event?.data)
+	channel.onMessage?.subscribe(message => handler(message))
+}
+
+/**
+ * @param {unknown} data 通道原始数据
+ * @returns {Uint8Array} 字节
+ */
+export function dataToBytes(data) {
+	return toBytes(data, { allowString: true })
 }

@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 
 import { pubKeyHash, sign, verify } from '../crypto/crypto.mjs'
-import { randomMsgIdHex } from '../link/frame.mjs'
+import { randomFrameIdHex } from '../link/frame.mjs'
 import { createLruMap } from '../utils/lru.mjs'
 
 const ROUTE_DOMAIN = 'fount-route'
@@ -50,12 +50,12 @@ export function createOverlayRouter(registry, ttl = 3) {
 	 */
 	async function handleOverlay(senderNodeHash, envelope) {
 		const payload = envelope?.payload
-		const action = String(envelope?.action || '')
-		if (!payload || typeof payload !== 'object') return
+		const action = envelope?.action || ''
+		if (!payload) return
 		if (action === 'route_req') {
-			const reqId = String(payload.reqId || '')
-			const target = String(payload.target || '')
-			const hops = Array.isArray(payload.path) ? payload.path.map(String) : []
+			const reqId = payload.reqId || ''
+			const target = payload.target || ''
+			const hops = payload.path || []
 			const remainingTtl = Number(payload.ttl)
 			if (!reqId || !target || !hops.length || remainingTtl <= 0) return
 			if (seenReqs.has(reqId) || hops.includes(selfNodeHash) || hops.length > 6) return
@@ -86,10 +86,10 @@ export function createOverlayRouter(registry, ttl = 3) {
 			return
 		}
 		if (action === 'route_resp') {
-			const reqId = String(payload.reqId || '')
-			const path = Array.isArray(payload.path) ? payload.path.map(String) : []
-			const nodePubKey = String(payload.nodePubKey || '')
-			const sigHex = String(payload.sig || '')
+			const reqId = payload.reqId || ''
+			const path = payload.path || []
+			const nodePubKey = payload.nodePubKey || ''
+			const sigHex = payload.sig || ''
 			if (!reqId || path.length < 2 || !nodePubKey || !sigHex) return
 			if (pubKeyHash(Buffer.from(nodePubKey, 'hex')) !== path[path.length - 1]) return
 			const ok = await verify(Buffer.from(sigHex, 'hex'), routeSignBytes(reqId, path), Buffer.from(nodePubKey, 'hex'))
@@ -108,7 +108,7 @@ export function createOverlayRouter(registry, ttl = 3) {
 			return
 		}
 		if (action === 'relay') {
-			const path = Array.isArray(payload.path) ? payload.path.map(String) : []
+			const path = payload.path || []
 			const index = Number(payload.idx)
 			if (!path.length || path[index] !== selfNodeHash) return
 			if (index === path.length - 1) {
@@ -137,7 +137,7 @@ export function createOverlayRouter(registry, ttl = 3) {
 		 * @returns {Promise<string[]>} 从本节点到目标的 nodeHash 路径
 		 */
 		async discoverRoute(targetNodeHash, options = {}) {
-			const reqId = randomMsgIdHex()
+			const reqId = randomFrameIdHex()
 			const maxTtl = Number(options.ttl) || ttl
 			const timeoutMs = Number(options.timeoutMs) || 10_000
 			const promise = new Promise((resolve, reject) => {
@@ -164,7 +164,7 @@ export function createOverlayRouter(registry, ttl = 3) {
 		 * @returns {Promise<void>}
 		 */
 		async relay(path, body) {
-			if (!Array.isArray(path) || path[0] !== selfNodeHash || path.length < 2)
+			if (path?.[0] !== selfNodeHash || path.length < 2)
 				throw new Error('overlay: invalid relay path')
 			await sendOverlay(path[1], { action: 'relay', path, idx: 1, body })
 		},

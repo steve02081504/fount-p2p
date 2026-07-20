@@ -77,7 +77,7 @@ export function createPartQueryCache(options = {}) {
 		 */
 		set(partpath, kind, query, rows, now = Date.now()) {
 			const key = partQueryCacheKey(partpath, kind, query)
-			if (!key || !Array.isArray(rows)) return
+			if (!key || !rows) return
 			sweep(now)
 			map.touch(key, {
 				rows: rows.slice(0, maxHits),

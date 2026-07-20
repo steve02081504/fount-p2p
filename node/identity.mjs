@@ -66,9 +66,9 @@ export function getNodeHash() {
  */
 export function getNodeTransportSettings() {
 	const data = loadNodeFile()
-	const relayUrls = Array.isArray(data.relayUrls)
-		? data.relayUrls.map(url => String(url).trim()).filter(url => url.startsWith('wss://'))
-		: []
+	const relayUrls = (data.relayUrls || [])
+		.map(url => url.trim())
+		.filter(url => url.startsWith('wss://'))
 	const batterySaver = !!data.batterySaver
 	const mailbox = normalizeMailboxSettings(data.mailbox || {})
 	return { relayUrls, batterySaver, mailbox }
@@ -82,7 +82,7 @@ export function saveNodeTransportSettings(patch) {
 	const data = loadNodeFile()
 	if (patch.batterySaver != null) data.batterySaver = !!patch.batterySaver
 	if (patch.relayUrls)
-		data.relayUrls = patch.relayUrls.map(url => String(url).trim()).filter(url => url.startsWith('wss://'))
+		data.relayUrls = patch.relayUrls.map(url => url.trim()).filter(url => url.startsWith('wss://'))
 	if (patch.mailbox)
 		data.mailbox = normalizeMailboxSettings({ ...data.mailbox, ...patch.mailbox })
 	saveNodeFile(data)

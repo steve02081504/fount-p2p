@@ -107,7 +107,7 @@ export function parsePartQueryReq(value, tunables = partQueryTunables) {
 	if (!Object.prototype.hasOwnProperty.call(value, 'query')) return null
 	if (measureJsonBytes(value.query) > (tunables.maxQueryBytes ?? 2048)) return null
 	const ttl = clampPartQueryTtl(value.ttl, tunables.maxTtl)
-	if (ttl == null) return null
+	if (!ttl) return null
 	const budget = clampPartQueryBudget(value.budget, tunables.maxHits)
 	return {
 		requestId,

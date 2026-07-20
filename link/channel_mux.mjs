@@ -57,7 +57,7 @@ const DEFAULT_ACTION_PRIORITIES = Object.freeze({
  * @returns {number} 优先级（未知 action 默认 5）
  */
 export function resolveActionPriority(action) {
-	return DEFAULT_ACTION_PRIORITIES[String(action || '').trim()] ?? 5
+	return DEFAULT_ACTION_PRIORITIES[action] ?? 5
 }
 
 /**
@@ -67,12 +67,11 @@ export function resolveActionPriority(action) {
  * @returns {'control' | 'bulk'} 目标通道名
  */
 export function pickChannel(action, byteLength) {
-	const normalized = String(action || '').trim()
-	if (normalized === 'ping' || normalized === 'pong' || normalized.startsWith('route_'))
+	if (action === 'ping' || action === 'pong' || action.startsWith('route_'))
 		return CHANNEL_CONTROL
-	if (Number(byteLength) > BULK_CHANNEL_MIN_BYTES)
+	if (byteLength > BULK_CHANNEL_MIN_BYTES)
 		return CHANNEL_BULK
-	return resolveActionPriority(normalized) <= 3 ? CHANNEL_CONTROL : CHANNEL_BULK
+	return resolveActionPriority(action) <= 3 ? CHANNEL_CONTROL : CHANNEL_BULK
 }
 
 /**
@@ -162,13 +161,14 @@ export function createChannelSendQueues(options) {
 	const flush = channelName => {
 		scheduled[channelName] = false
 		const channel = getChannel(channelName)
-		if (!channel || channel.readyState !== 'open') return
+		if (channel?.readyState !== 'open') return
 		const queue = queues[channelName]
-		while (queue.length) {
-			if (readBufferedAmount(channel) > highWatermarkBytes) return
-			const item = queue.shift()
-			channel.send(item.bytes)
+		let i = 0
+		while (i < queue.length) {
+			if (readBufferedAmount(channel) > highWatermarkBytes) break
+			channel.send(queue[i++].bytes)
 		}
+		if (i > 0) queue.splice(0, i)
 	}
 
 	return {

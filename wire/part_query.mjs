@@ -132,7 +132,7 @@ export function registerQueryInboundHandler(partpath, kind, handler, state = def
  * @returns {number} 等待下游超时
  */
 export function resolvePartQueryHopTimeoutMs(ttl, tunables = partQueryTunables) {
-	const table = Array.isArray(tunables.hopTimeoutMs) ? tunables.hopTimeoutMs : [1000, 2500, 4000, 6000]
+	const table = tunables.hopTimeoutMs || [1000, 2500, 4000, 6000]
 	const index = Math.max(0, Math.min(table.length - 1, Math.floor(ttl) - 1))
 	return Math.max(1, Math.floor(Number(table[index]) || tunables.defaultTimeoutMs || 4000))
 }
@@ -176,8 +176,7 @@ export function mergeQueryRows(lists, maxHits, rowKey) {
 async function runLocalHandler(state, queryContext, partpath, kind, query) {
 	const handler = state.handlers.get(handlerKey(partpath, kind))
 	if (!handler) return []
-	const rows = await handler(queryContext, query)
-	return Array.isArray(rows) ? rows : []
+	return await handler(queryContext, query) || []
 }
 
 /**

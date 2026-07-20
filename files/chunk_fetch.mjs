@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { u8ToB64 } from '../core/bytes_codec.mjs'
+import { bytesToBase64 } from '../core/bytes_codec.mjs'
 import {
 	MAX_PENDING_CHUNK_FETCHES,
 	pendingChunkFetches,
@@ -78,5 +78,5 @@ export async function handleIncomingChunkGet(username, payload, sendResponse, pe
 	if (!await hasChunk(hash)) return
 	const chunkBytes = await getChunk(hash)
 	if (!chunkBytes?.length) return
-	sendResponse({ requestId: payload.requestId, dataB64: u8ToB64(chunkBytes) }, peerId)
+	sendResponse({ requestId: payload.requestId, dataBase64: bytesToBase64(chunkBytes) }, peerId)
 }

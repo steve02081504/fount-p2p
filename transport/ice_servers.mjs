@@ -46,7 +46,7 @@ function normalizeIceEntry(raw) {
  * @returns {{ urls: string, username?: string, credential?: string }[]} 合法 ICE 列表
  */
 export function resolveIceServers(groupSettings) {
-	const fromSettings = Array.isArray(groupSettings?.iceServers) ? groupSettings.iceServers : []
+	const fromSettings = groupSettings?.iceServers || []
 	const out = []
 	for (const raw of fromSettings) {
 		const entry = normalizeIceEntry(raw)
@@ -62,7 +62,7 @@ export function resolveIceServers(groupSettings) {
  * @returns {{ urls: string, username?: string, credential?: string }[]} 校验后的 ICE 列表
  */
 export function sanitizeIceServersForSettings(raw) {
-	if (!Array.isArray(raw)) return [...DEFAULT_ICE_SERVERS]
+	if (!raw?.length) return [...DEFAULT_ICE_SERVERS]
 	const out = []
 	for (const item of raw) {
 		const entry = normalizeIceEntry(item)

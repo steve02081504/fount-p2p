@@ -12,15 +12,13 @@ import { USER_ROOM_SCOPE } from './room_scopes.mjs'
  * }} RemoteUserRoomSlot
  */
 
-/** @type {Map<string, RemoteUserRoomSlot | null>} nodeHash → slot（null 表示加入失败/进行中） */
+/** @type {Map<string, RemoteUserRoomSlot>} nodeHash → slot */
 const slots = new Map()
 /** @type {Map<string, Promise<RemoteUserRoomSlot | null>>} nodeHash → 进行中的 promise */
 const inflights = new Map()
 
 registerFederationRoomProvider('remote-user-room', () => {
-	return [...slots.values()]
-		.filter(Boolean)
-		.map(s => s.roomSlot)
+	return [...slots.values()].map(s => s.roomSlot)
 })
 
 /**
@@ -32,16 +30,14 @@ registerFederationRoomProvider('remote-user-room', () => {
 export async function ensureRemoteUserRoom(username, targetNodeHash) {
 	void username
 	const key = targetNodeHash.toLowerCase()
-	if (slots.has(key)) return slots.get(key) || null
-	const existing = inflights.get(key)
-	if (existing) return await existing
+	const existing = slots.get(key)
+	if (existing) return existing
+	const inflight = inflights.get(key)
+	if (inflight) return await inflight
 
 	const task = (async () => {
 		try {
-			if (!await ensureLinkToNode(key)) {
-				slots.set(key, null)
-				return null
-			}
+			if (!await ensureLinkToNode(key)) return null
 
 			/** @type {import('../registries/room_provider.mjs').FederationRoomSlot} */
 			const roomSlot = {
@@ -66,17 +62,20 @@ export async function ensureRemoteUserRoom(username, targetNodeHash) {
 				 * @returns {void}
 				 */
 				sendToPeer(peerId, actionName, payload) {
-					void getLink(key)?.send({ scope: 'node', action: String(actionName), payload }).catch(() => { })
+					void getLink(key)?.send({ scope: 'node', action: actionName, payload }).catch(() => { })
 				},
 			}
 
 			const slot = {
 				roomSlot,
 				/**
-				 * 关闭远端用户房间链路。
+				 * 关闭远端用户房间链路并释放槽位。
 				 * @returns {Promise<void>} 关闭完成
 				 */
-				leave() { return closeLink(key, 'remote-user-room-release') },
+				leave() {
+					slots.delete(key)
+					return closeLink(key, 'remote-user-room-release')
+				},
 			}
 			slots.set(key, slot)
 			invalidateTrustGraphCache()
@@ -84,7 +83,6 @@ export async function ensureRemoteUserRoom(username, targetNodeHash) {
 		}
 		catch (error) {
 			console.error('p2p: failed to join remote user room', key, error)
-			slots.set(key, null)
 			return null
 		}
 		finally {

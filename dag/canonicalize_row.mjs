@@ -8,7 +8,7 @@ import { assertHex64, HEX_ID_64, normalizeHex64 } from '../core/hexIds.mjs'
  * @param {string} key 字段名
  */
 function canonicalizeHexField(obj, key) {
-	if (obj[key] == null || obj[key] === '') return
+	if (!obj[key]) return
 	const normalized = normalizeHex64(obj[key])
 	if (!HEX_ID_64.test(normalized))
 		throw new Error(`${key} must be 64 hex characters`)
@@ -27,7 +27,7 @@ export function canonicalizeRowContent(content, hexKeys, entityHashKeys = new Se
 	for (const key of hexKeys)
 		canonicalizeHexField(out, key)
 	for (const key of entityHashKeys) {
-		if (out[key] == null || out[key] === '') continue
+		if (!out[key]) continue
 		const entityHash = String(out[key]).toLowerCase()
 		if (!isEntityHash128(entityHash))
 			throw new Error(`${key} must be 128 hex characters`)
@@ -54,7 +54,7 @@ export function canonicalizeSignedRow(event, options = {}) {
 	const out = options.prepare ? options.prepare({ ...event }) : { ...event }
 	out.id = assertHex64(out.id, 'id')
 	out.sender = assertHex64(out.sender, 'sender')
-	if (Array.isArray(out.prev_event_ids))
+	if (out.prev_event_ids)
 		out.prev_event_ids = out.prev_event_ids.map((id, index) =>
 			assertHex64(id, `prev_event_ids[${index}]`),
 		)

@@ -1,46 +1,20 @@
+import { toBytes } from '../core/bytes_codec.mjs'
 import { normalizeHex64 } from '../core/hexIds.mjs'
 import { ms } from '../utils/duration.mjs'
+import { emitSafe } from '../utils/emit_safe.mjs'
 import { createLruMap } from '../utils/lru.mjs'
 
-import { createReassembler, encodeFrames, randomMsgIdHex } from './frame.mjs'
+import { createReassembler, encodeFrames, randomFrameIdHex } from './frame.mjs'
 import { buildAuth, buildHello, parseHello, verifyAuth } from './handshake.mjs'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
 /**
- * 依次调用监听器集合，忽略单个 listener 抛错。
- * @param {Set<Function>} listeners 监听器集合
- * @param {...unknown} args 传递给 listener 的参数
- * @returns {void}
- */
-function emitListeners(listeners, ...args) {
-	for (const listener of listeners)
-		try { listener(...args) }
-		catch { /* ignore */ }
-}
-
-/**
- * 原始字节：以 `{` 开头的 UTF-8 当 control 文本，否则当二进制帧。
- * @param {Buffer | Uint8Array | string} raw 原始数据
- * @returns {string | Uint8Array} control 文本或二进制帧
- */
-export function coercePipeInbound(raw) {
-	if (typeof raw === 'string') return raw
-	const bytes = raw instanceof Uint8Array ? raw : Uint8Array.from(raw)
-	try {
-		const text = decoder.decode(bytes)
-		if (text.startsWith('{')) return text
-	}
-	catch { /* binary */ }
-	return bytes
-}
-
-/**
  * 把 createLinkPipe 句柄收成上层 LinkHandle（可附带测试/内部字段）。
- * @param {ReturnType<typeof createLinkPipe>} pipe pipe
- * @param {object} [extras] 附加字段（如 handleInbound、_channelForTest）
- * @returns {object} LinkHandle 形状
+ * @param {ReturnType<typeof createLinkPipe>} pipe pipe 句柄
+ * @param {object} [extras] 额外字段（覆盖同名）
+ * @returns {object} LinkHandle
  */
 export function asLinkHandle(pipe, extras = {}) {
 	return {
@@ -54,26 +28,26 @@ export function asLinkHandle(pipe, extras = {}) {
 		/** @returns {number} 提供者 level */
 		get level() { return pipe.level },
 		/**
-		 * @param {...unknown} args send 参数
-		 * @returns {Promise<boolean>} 是否发送成功
+		 * @param {...any} args 透传 send
+		 * @returns {ReturnType<typeof pipe.send>} 是否发送成功
 		 */
 		send: (...args) => pipe.send(...args),
 		/**
-		 * @param {...unknown} args onEnvelope 参数
-		 * @returns {() => void} 取消订阅
+		 * @param {...any} args 透传 onEnvelope
+		 * @returns {ReturnType<typeof pipe.onEnvelope>} 取消订阅
 		 */
 		onEnvelope: (...args) => pipe.onEnvelope(...args),
 		/**
-		 * @param {...unknown} args onDown 参数
-		 * @returns {() => void} 取消订阅
+		 * @param {...any} args 透传 onDown
+		 * @returns {ReturnType<typeof pipe.onDown>} 取消订阅
 		 */
 		onDown: (...args) => pipe.onDown(...args),
 		/**
-		 * @param {...unknown} args close 参数
-		 * @returns {Promise<void>}
+		 * @param {...any} args 透传 close
+		 * @returns {ReturnType<typeof pipe.close>} 关闭完成
 		 */
 		close: (...args) => pipe.close(...args),
-		/** @returns {object} 运行时统计 */
+		/** @returns {ReturnType<typeof pipe.stats>} 运行时统计 */
 		stats: () => pipe.stats(),
 		...extras,
 	}
@@ -99,8 +73,7 @@ export function asLinkHandle(pipe, extras = {}) {
  * @returns {object} link 句柄 + 入站 API
  */
 export function createLinkPipe(options) {
-	const providerId = String(options.providerId || '')
-	const level = Number(options.level) || 0
+	const { providerId, level } = options
 	const heartbeatMs = Number(options.heartbeatMs) || ms('15s')
 	const idleTimeoutMs = Number(options.idleTimeoutMs) || ms('45s')
 	const handshakeTimeoutMs = Number(options.handshakeTimeoutMs) || ms('10s')
@@ -125,7 +98,7 @@ export function createLinkPipe(options) {
 	let recvFrames = 0
 	const envelopeListeners = new Set()
 	const downListeners = new Set()
-	const completedMsgIds = createLruMap(4096)
+	const completedFrameIds = createLruMap(4096)
 	const reassembler = createReassembler()
 	/** @type {(value: void | PromiseLike<void>) => void} */
 	let resolveReady
@@ -219,9 +192,9 @@ export function createLinkPipe(options) {
 			remoteHello = parsed
 			await maybeSendAuth()
 			if (pendingAuth) {
-				const bufferedAuth = pendingAuth
+				const auth = pendingAuth
 				pendingAuth = null
-				await handleAuth(bufferedAuth)
+				await handleAuth(auth)
 			}
 			return
 		}
@@ -240,9 +213,9 @@ export function createLinkPipe(options) {
 			const merged = reassembler.push(bytes)
 			if (!merged) return
 			const envelope = JSON.parse(decoder.decode(merged))
-			const msgId = envelope?.msgId ? String(envelope.msgId) : null
-			if (msgId && completedMsgIds.has(msgId)) return
-			if (msgId) completedMsgIds.touch(msgId, true)
+			const frameId = typeof envelope.frameId === 'string' ? envelope.frameId : null
+			if (frameId && completedFrameIds.has(frameId)) return
+			if (frameId) completedFrameIds.touch(frameId, true)
 			if (envelope?.scope === 'link') {
 				if (envelope.action === 'ping') {
 					void send({ scope: 'link', action: 'pong', payload: {} }).catch(() => { })
@@ -251,7 +224,7 @@ export function createLinkPipe(options) {
 				if (envelope.action === 'pong') return
 			}
 			if (ready && remoteNodeHash)
-				emitListeners(envelopeListeners, envelope, remoteNodeHash)
+				emitSafe(envelopeListeners, envelope, remoteNodeHash)
 		}
 		catch {
 			/* drop malformed network ingress */
@@ -278,23 +251,22 @@ export function createLinkPipe(options) {
 			catch { /* ignore */ }
 			return
 		}
-		if (data instanceof ArrayBuffer || ArrayBuffer.isView(data) || data instanceof Uint8Array) {
-			const bytes = data instanceof Uint8Array
-				? data
-				: data instanceof ArrayBuffer
-					? new Uint8Array(data)
-					: new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-			// 尝试 UTF-8 JSON control
-			try {
-				const text = decoder.decode(bytes)
-				if (text.startsWith('{')) {
-					void handleControlMessage(JSON.parse(text))
-					return
-				}
-			}
-			catch { /* binary path */ }
-			handleBinaryFrame(bytes)
+		let bytes
+		try {
+			bytes = toBytes(data)
 		}
+		catch {
+			return
+		}
+		try {
+			const text = decoder.decode(bytes)
+			if (text.startsWith('{')) {
+				void handleControlMessage(JSON.parse(text))
+				return
+			}
+		}
+		catch { /* binary path */ }
+		handleBinaryFrame(bytes)
 	}
 
 	/**
@@ -318,15 +290,17 @@ export function createLinkPipe(options) {
 	async function send(envelope) {
 		await readyPromise
 		if (closed) return false
-		const message = {
-			scope: String(envelope?.scope || ''),
-			action: String(envelope?.action || ''),
-			payload: envelope?.payload ?? null,
-			msgId: randomMsgIdHex(),
-		}
-		const bytes = encoder.encode(JSON.stringify(message))
-		for (const frame of encodeFrames(message.msgId, bytes)) {
-			await Promise.resolve(options.sendFrame(message.action, frame))
+		const frameId = randomFrameIdHex()
+		const bytes = encoder.encode(JSON.stringify({
+			scope: envelope.scope,
+			action: envelope.action,
+			payload: envelope.payload ?? null,
+			frameId,
+		}))
+		for (const frame of encodeFrames(frameId, bytes)) {
+			const sent = options.sendFrame(envelope.action, frame)
+			if (sent != null && typeof /** @type {{ then?: unknown }} */ sent.then === 'function')
+				await sent
 			sentFrames++
 		}
 		lastOutboundAt = Date.now()
@@ -347,7 +321,7 @@ export function createLinkPipe(options) {
 		if (idleTimer) clearInterval(idleTimer)
 		try { await Promise.resolve(options.closeTransport?.()) } catch { /* ignore */ }
 		if (!ready) rejectReady(new Error(`p2p: link closed before ready (${reason})`))
-		emitListeners(downListeners, reason)
+		emitSafe(downListeners, reason)
 	}
 
 	return {

@@ -46,10 +46,10 @@ function serializeAdvertBlob(adverts) {
 function parseAdvertBlob(raw) {
 	try {
 		const parsed = JSON.parse(Buffer.from(raw).toString('utf8'))
-		if (!Array.isArray(parsed?.entries)) return []
+		if (!parsed?.entries?.length) return []
 		return parsed.entries.map(entry => ({
-			topic: String(entry?.topic || ''),
-			bytes: Uint8Array.from(Buffer.from(String(entry?.data || ''), 'base64')),
+			topic: entry.topic || '',
+			bytes: Uint8Array.from(Buffer.from(entry.data || '', 'base64')),
 		})).filter(entry => entry.topic && entry.bytes.byteLength)
 	}
 	catch {
@@ -148,10 +148,10 @@ export function createBluetoothDiscoveryProvider() {
 					const parsed = JSON.parse(Buffer.from(data).toString('utf8'))
 					const topic = String(parsed?.topic || '')
 					const bytes = Uint8Array.from(Buffer.from(String(parsed?.data || ''), 'base64'))
-					if (topic && bytes.byteLength) 
+					if (topic && bytes.byteLength)
 						for (const listener of signalListeners.get(topic) || [])
 							listener(bytes, { provider: 'bt' })
-					
+
 					callback(bleno.Characteristic.RESULT_SUCCESS)
 				}
 				catch {

@@ -19,7 +19,7 @@ export function isPlainObject(value) {
  * @returns {Record<string, unknown> | null} 解析失败或非对象时为 null
  */
 export function parseInboundJson(raw) {
-	if (raw == null) return null
+	if (!raw) return null
 	const text = typeof raw === 'string'
 		? raw
 		: Buffer.isBuffer(raw)

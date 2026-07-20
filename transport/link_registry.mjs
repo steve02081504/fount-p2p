@@ -2,21 +2,18 @@ import { Buffer } from 'node:buffer'
 
 import { compareHex64Asc, normalizeHex64 } from '../core/hexIds.mjs'
 import { keyPairFromSeed } from '../crypto/crypto.mjs'
-import { noteAdvertPeerHints } from '../discovery/advert_peer_hints.mjs'
 import { subscribeTopic } from '../discovery/index.mjs'
-import { verifySignedAdvert } from '../link/handshake.mjs'
 import { listLinkProviders } from '../link/providers/index.mjs'
 import { ensureNodeSeed, getNodeHash } from '../node/identity.mjs'
 import { createOverlayRouter } from '../overlay/index.mjs'
+import { emitSafe } from '../utils/emit_safe.mjs'
 import { createLruMap } from '../utils/lru.mjs'
 
+import { ingestSignedAdvert } from './advert_ingest.mjs'
 import { DEFAULT_ICE_SERVERS } from './ice_servers.mjs'
 import { createOfferAnswerDial } from './offer_answer.mjs'
 import { createRuntimeBootstrap } from './runtime_bootstrap.mjs'
-import {
-	decryptSignalPacket,
-	nodeRendezvousTopic,
-} from './signal_crypto.mjs'
+import { nodeRendezvousTopic } from './signal_crypto.mjs'
 
 /**
  * 解析或从节点种子推导本地身份。
@@ -104,8 +101,8 @@ export function createLinkRegistry(options = {}) {
 	 * @returns {boolean} 候选链应保留为规范链时 true
 	 */
 	function linkIsPreferred(link, remoteNodeHash, against = null) {
-		const level = Number(link.level) || 0
-		const againstLevel = Number(against?.level) || 0
+		const level = link.level || 0
+		const againstLevel = against?.level || 0
 		if (against && level !== againstLevel) return level > againstLevel
 		const cmp = compareHex64Asc(localIdentity.nodeHash, remoteNodeHash)
 		return link.initiator ? cmp < 0 : cmp > 0
@@ -125,8 +122,7 @@ export function createLinkRegistry(options = {}) {
 			const wasCanonical = links.get(remoteNodeHash) === link
 			if (!wasCanonical) return
 			links.delete(remoteNodeHash)
-			for (const listener of linkDownListeners)
-				try { listener(remoteNodeHash, reason) } catch { /* ignore */ }
+			emitSafe(linkDownListeners, remoteNodeHash, reason)
 		})
 	}
 
@@ -140,15 +136,14 @@ export function createLinkRegistry(options = {}) {
 		const normalized = normalizeHex64(remoteNodeHash)
 		const existing = links.get(normalized)
 		if (existing && existing !== candidate && !linkIsPreferred(candidate, normalized, existing)) {
-			await candidate.close(Number(candidate.level) !== Number(existing.level) ? 'provider-loser' : 'glare-loser')
+			await candidate.close(candidate.level !== existing.level ? 'provider-loser' : 'glare-loser')
 			return
 		}
 		links.set(normalized, candidate)
 		wireLink(normalized, candidate)
 		if (existing && existing !== candidate)
-			await existing.close(Number(candidate.level) !== Number(existing.level) ? 'provider-replaced' : 'glare-replaced')
-		for (const listener of linkUpListeners)
-			try { listener(normalized, candidate) } catch { /* ignore */ }
+			await existing.close(candidate.level !== existing.level ? 'provider-replaced' : 'glare-replaced')
+		emitSafe(linkUpListeners, normalized, candidate)
 	}
 
 	/**
@@ -177,6 +172,10 @@ export function createLinkRegistry(options = {}) {
 		autoRegisterDiscoveryProviders: options.autoRegisterDiscoveryProviders !== false,
 		autoRegisterLinkProviders: options.autoRegisterLinkProviders !== false,
 		onInboundLink,
+		/**
+		 * @param {Uint8Array} bytes 入站信令字节
+		 * @returns {void}
+		 */
 		handleIncomingSignal: bytes => handleIncomingSignal(bytes),
 	})
 
@@ -198,13 +197,25 @@ export function createLinkRegistry(options = {}) {
 	 */
 	async function trimToBudget() {
 		if (links.size < maxActive) return
-		const candidates = [...links.entries()]
-			.sort((left, right) => scopeWeight(left[0]) - scopeWeight(right[0]) || compareHex64Asc(left[0], right[0]))
-		const victim = candidates[0]
-		if (victim) await victim[1].close('budget-evict')
+		let victimHash = null
+		let victimLink = null
+		let victimWeight = Infinity
+		for (const [nodeHash, link] of links) {
+			const weight = scopeWeight(nodeHash)
+			if (
+				victimHash == null
+				|| weight < victimWeight
+				|| (weight === victimWeight && compareHex64Asc(nodeHash, victimHash) < 0)
+			) {
+				victimHash = nodeHash
+				victimLink = link
+				victimWeight = weight
+			}
+		}
+		if (victimLink) await victimLink.close('budget-evict')
 	}
 
-	;({ handleIncomingSignal, dialOfferAnswer } = createOfferAnswerDial({
+	; ({ handleIncomingSignal, dialOfferAnswer } = createOfferAnswerDial({
 		localIdentity,
 		iceServers,
 		selfTopic,
@@ -327,8 +338,9 @@ export function createLinkRegistry(options = {}) {
 	async function relayEnvelopeToNode(remoteNodeHash, envelope) {
 		if (!links.size || envelope?.scope === 'overlay') return false
 		try {
-			const path = await getOverlayRouter().discoverRoute(remoteNodeHash)
-			await getOverlayRouter().relay(path, envelope)
+			const overlay = getOverlayRouter()
+			const path = await overlay.discoverRoute(remoteNodeHash)
+			await overlay.relay(path, envelope)
 			return true
 		}
 		catch {
@@ -348,6 +360,17 @@ export function createLinkRegistry(options = {}) {
 	}
 
 	/**
+	 * 同步结果直接返回；thenable 才 await（避免每条 envelope 造 microtask）。
+	 * @param {unknown} value 可能为 Promise 的返回值
+	 * @returns {Promise<unknown>} 已 resolve 的值
+	 */
+	async function maybeAwait(value) {
+		if (value != null && typeof /** @type {{ then?: unknown }} */ value.then === 'function')
+			return await value
+		return value
+	}
+
+	/**
 	 * 将入站 envelope 派发到 scope 监听器（经 authorizer 校验）。
 	 * @param {string} senderNodeHash 发送方节点 64 hex
 	 * @param {{ scope: string, action: string, payload: unknown }} envelope 信封
@@ -355,16 +378,16 @@ export function createLinkRegistry(options = {}) {
 	 * @returns {Promise<void>}
 	 */
 	async function dispatchEnvelope(senderNodeHash, envelope, link) {
-		const scope = String(envelope?.scope || '')
+		const scope = envelope.scope || ''
 		for (const [prefix, authorizer] of scopeAuthorizers.entries())
 			if (scope.startsWith(prefix)) {
-				const allowed = await Promise.resolve(authorizer(scope, senderNodeHash, envelope, link))
+				const allowed = await maybeAwait(authorizer(scope, senderNodeHash, envelope, link))
 				if (!allowed) return
 			}
 		for (const [prefix, listeners] of scopeListeners.entries())
 			if (scope.startsWith(prefix))
 				for (const listener of listeners)
-					await Promise.resolve(listener(senderNodeHash, envelope, link))
+					await maybeAwait(listener(senderNodeHash, envelope, link))
 	}
 
 	/**
@@ -374,7 +397,7 @@ export function createLinkRegistry(options = {}) {
 	 * @returns {() => void} 取消订阅函数
 	 */
 	function subscribeScope(prefix, listener) {
-		return subscribeBucket(scopeListeners, String(prefix), listener)
+		return subscribeBucket(scopeListeners, prefix, listener)
 	}
 
 	/**
@@ -384,8 +407,8 @@ export function createLinkRegistry(options = {}) {
 	 * @returns {() => void} 取消注册函数
 	 */
 	function registerScopeAuthorizer(prefix, authorizer) {
-		scopeAuthorizers.set(String(prefix), authorizer)
-		return () => scopeAuthorizers.delete(String(prefix))
+		scopeAuthorizers.set(prefix, authorizer)
+		return () => scopeAuthorizers.delete(prefix)
 	}
 
 	return {
@@ -448,7 +471,7 @@ export function createLinkRegistry(options = {}) {
 		 * @returns {void}
 		 */
 		registerScopeInterest(scope, nodeHashes) {
-			scopeInterests.set(String(scope), new Set((Array.isArray(nodeHashes) ? nodeHashes : []).map(normalizeHex64).filter(Boolean)))
+			scopeInterests.set(scope, new Set((nodeHashes || []).map(normalizeHex64).filter(Boolean)))
 		},
 		/**
 		 * 释放 scope 兴趣。
@@ -456,7 +479,7 @@ export function createLinkRegistry(options = {}) {
 		 * @returns {void}
 		 */
 		releaseScopeInterest(scope) {
-			scopeInterests.delete(String(scope))
+			scopeInterests.delete(scope)
 		},
 		registerScopeAuthorizer,
 		subscribeScope,
@@ -469,13 +492,10 @@ export function createLinkRegistry(options = {}) {
 		async subscribeNodeAdvert(nodeHash, onAdvert) {
 			const topic = nodeRendezvousTopic(nodeHash)
 			return await subscribeTopic(topic, async (bytes, meta) => {
-				const packet = decryptSignalPacket(topic, bytes)
-				if (packet?.type !== 'advert') return
-				const verifiedNodeHash = await verifySignedAdvert(topic, packet.body)
-				if (!verifiedNodeHash) return
-				noteAdvertPeerHints(verifiedNodeHash, packet.body, meta)
-				recentAdverts.touch(verifiedNodeHash, Date.now())
-				await Promise.resolve(onAdvert(verifiedNodeHash, packet.body))
+				const ingested = await ingestSignedAdvert(topic, bytes, meta)
+				if (!ingested) return
+				recentAdverts.touch(ingested.verifiedNodeHash, Date.now())
+				await Promise.resolve(onAdvert(ingested.verifiedNodeHash, ingested.body))
 			})
 		},
 		recentAdverts,
@@ -501,82 +521,70 @@ export function createLinkRegistry(options = {}) {
 let defaultRegistry = null
 
 /**
+ * 默认 registry 尚未创建时暂存的 scope authorizer 条目。
+ * 注册阶段不应触发 createLinkRegistry / resolveLocalIdentity；绑定在 getLinkRegistry flush 时完成。
+ * @type {Array<{ prefix: string, authorizer: Function, unregister: (() => void) | null }>}
+ */
+const pendingScopeAuthorizers = []
+
+/**
  * 获取进程级默认 link registry 单例。
  * @returns {ReturnType<typeof createLinkRegistry>} 默认 registry
  */
 export function getLinkRegistry() {
-	return defaultRegistry ||= createLinkRegistry()
+	if (defaultRegistry) return defaultRegistry
+	defaultRegistry = createLinkRegistry()
+	for (const entry of pendingScopeAuthorizers)
+		entry.unregister = defaultRegistry.registerScopeAuthorizer(entry.prefix, entry.authorizer)
+	pendingScopeAuthorizers.length = 0
+	return defaultRegistry
 }
 
 /**
- * 默认 registry 的 ensureLinkToNode 代理。
- * @param {...any} args 转发参数
- * @returns {ReturnType<ReturnType<typeof createLinkRegistry>['ensureLinkToNode']>} 链路实例
+ * 默认 registry 方法代理。
+ * @param {string} name registry 方法名
+ * @returns {(...args: unknown[]) => unknown} 绑定到 getLinkRegistry()[name] 的函数
  */
-export const ensureLinkToNode = (...args) => getLinkRegistry().ensureLinkToNode(...args)
+const bindRegistryMethod = name => (...args) => getLinkRegistry()[name](...args)
+
+/** @type {(...args: unknown[]) => unknown} */
+export const ensureLinkToNode = bindRegistryMethod('ensureLinkToNode')
+/** @type {(...args: unknown[]) => unknown} */
+export const getLink = bindRegistryMethod('getLink')
+/** @type {(...args: unknown[]) => unknown} */
+export const listLinks = bindRegistryMethod('listLinks')
+/** @type {(...args: unknown[]) => unknown} */
+export const closeLink = bindRegistryMethod('closeLink')
+/** @type {(...args: unknown[]) => unknown} */
+export const sendToNodeLink = bindRegistryMethod('sendToNodeLink')
+/** @type {(...args: unknown[]) => unknown} */
+export const relayEnvelopeToNode = bindRegistryMethod('relayEnvelopeToNode')
+/** @type {(...args: unknown[]) => unknown} */
+export const onLinkUp = bindRegistryMethod('onLinkUp')
+/** @type {(...args: unknown[]) => unknown} */
+export const onLinkDown = bindRegistryMethod('onLinkDown')
+/** @type {(...args: unknown[]) => unknown} */
+export const registerScopeInterest = bindRegistryMethod('registerScopeInterest')
+/** @type {(...args: unknown[]) => unknown} */
+export const releaseScopeInterest = bindRegistryMethod('releaseScopeInterest')
+/** @type {(...args: unknown[]) => unknown} */
+export const subscribeScope = bindRegistryMethod('subscribeScope')
+
 /**
- * 默认 registry 的 getLink 代理。
- * @param {...any} args 转发参数
- * @returns {ReturnType<ReturnType<typeof createLinkRegistry>['getLink']>} 链路实例
+ * 注册默认 registry 的 scope authorizer。
+ * 不急切创建 registry（不必 resolveLocalIdentity）；首次 getLinkRegistry 时 flush。
+ * @param {string} prefix scope 前缀
+ * @param {Function} authorizer 校验函数
+ * @returns {() => void} 取消注册函数
  */
-export const getLink = (...args) => getLinkRegistry().getLink(...args)
-/**
- * 默认 registry 的 listLinks 代理。
- * @param {...any} args 转发参数
- * @returns {ReturnType<ReturnType<typeof createLinkRegistry>['listLinks']>} 链路列表
- */
-export const listLinks = (...args) => getLinkRegistry().listLinks(...args)
-/**
- * 默认 registry 的 closeLink 代理。
- * @param {...any} args 转发参数
- * @returns {ReturnType<ReturnType<typeof createLinkRegistry>['closeLink']>} 关闭完成
- */
-export const closeLink = (...args) => getLinkRegistry().closeLink(...args)
-/**
- * 默认 registry 的 sendToNodeLink 代理。
- * @param {...any} args 转发参数
- * @returns {ReturnType<ReturnType<typeof createLinkRegistry>['sendToNodeLink']>} 是否成功
- */
-export const sendToNodeLink = (...args) => getLinkRegistry().sendToNodeLink(...args)
-/**
- * 默认 registry 的 relayEnvelopeToNode 代理。
- * @param {...any} args 转发参数
- * @returns {ReturnType<ReturnType<typeof createLinkRegistry>['relayEnvelopeToNode']>} 是否成功
- */
-export const relayEnvelopeToNode = (...args) => getLinkRegistry().relayEnvelopeToNode(...args)
-/**
- * 默认 registry 的 onLinkUp 代理。
- * @param {...any} args 转发参数
- * @returns {ReturnType<ReturnType<typeof createLinkRegistry>['onLinkUp']>} 取消订阅函数
- */
-export const onLinkUp = (...args) => getLinkRegistry().onLinkUp(...args)
-/**
- * 默认 registry 的 onLinkDown 代理。
- * @param {...any} args 转发参数
- * @returns {ReturnType<ReturnType<typeof createLinkRegistry>['onLinkDown']>} 取消订阅函数
- */
-export const onLinkDown = (...args) => getLinkRegistry().onLinkDown(...args)
-/**
- * 默认 registry 的 registerScopeInterest 代理。
- * @param {...any} args 转发参数
- * @returns {ReturnType<ReturnType<typeof createLinkRegistry>['registerScopeInterest']>} 无返回值
- */
-export const registerScopeInterest = (...args) => getLinkRegistry().registerScopeInterest(...args)
-/**
- * 默认 registry 的 releaseScopeInterest 代理。
- * @param {...any} args 转发参数
- * @returns {ReturnType<ReturnType<typeof createLinkRegistry>['releaseScopeInterest']>} 无返回值
- */
-export const releaseScopeInterest = (...args) => getLinkRegistry().releaseScopeInterest(...args)
-/**
- * 默认 registry 的 registerScopeAuthorizer 代理。
- * @param {...any} args 转发参数
- * @returns {ReturnType<ReturnType<typeof createLinkRegistry>['registerScopeAuthorizer']>} 取消注册函数
- */
-export const registerScopeAuthorizer = (...args) => getLinkRegistry().registerScopeAuthorizer(...args)
-/**
- * 默认 registry 的 subscribeScope 代理。
- * @param {...any} args 转发参数
- * @returns {ReturnType<ReturnType<typeof createLinkRegistry>['subscribeScope']>} 取消订阅函数
- */
-export const subscribeScope = (...args) => getLinkRegistry().subscribeScope(...args)
+export function registerScopeAuthorizer(prefix, authorizer) {
+	if (defaultRegistry) return defaultRegistry.registerScopeAuthorizer(prefix, authorizer)
+
+	const entry = { prefix, authorizer, unregister: null }
+	pendingScopeAuthorizers.push(entry)
+	return () => {
+		const index = pendingScopeAuthorizers.indexOf(entry)
+		if (index !== -1) pendingScopeAuthorizers.splice(index, 1)
+		entry.unregister?.()
+	}
+}

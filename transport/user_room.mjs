@@ -3,11 +3,23 @@ import { createHash } from 'node:crypto'
 import { attachMailboxWire } from '../mailbox/wire.mjs'
 import { ensureNodeDefaults, getNodeHash } from '../node/identity.mjs'
 import { registerFederationRoomProvider } from '../registries/room_provider.mjs'
+import { shuffleInPlace } from '../utils/shuffle.mjs'
 import { attachPartWire } from '../wire/part_ingress.mjs'
 import { attachPartQueryWire } from '../wire/part_query.mjs'
 
 import { listLinks, sendToNodeLink, subscribeScope, getLinkRegistry } from './link_registry.mjs'
 import { USER_ROOM_SCOPE } from './room_scopes.mjs'
+
+/**
+ * 经 node scope 向对端发 action。
+ * @param {string} peerId 对端 nodeHash
+ * @param {string} action 动作名
+ * @param {unknown} payload 载荷
+ * @returns {Promise<boolean>} 是否发出
+ */
+const sendNodeAction = (peerId, action, payload) =>
+	sendToNodeLink(peerId, { scope: 'node', action, payload })
+
 
 /**
  * 在 node scope action 表上注册 fed_chunk_get / fed_chunk_data handler，
@@ -63,9 +75,8 @@ function createNodeScopeWire() {
 		 * @returns {void}
 		 */
 		on(name, handler) {
-			const key = String(name)
-			if (!nodeActionHandlers.has(key)) nodeActionHandlers.set(key, new Set())
-			nodeActionHandlers.get(key).add(handler)
+			if (!nodeActionHandlers.has(name)) nodeActionHandlers.set(name, new Set())
+			nodeActionHandlers.get(name).add(handler)
 		},
 		/**
 		 * 向指定 peer 发送 node scope action。
@@ -76,7 +87,7 @@ function createNodeScopeWire() {
 		 */
 		send(name, payload, peerId) {
 			if (!peerId) return
-			void sendToNodeLink(peerId, { scope: 'node', action: String(name), payload }).catch(() => { })
+			void sendNodeAction(peerId, name, payload).catch(() => { })
 		},
 	}
 }
@@ -96,9 +107,9 @@ function activeLinkRoster() {
  */
 async function ensureNodeScopeRuntime(wireContext) {
 	if (nodeScopeCleanup) return
-	nodeScopeReplicaUsername = String(wireContext.replicaUsername || nodeScopeReplicaUsername || '')
+	nodeScopeReplicaUsername = wireContext.replicaUsername || nodeScopeReplicaUsername || ''
 	nodeScopeCleanup = subscribeScope('node', (senderNodeHash, envelope) => {
-		const handlers = nodeActionHandlers.get(String(envelope?.action || ''))
+		const handlers = nodeActionHandlers.get(envelope.action)
 		if (!handlers?.size) return
 		for (const handler of handlers)
 			try { handler(envelope.payload, senderNodeHash) } catch { /* ignore */ }
@@ -188,7 +199,7 @@ export async function ensureUserRoom(wireContext = {}) {
 				 * @returns {void}
 				 */
 				sendToPeer(peerId, actionName, payload) {
-					void sendToNodeLink(peerId, { scope: 'node', action: String(actionName), payload }).catch(() => { })
+					void sendNodeAction(peerId, actionName, payload).catch(() => { })
 				},
 				/**
 				 * 返回当前活跃链路 roster。
@@ -201,7 +212,7 @@ export async function ensureUserRoom(wireContext = {}) {
 				 * @returns {string | null} 对端 id；无链路时为 null
 				 */
 				getPeerIdByNodeHash(nodeHash) {
-					return getLinkRegistry().getLink(nodeHash) ? String(nodeHash) : null
+					return getLinkRegistry().getLink(nodeHash) ? nodeHash : null
 				},
 			}
 			return userRoomSlot
@@ -234,15 +245,11 @@ export async function deliverToUserRoomPeers(username, actionName, payload, exce
 	if (!slot) return 0
 	const body = { ...payload, nodeHash: getNodeHash() }
 	let sent = 0
-	const peers = [...slot.getRoster()
-		.filter(({ peerId }) => peerId && peerId !== exceptPeerId)]
-	for (let swapIndex = peers.length - 1; swapIndex > 0; swapIndex--) {
-		const pickIndex = Math.floor(Math.random() * (swapIndex + 1))
-		;[peers[swapIndex], peers[pickIndex]] = [peers[pickIndex], peers[swapIndex]]
-	}
+	const peers = shuffleInPlace(slot.getRoster()
+		.filter(({ peerId }) => peerId && peerId !== exceptPeerId))
 	for (const { peerId } of peers)
 		try {
-			if (await sendToNodeLink(peerId, { scope: 'node', action: String(actionName), payload: body }))
+			if (await sendNodeAction(peerId, actionName, body))
 				sent++
 			if (sent >= fanoutLimit) break
 		}

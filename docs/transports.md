@@ -10,6 +10,8 @@ Typical entrypoints:
 - `ensureLinkToNode` / `sendToNodeLink` / `subscribeScope`
 - `createGroupLinkSet` / `createScopedLinkRoom` / `ensureUserRoom`
 
+`registerScopeAuthorizer` may be called before `initNode` / `getLinkRegistry` — it only buffers policy until the default registry is created.
+
 Callers do **not** choose WebRTC, BLE, ICE, or DataChannels. If a path is unavailable on the host, the registry tries the next internal provider; the API surface stays the same.
 
 `link/` and `link/providers/` are **package-private** (not in `package.json` `exports`). Do not import them from fount or other shells.

@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { assert } from '../helpers/assert.mjs'
 
@@ -21,7 +21,7 @@ const childScript = join(here, '../helpers/shutdown_exit_child.mjs')
  */
 async function assertShutdownExitsWithin(options) {
 	const warmMs = Math.max(0, Number(options.warmMs) || 0)
-	const afterShutdownBudgetMs = options.afterShutdownBudgetMs
+	const { afterShutdownBudgetMs } = options
 	const child = spawn(process.execPath, [childScript], {
 		cwd: packageRoot,
 		stdio: ['ignore', 'pipe', 'ignore'],

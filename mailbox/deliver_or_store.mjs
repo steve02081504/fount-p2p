@@ -147,7 +147,7 @@ export async function respondMailboxWant(want, sendGive, peerId) {
 	const { getMailboxRecords, takeMailboxForRecipient } = await import('./store.mjs')
 	const recipient = normalizeHex64(want.toPubKeyHash)
 	if (!recipient) return
-	const ids = Array.isArray(want.ids) ? want.ids : []
+	const ids = want.ids || []
 	const rows = (ids.length
 		? await getMailboxRecords(ids)
 		: await takeMailboxForRecipient(recipient)

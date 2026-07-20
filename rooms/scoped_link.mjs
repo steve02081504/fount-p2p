@@ -1,12 +1,11 @@
-import { noteAdvertPeerHints } from '../discovery/advert_peer_hints.mjs'
 import { advertiseTopic, subscribeTopic } from '../discovery/index.mjs'
-import { verifySignedAdvert } from '../link/handshake.mjs'
+import { ingestSignedAdvert } from '../transport/advert_ingest.mjs'
 import { getLinkRegistry } from '../transport/link_registry.mjs'
 import {
-	decryptSignalPacket,
 	encryptSignalPacket,
 	groupRendezvousTopic,
 } from '../transport/signal_crypto.mjs'
+import { emitSafe } from '../utils/emit_safe.mjs'
 
 /**
  * 在指定 scope 与 roomSecret 下创建 link 层房间（discovery + registry 转发）。
@@ -18,9 +17,9 @@ import {
  */
 export function createScopedLinkRoom(options) {
 	const registry = getLinkRegistry()
-	const scope = String(options.scope)
+	const { scope } = options
 	const topic = groupRendezvousTopic(options.roomSecret)
-	const allowNode = typeof options.allowNode === 'function' ? options.allowNode : () => true
+	const allowNode = options.allowNode ?? (() => true)
 	/** @type {Set<string>} */
 	const discoveredPeers = new Set()
 	/** @type {Set<string>} */
@@ -42,23 +41,13 @@ export function createScopedLinkRoom(options) {
 	}
 
 	/**
-	 * @param {Set<(peerId: string) => void>} listeners 回调集合
-	 * @param {string} peerId 节点 hash
-	 * @returns {void}
-	 */
-	function emit(listeners, peerId) {
-		for (const listener of listeners)
-			try { listener(peerId) } catch { /* ignore */ }
-	}
-
-	/**
 	 * @param {string} peerId 节点 hash
 	 * @returns {void}
 	 */
 	function notePeerJoin(peerId) {
 		if (!peerId || announcedPeers.has(peerId)) return
 		announcedPeers.add(peerId)
-		emit(joinListeners, peerId)
+		emitSafe(joinListeners, peerId)
 	}
 
 	/**
@@ -68,7 +57,7 @@ export function createScopedLinkRoom(options) {
 	function notePeerLeave(peerId) {
 		if (!peerId || !announcedPeers.has(peerId)) return
 		announcedPeers.delete(peerId)
-		emit(leaveListeners, peerId)
+		emitSafe(leaveListeners, peerId)
 	}
 
 	/**
@@ -76,10 +65,9 @@ export function createScopedLinkRoom(options) {
 	 * @returns {{ handler: ((payload: unknown, peerId: string) => void) | null, backlog: Array<{ payload: unknown, peerId: string }> }} action 槽（含待处理 backlog）
 	 */
 	function getActionEntry(name) {
-		const key = String(name)
-		if (!actionEntries.has(key))
-			actionEntries.set(key, { handler: null, backlog: [] })
-		return actionEntries.get(key)
+		if (!actionEntries.has(name))
+			actionEntries.set(name, { handler: null, backlog: [] })
+		return actionEntries.get(name)
 	}
 
 	return {
@@ -90,7 +78,7 @@ export function createScopedLinkRoom(options) {
 			await registry.ensureRuntime()
 			cleanups.add(registry.subscribeScope(scope, (senderNodeHash, envelope) => {
 				if (!allowNode(senderNodeHash)) return
-				const entry = actionEntries.get(String(envelope?.action || ''))
+				const entry = actionEntries.get(envelope.action)
 				if (!entry) return
 				if (entry.handler) entry.handler(envelope.payload, senderNodeHash)
 				else entry.backlog.push({ payload: envelope.payload, peerId: senderNodeHash })
@@ -104,14 +92,11 @@ export function createScopedLinkRoom(options) {
 				notePeerLeave(nodeHash)
 			}))
 			cleanups.add(await subscribeTopic(topic, async (bytes, meta) => {
-				const packet = decryptSignalPacket(topic, bytes)
-				if (packet?.type !== 'advert' || !packet.body) return
-				const verifiedNodeHash = await verifySignedAdvert(topic, packet.body)
-				if (!verifiedNodeHash || !allowNode(verifiedNodeHash)) return
-				noteAdvertPeerHints(verifiedNodeHash, packet.body, meta)
-				discoveredPeers.add(verifiedNodeHash)
-				await registry.ensureLinkToNode(verifiedNodeHash).catch(() => null)
-				if (registry.getLink(verifiedNodeHash)) notePeerJoin(verifiedNodeHash)
+				const ingested = await ingestSignedAdvert(topic, bytes, meta)
+				if (!ingested || !allowNode(ingested.verifiedNodeHash)) return
+				discoveredPeers.add(ingested.verifiedNodeHash)
+				await registry.ensureLinkToNode(ingested.verifiedNodeHash).catch(() => null)
+				if (registry.getLink(ingested.verifiedNodeHash)) notePeerJoin(ingested.verifiedNodeHash)
 			}))
 			cleanups.add(await advertiseTopic(topic, encryptSignalPacket(topic, {
 				type: 'advert',
@@ -135,22 +120,21 @@ export function createScopedLinkRoom(options) {
 		 * @returns {[(payload: unknown, peerId?: string | string[] | null) => Promise<void>, (handler: (payload: unknown, peerId: string) => void) => void]} [send, onReceive] 发送与订阅元组
 		 */
 		makeAction(name) {
-			const actionName = String(name)
 			return [
 				async (payload, peerId = null) => {
 					if (Array.isArray(peerId)) {
 						await Promise.all(peerId.map(targetPeerId =>
-							registry.sendToNodeLink(targetPeerId, { scope, action: actionName, payload })))
+							registry.sendToNodeLink(targetPeerId, { scope, action: name, payload })))
 						return
 					}
 					if (peerId)
-						await registry.sendToNodeLink(peerId, { scope, action: actionName, payload })
+						await registry.sendToNodeLink(peerId, { scope, action: name, payload })
 					else
 						await Promise.all(activePeerIds().map(targetPeerId =>
-							registry.sendToNodeLink(targetPeerId, { scope, action: actionName, payload })))
+							registry.sendToNodeLink(targetPeerId, { scope, action: name, payload })))
 				},
 				handler => {
-					const entry = getActionEntry(actionName)
+					const entry = getActionEntry(name)
 					entry.handler = handler
 					for (const pending of entry.backlog.splice(0))
 						handler(pending.payload, pending.peerId)

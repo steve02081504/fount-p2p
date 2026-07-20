@@ -194,7 +194,7 @@ test('cache hit skips forward; expiry resumes forward', async () => {
 
 	for (const nodeHash of Object.keys(topology)) {
 		const state = createPartQueryNodeState({ cache: nodeHash === NODE_A ? cache : createPartQueryCache() })
-		registerQueryInboundHandler('shells/social', 'entity_search', () => 
+		registerQueryInboundHandler('shells/social', 'entity_search', () =>
 			nodeHash === NODE_B ? [{ id: 'b' }] : [{ id: 'a' }]
 		, state)
 		/** @type {Map<string, Set<Function>>} */

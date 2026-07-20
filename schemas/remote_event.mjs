@@ -9,7 +9,7 @@ export function validateRemoteEventShape(event) {
 	if (!event?.type || typeof event.type !== 'string')
 		throw new Error('remote event: type required')
 	assertHex64(event.id, 'remote event.id')
-	if (!Array.isArray(event.prev_event_ids))
+	if (!event.prev_event_ids)
 		throw new Error('remote event: prev_event_ids must be array')
 	for (const parentId of event.prev_event_ids)
 		assertHex64(parentId, 'remote event.prev_event_id')

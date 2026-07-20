@@ -8,6 +8,7 @@ import { loadPeerPoolView, mergeNetworkPeerPools } from '../node/network.mjs'
 import { loadReputation } from '../node/reputation_store.mjs'
 import { isQuarantinedPure } from '../reputation/engine.mjs'
 import { clampReputationScore } from '../reputation/math.mjs'
+import { shuffleInPlace } from '../utils/shuffle.mjs'
 
 /**
  * 解析联邦池槽位参数（从 groupSettings 读取，含低功耗缩减）。
@@ -91,14 +92,8 @@ export function mergeTrustedWithAnchors(existingTrusted, rankedCandidates, limit
  */
 export function selectExploreWithSourceQuota(exploreIds, exploreSources, k, maxPerSource = EXPLORE_MAX_PER_SOURCE) {
 	if (k <= 0 || !exploreIds.length) return []
-	if (!exploreSources?.size) {
-		const copy = [...exploreIds]
-		for (let i = copy.length - 1; i > 0; i--) {
-			const j = Math.floor(Math.random() * (i + 1))
-				;[copy[i], copy[j]] = [copy[j], copy[i]]
-		}
-		return copy.slice(0, k)
-	}
+	if (!exploreSources?.size)
+		return shuffleInPlace([...exploreIds]).slice(0, k)
 	/** @type {Map<string, string[]>} */
 	const bySource = new Map()
 	for (const id of exploreIds) {
@@ -106,11 +101,7 @@ export function selectExploreWithSourceQuota(exploreIds, exploreSources, k, maxP
 		if (!bySource.has(src)) bySource.set(src, [])
 		bySource.get(src).push(id)
 	}
-	for (const ids of bySource.values())
-		for (let i = ids.length - 1; i > 0; i--) {
-			const j = Math.floor(Math.random() * (i + 1))
-				;[ids[i], ids[j]] = [ids[j], ids[i]]
-		}
+	for (const ids of bySource.values()) shuffleInPlace(ids)
 	const out = []
 	/** @type {Map<string, number>} */
 	const picked = new Map()
@@ -148,7 +139,7 @@ export function selectPeerIdsFromPool({ roster, peers, rep, limits, selfNodeHash
 	const blocked = new Set(peers.blockedPeers)
 	const roomSet = inRoomNodeHashes instanceof Set
 		? inRoomNodeHashes
-		: new Set(Array.isArray(inRoomNodeHashes) ? inRoomNodeHashes : [])
+		: new Set(inRoomNodeHashes || [])
 	const onlineAll = roster.filter(
 		rosterEntry => rosterEntry.peerId
 			&& rosterEntry.remoteNodeHash
@@ -175,10 +166,11 @@ export function selectPeerIdsFromPool({ roster, peers, rep, limits, selfNodeHash
 	}
 
 	const anchoredTrusted = peers.trustedPeers.filter(nodeHash => trustedSet.has(nodeHash))
-	const extraTrusted = [...trustedSet]
-		.filter(nodeHash => !anchoredTrusted.includes(nodeHash))
-		.sort((a, b) => repScore(b, rep) - repScore(a, rep))
-	for (const nodeId of [...anchoredTrusted, ...extraTrusted].slice(0, limits.trustedSlots)) {
+	for (const nodeId of mergeTrustedWithAnchors(
+		anchoredTrusted,
+		[...trustedSet].sort((a, b) => repScore(b, rep) - repScore(a, rep)),
+		limits,
+	)) {
 		if (outPeerIds.size >= limits.maxPeers) break
 		pushNode(nodeId)
 	}
@@ -216,15 +208,14 @@ export function selectPeerIdsFromPool({ roster, peers, rep, limits, selfNodeHash
  * @returns {string[]} 应建链的 nodeHash 列表（去重）
  */
 export function selectLinkTargetsFromMembers({ members, selfNodeHash, rep, peers, limits, anchors = [] }) {
-	const self = String(selfNodeHash || '')
 	const blocked = new Set(peers?.blockedPeers || [])
 	const now = Date.now()
-	const candidates = [...new Set([...members].map(id => String(id)))]
-		.filter(id => id && id !== self && !blocked.has(id) && !isQuarantinedPure(rep, id, now))
+	const candidates = [...new Set(members)]
+		.filter(id => id && id !== selfNodeHash && !blocked.has(id) && !isQuarantinedPure(rep, id, now))
 	const ranked = candidates.slice().sort((a, b) => repScore(b, rep) - repScore(a, rep))
 	const candidateSet = new Set(candidates)
 	// 锚点（如 introducer/creator/seed）必连、且不占 trustedSlots——保证引导期连通。
-	const forced = [...new Set([...anchors].map(id => String(id)))].filter(id => candidateSet.has(id))
+	const forced = [...new Set(anchors)].filter(id => candidateSet.has(id))
 	const chosen = new Set(forced)
 	// trusted 槽只从非锚点候选填：既有 trusted 优先保留，再按信誉补至 trustedSlots。
 	const nonForced = ranked.filter(id => !chosen.has(id))
@@ -237,29 +228,24 @@ export function selectLinkTargetsFromMembers({ members, selfNodeHash, rep, peers
 }
 
 /**
- * 将新 PEX 节点线索合并进 explore 池，并按信誉重新填充 trusted 槽。
- * 纯计算版本，不含 I/O：接受 peers 对象，返回新对象。
- *
+ * 将候选 id 并入 explore，并按信誉重填 trusted。
  * @param {{
  *   peers: { trustedPeers: string[], explorePeers: string[], blockedPeers: string[] },
  *   rep: { byNodeHash?: Record<string, { score?: number }> },
- *   hints: string[],
+ *   addIds: Iterable<string>,
  *   limits: ReturnType<typeof resolveFederationPoolLimits>,
- * }} options 合并参数（peers、rep、hints、limits）
- * @returns {{ trustedPeers: string[], explorePeers: string[] }} 更新后的 trusted/explore 列表
+ * }} options 池状态与增量
+ * @returns {{ trustedPeers: string[], explorePeers: string[] }} 重算后的 trusted/explore
  */
-export function applyPexHints({ peers, rep, hints, limits }) {
-	const ids = [...new Set(
-		(Array.isArray(hints) ? hints : [])
-			.map(id => String(id).trim())
-			.filter(Boolean),
-	)]
+function rebuildExploreAndTrusted(options) {
+	const { peers, rep, addIds, limits } = options
+	const blocked = new Set(peers.blockedPeers)
 	const explore = new Set(peers.explorePeers)
-	for (const id of ids)
-		if (!peers.blockedPeers.includes(id)) explore.add(id)
-	const newExplorePeers = [...explore].slice(-500)
+	for (const id of addIds)
+		if (id && !blocked.has(id)) explore.add(id)
+	const newExplorePeers = [...explore].filter(id => !blocked.has(id)).slice(-500)
 	const ranked = [...new Set([...peers.trustedPeers, ...newExplorePeers])]
-		.filter(id => !peers.blockedPeers.includes(id))
+		.filter(id => !blocked.has(id))
 		.sort((a, b) => repScore(b, rep) - repScore(a, rep))
 	return {
 		trustedPeers: mergeTrustedWithAnchors(peers.trustedPeers, ranked, limits, peers.blockedPeers),
@@ -268,32 +254,39 @@ export function applyPexHints({ peers, rep, hints, limits }) {
 }
 
 /**
- * 从 roster 观测中更新 explore 池并重新填充 trusted 槽（纯计算版本）。
- *
+ * PEX 线索并入 explore 并重填 trusted（纯计算）。
  * @param {{
  *   peers: { trustedPeers: string[], explorePeers: string[], blockedPeers: string[] },
  *   rep: { byNodeHash?: Record<string, { score?: number }> },
- *   roster: Array<{ remoteNodeHash?: string }>,
+ *   hints: string[],
  *   limits: ReturnType<typeof resolveFederationPoolLimits>,
- * }} options roster 更新参数（peers、rep、roster、limits）
- * @returns {{ trustedPeers: string[], explorePeers: string[] }} 更新后的 trusted/explore 列表
+ * }} options 池状态与 PEX hints
+ * @returns {{ trustedPeers: string[], explorePeers: string[] }} 重算后的 trusted/explore
  */
-export function applyRosterToPeerPool({ peers, rep, roster, limits }) {
-	const explore = new Set(peers.explorePeers)
-	for (const rosterEntry of roster) {
-		const nodeId = rosterEntry.remoteNodeHash?.trim()
-		if (nodeId && !peers.blockedPeers.includes(nodeId)) explore.add(nodeId)
-	}
-	const newExplorePeers = [...explore]
-		.filter(id => !peers.blockedPeers.includes(id))
-		.slice(-500)
-	const candidates = [...new Set([...peers.trustedPeers, ...newExplorePeers])]
-		.filter(id => !peers.blockedPeers.includes(id))
-		.sort((a, b) => repScore(b, rep) - repScore(a, rep))
-	return {
-		trustedPeers: mergeTrustedWithAnchors(peers.trustedPeers, candidates, limits, peers.blockedPeers),
-		explorePeers: newExplorePeers,
-	}
+export function applyPexHints(options) {
+	const { peers, rep, hints, limits } = options
+	return rebuildExploreAndTrusted({
+		peers, rep, limits,
+		addIds: hints || [],
+	})
+}
+
+/**
+ * roster 观测并入 explore 并重填 trusted（纯计算）。
+ * @param {{
+ *   peers: { trustedPeers: string[], explorePeers: string[], blockedPeers: string[] },
+ *   rep: { byNodeHash?: Record<string, { score?: number }> },
+ *   roster: { remoteNodeHash?: string }[],
+ *   limits: ReturnType<typeof resolveFederationPoolLimits>,
+ * }} options 池状态与 roster
+ * @returns {{ trustedPeers: string[], explorePeers: string[] }} 重算后的 trusted/explore
+ */
+export function applyRosterToPeerPool(options) {
+	const { peers, rep, roster, limits } = options
+	return rebuildExploreAndTrusted({
+		peers, rep, limits,
+		addIds: roster.map(entry => entry.remoteNodeHash).filter(Boolean),
+	})
 }
 
 /**
@@ -308,17 +301,13 @@ export function pickFederationTargetPeerIds(groupId, roster, groupSettings, self
 	const limits = resolveFederationPoolLimits(groupSettings)
 	const peers = loadPeerPoolView(groupId)
 	const rep = loadReputation()
-	const inRoomNodeHashes = roster
-		.map(p => p.remoteNodeHash)
-		.map(id => String(id).trim())
-		.filter(Boolean)
 	return selectPeerIdsFromPool({
 		roster,
 		peers,
 		rep,
 		limits,
 		selfNodeHash,
-		inRoomNodeHashes,
+		inRoomNodeHashes: roster.map(entry => entry.remoteNodeHash).filter(Boolean),
 		hintSources: peers.hintSources,
 	})
 }

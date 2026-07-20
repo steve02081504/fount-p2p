@@ -45,9 +45,9 @@ export function isPartInvokeResponse(value) {
 		const err = value.error
 		return isPlainObject(err)
 			&& typeof err.message === 'string'
-			&& err.message.length > 0
 			&& typeof err.code === 'string'
-			&& err.code.length > 0
+			&& err.message.length
+			&& err.code.length
 	}
 	return true
 }
@@ -57,7 +57,7 @@ export function isPartInvokeResponse(value) {
  * @returns {unknown | null} 成功 `result`；失败或空为 null
  */
 export function unwrapPartInvokeResult(response) {
-	if (!response || !isPartInvokeResponse(response) || 'error' in response) return null
+	if (!isPartInvokeResponse(response) || 'error' in response) return null
 	return response.result ?? null
 }
 
@@ -77,5 +77,5 @@ export function normalizePartpath(value) {
 export function isPartInvoke(value) {
 	if (!isPlainObject(value)) return false
 	const { kind } = value
-	return typeof kind === 'string' && kind.length > 0
+	return typeof kind === 'string' && kind.length
 }

@@ -26,7 +26,7 @@ export async function sendToNode(username, targetNodeHash, actionName, payload, 
 	await ensureUserRoom({ replicaUsername: username })
 
 	// 已直连 peer 不经 trust-graph scope 也应能收发 node scope action（非成员 CAS chunk / follow hint 等）
-	if (await sendToNodeLink(target, { scope: 'node', action: String(actionName), payload }))
+	if (await sendToNodeLink(target, { scope: 'node', action: actionName, payload }))
 		return true
 
 	const merged = graph ?? await buildMergedGraph(username)

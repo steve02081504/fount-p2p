@@ -34,7 +34,7 @@ test('sim explore source quota tracks peer_pool', () => {
 })
 
 test('sim signaling sources are real provider ids (no stale tracker)', () => {
-	assert(DEFAULT_SIGNALING_SOURCES.length > 0)
+	assert(DEFAULT_SIGNALING_SOURCES.length)
 	assert(!DEFAULT_SIGNALING_SOURCES.includes('tracker'), 'tracker 已不是真实 provider')
 	for (const src of DEFAULT_SIGNALING_SOURCES)
 		assert(REAL_SIGNALING_PROVIDER_IDS.has(src), `未知信令源 ${src}`)

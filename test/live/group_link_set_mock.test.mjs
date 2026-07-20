@@ -102,7 +102,7 @@ test({
 				30_000,
 			)
 			assertEquals(await aliceGroup.send('dag_event', { hello: 'group' }), 1)
-			await waitFor(() => received.length > 0, 30_000)
+			await waitFor(() => received.length, 30_000)
 			assertEquals(received[0].senderNodeHash, alice.nodeHash)
 			assertEquals(received[0].envelope.scope, 'group:g1')
 			assertEquals(received[0].envelope.action, 'dag_event')

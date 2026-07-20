@@ -567,7 +567,7 @@ function simulateArchiveQuorum(nodes, tunables, scoreOf, groupSize, hasEquivocat
 		: Math.max(0.05, strictMin / byzantineNeed)
 	safety *= crossVerify
 
-	if (forgers.length > 0) {
+	if (forgers.length) {
 		const unsafeRatio = forgerDensity * (3 / Math.max(1, strictMin))
 		safety *= Math.max(0.05, 1 - unsafeRatio)
 	}
@@ -827,7 +827,7 @@ function collectSnapshot(observers, nodes, tunables, groupSize, simulationContex
 	const sleepers = malicious.filter(n => n.attack === 'sleeper')
 	const equivocators = malicious.filter(n => n.attack === 'equivocator')
 	const offlineSet = simulationContext.offlineSet ?? new Set()
-	const hasEquivocation = equivocators.length > 0 || (simulationContext.equivocationByObserver?.size ?? 0) > 0
+	const hasEquivocation = equivocators.length || simulationContext.equivocationByObserver?.size
 
 	let malSuppressed = 0
 	let malTotal = 0
@@ -952,7 +952,7 @@ function collectSnapshot(observers, nodes, tunables, groupSize, simulationContex
 		const observerReachHarm = Math.max(0, cleanReach - discReach)
 
 		const highRepMalInTop = topMal.filter(n => scoreOf(n.nodeHash) >= honestMedian).length
-		if (top.length > 0)
+		if (top.length)
 			malAmplification += highRepMalInTop / top.length
 
 		for (const m of malicious) {

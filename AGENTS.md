@@ -14,13 +14,16 @@
 
 **Facade:** `index.mjs`; subpath exports mirror directories (`./transport/*`, `./registries/*`, `./core/*`, …).
 
-**L3 transport modules:** `link_registry` (fount-network facade), `runtime_bootstrap` (`ensureRuntime`), `offer_answer` (glare), `signal_crypto` (rendezvous + AES-GCM). See [docs/transports.md](docs/transports.md).
+**L3 transport modules:** `link_registry` (fount-network facade), `runtime_bootstrap` (`ensureRuntime`), `offer_answer` (glare), `signal_crypto` / `advert_ingest` (rendezvous + AES-GCM + signed advert verification ingress). See [docs/transports.md](docs/transports.md).
+
+**Shared helpers:** `utils/shuffle`, `utils/emit_safe`, `utils/lru.createLruMap`, `utils/ttl_map.createTtlMap` (process-level caches must be bounded; TTL maps take `maxSize` to avoid expired entries piling up on write-only paths), `core/bytes_codec.toBytes`, `link/providers/link_id_pipe`.
 
 **File naming:** parent directory is scope — child `.mjs` files use short names (`mailbox/store.mjs`, `wire/ingress.mjs`). Tunables default: `<dir>/tunables.json`. Subpath `package.json` exports mirror filenames.
 
 **Import boundary:** `test/integration/p2p_shell_import_guard.test.mjs`.
 
 **Tests / tools:**
+
 - `npm test` — package pure + integration (Node; `--test-force-exit`)
 - `npm run test:live` — live link / LAN smoke (Node; `--test-force-exit`)
 - `npm run test:fount` — cross-repo bridge (Deno; fount social uses `npm:`)
@@ -42,6 +45,7 @@
 - **Room startup:** `group_link_set.start()` / `scoped_link.start()` / first `ensureUserRoom()` must call `registry.ensureRuntime()` before subscribe/advertise.
 - **ensureRuntime:** returns after registering discovery and scheduling background warm — does **not** await listen/relays/BT. Shells must not read `lanTcpPort` or await public-signaling warm-up. Details, budgets, Nostr cleanup, BT probe: [docs/runtime.md](docs/runtime.md).
 - **fount network:** shells use `startNode` / `ensureLinkToNode` / `sendToNodeLink` / rooms — never import `link/` or pick a transport. Internals: [docs/transports.md](docs/transports.md). WebRTC glare/signal: [docs/signaling.md](docs/signaling.md).
+- **`registerScopeAuthorizer`:** module export buffers until first `getLinkRegistry()` — registration does not `resolveLocalIdentity` / require `initNode`. Runtime APIs (`ensure*` / `send*` / `subscribeScope`) still create the registry eagerly.
 - **Bluetooth:** optionalDependencies `@stoprocent/noble` / `@stoprocent/bleno`. Hardware probe is subprocess-only (`probe_child.mjs`); never `waitPoweredOn` in the parent. See [docs/runtime.md](docs/runtime.md).
 - **Mailbox:** `{nodeDir}/mailbox/store.jsonl`.
 - **Manifest ACL / transfer owner:** shells register matchers; core does not hard-code chat/social types.

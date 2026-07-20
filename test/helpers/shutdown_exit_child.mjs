@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { clearDiscoveryProviders } from '../../discovery/index.mjs'
 import { clearLinkProviders } from '../../link/providers/index.mjs'
 import { createLinkRegistry } from '../../transport/link_registry.mjs'
+
 import { identity } from './identity.mjs'
 import { initTestP2pNode } from './node.mjs'
 

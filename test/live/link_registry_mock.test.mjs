@@ -102,7 +102,7 @@ test({
 				action: 'mailbox_put',
 				payload: { ok: true },
 			})
-			await waitFor(() => received.length > 0, 10_000)
+			await waitFor(() => received.length, 10_000)
 			assertEquals(received[0].senderNodeHash, alice.nodeHash)
 			assertEquals(received[0].envelope.action, 'mailbox_put')
 			assertEquals(received[0].envelope.payload.ok, true)

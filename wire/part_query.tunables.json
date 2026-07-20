@@ -9,6 +9,11 @@
 	"dedupeMaxSize": 4000,
 	"cacheTtlMs": 300000,
 	"cacheMaxKeys": 256,
-	"hopTimeoutMs": [1000, 2500, 4000, 6000],
+	"hopTimeoutMs": [
+		1000,
+		2500,
+		4000,
+		6000
+	],
 	"defaultTimeoutMs": 4000
 }

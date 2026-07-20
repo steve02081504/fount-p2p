@@ -51,8 +51,7 @@ export function computeLocalTipsHash(tipIds) {
  * @returns {string[]} 去重并字典序排序后的父事件 id 数组
  */
 export function sortedPrevEventIds(raw) {
-	if (!Array.isArray(raw)) return []
-	return [...new Set(raw.filter(id => EVENT_ID_HEX.test(String(id))))].sort()
+	return [...new Set((raw || []).filter(id => EVENT_ID_HEX.test(id)))].sort()
 }
 
 /**
@@ -226,7 +225,7 @@ export function topologicalCanonicalOrder(metas) {
 
 	while (ready.size) {
 		const next = ready.pop()
-		if (next == null) break
+		if (!next) break
 		ordered.push(next)
 		for (const childId of children.get(next) || []) {
 			const remaining = (parentCount.get(childId) || 0) - 1

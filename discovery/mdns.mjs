@@ -129,7 +129,13 @@ export function createMdnsDiscoveryProvider(options = {}) {
 		bucket.get(topic).add(listener)
 		const release = acquire()
 		return () => {
-			bucket.get(topic)?.delete(listener)
+			const set = bucket.get(topic)
+			if (!set) {
+				release()
+				return
+			}
+			set.delete(listener)
+			if (!set.size) bucket.delete(topic)
 			release()
 		}
 	}

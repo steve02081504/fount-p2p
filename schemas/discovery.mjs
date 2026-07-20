@@ -34,8 +34,7 @@ function sanitizeDiscoveryAdvertisement(ad) {
  * @returns {object[]} 已清扫广告
  */
 function sanitizeDiscoveryAdvertisements(ads) {
-	if (!Array.isArray(ads)) return []
-	return ads.slice(0, MAX_DISCOVERY_ADS).map(sanitizeDiscoveryAdvertisement).filter(Boolean)
+	return (ads || []).slice(0, MAX_DISCOVERY_ADS).map(sanitizeDiscoveryAdvertisement).filter(Boolean)
 }
 
 /**

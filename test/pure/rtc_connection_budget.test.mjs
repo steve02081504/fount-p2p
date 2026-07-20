@@ -3,11 +3,10 @@ import { test } from 'node:test'
 import {
 	annotateRtcPeerNodeHash,
 	releaseRtcPeer,
+	rtcBudgetRoomCount,
 	takeRtcJoinSlot,
 } from '../../transport/rtc_connection_budget.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
-
-
 
 const LIMITS = { maxActive: 8, maxJoinsPerMin: 120, trustedPeers: ['trusted-node'] }
 
@@ -29,4 +28,13 @@ test('trusted peer annotated after identity keeps slot under load', () => {
 	annotateRtcPeerNodeHash(room, trustedPeer, 'trusted-node', LIMITS)
 	assertEquals(takeRtcJoinSlot(room, trustedPeer, LIMITS, 'sybil-source'), true)
 	releaseRtcPeer(room, trustedPeer)
+})
+
+test('empty rtc budget room bucket is dropped', () => {
+	const room = `room-drop-${Date.now()}`
+	const before = rtcBudgetRoomCount()
+	assertEquals(takeRtcJoinSlot(room, 'only', LIMITS, 'src'), true)
+	assertEquals(rtcBudgetRoomCount() >= before + 1, true)
+	releaseRtcPeer(room, 'only')
+	assertEquals(rtcBudgetRoomCount(), before)
 })

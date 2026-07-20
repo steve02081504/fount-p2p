@@ -1,5 +1,10 @@
-/** @type {Map<string, { fp: string, order: string[] }>} */
-const memoByKey = new Map()
+import { createLruMap } from '../utils/lru.mjs'
+
+/** 进程内拓扑序 memo 上限（每条目持有整份 order 数组） */
+const MEMO_MAX = 64
+
+/** @type {ReturnType<typeof createLruMap<string, { fp: string, order: string[] }>>} */
+const memoByKey = createLruMap(MEMO_MAX)
 
 /**
  * 进程内拓扑序 memo；`resolveOrder` 可接入磁盘缓存等实现。
@@ -12,11 +17,13 @@ const memoByKey = new Map()
 export function resolveTopologicalOrderMemoCached(memoKey, fingerprint, resolveOrder, options = {}) {
 	if (!options.force) {
 		const cached = memoByKey.get(memoKey)
-		if (cached?.fp === fingerprint && cached.order.length)
+		if (cached?.fp === fingerprint && cached.order.length) {
+			memoByKey.touch(memoKey, cached)
 			return cached.order
+		}
 	}
 	const order = resolveOrder()
-	memoByKey.set(memoKey, { fp: fingerprint, order })
+	memoByKey.touch(memoKey, { fp: fingerprint, order })
 	return order
 }
 

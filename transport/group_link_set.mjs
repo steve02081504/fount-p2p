@@ -1,17 +1,15 @@
-import { noteAdvertPeerHints } from '../discovery/advert_peer_hints.mjs'
 import { advertiseTopic, subscribeTopic } from '../discovery/index.mjs'
-import { verifySignedAdvert } from '../link/handshake.mjs'
 import { loadPeerPoolView } from '../node/network.mjs'
 import { loadReputation } from '../node/reputation_store.mjs'
+import { emitSafe } from '../utils/emit_safe.mjs'
 
+import { ingestSignedAdvert } from './advert_ingest.mjs'
 import { getLinkRegistry } from './link_registry.mjs'
 import { resolveFederationPoolLimits, selectLinkTargetsFromMembers } from './peer_pool.mjs'
 import {
-	decryptSignalPacket,
 	encryptSignalPacket,
 	groupRendezvousTopic,
 } from './signal_crypto.mjs'
-
 
 /**
  * 创建基于 link registry 的群组联邦房间。
@@ -25,10 +23,10 @@ import {
 export function createGroupLinkSet(options) {
 	const registry = options.registry ?? getLinkRegistry()
 	const autoconnect = options.autoconnect !== false
-	const groupId = String(options.groupId)
+	const { groupId } = options
 	const scope = `group:${groupId}`
 	const topic = groupRendezvousTopic(options.roomSecret)
-	const members = new Set((Array.isArray(options.members) ? options.members : []).map(String))
+	const members = new Set(options.members || [])
 	const selfNodeHash = registry.localIdentity.nodeHash
 	const groupSettings = options.groupSettings ?? {}
 	// 初始成员是调用方明确知道的引导集合（如 introducer/creator/seed），作为必连锚点保证引导期连通。
@@ -60,17 +58,6 @@ export function createGroupLinkSet(options) {
 	}
 
 	/**
-	 * 向 peer 事件监听器集合广播。
-	 * @param {Set<(peerId: string) => void>} listeners 监听器集合
-	 * @param {string} peerId 目标 peer id
-	 * @returns {void}
-	 */
-	function emitPeerListeners(listeners, peerId) {
-		for (const listener of listeners)
-			try { listener(peerId) } catch { /* ignore */ }
-	}
-
-	/**
 	 * 记录 peer 加入并通知监听器。
 	 * @param {string} peerId 加入的 peer id
 	 * @returns {void}
@@ -78,7 +65,7 @@ export function createGroupLinkSet(options) {
 	function notePeerJoin(peerId) {
 		if (!peerId || announcedPeers.has(peerId)) return
 		announcedPeers.add(peerId)
-		emitPeerListeners(peerJoinListeners, peerId)
+		emitSafe(peerJoinListeners, peerId)
 	}
 
 	/**
@@ -89,7 +76,7 @@ export function createGroupLinkSet(options) {
 	function notePeerLeave(peerId) {
 		if (!peerId || !announcedPeers.has(peerId)) return
 		announcedPeers.delete(peerId)
-		emitPeerListeners(peerLeaveListeners, peerId)
+		emitSafe(peerLeaveListeners, peerId)
 	}
 
 	/**
@@ -98,13 +85,12 @@ export function createGroupLinkSet(options) {
 	 * @returns {void}
 	 */
 	function notePeerCandidate(nodeHash) {
-		const normalized = String(nodeHash || '')
-		if (!normalized || normalized === selfNodeHash || members.has(normalized)) return
-		members.add(normalized)
+		if (!nodeHash || nodeHash === selfNodeHash || members.has(nodeHash)) return
+		members.add(nodeHash)
 		registry.registerScopeInterest(scope, [...members])
 		// 若链路先于"得知其群成员身份"建立（如 warmup/连节点先连上，之后才收到其群 advert/envelope），
 		// onLinkUp 当时因 !members.has 被跳过，这里补发 peer-join，触发 bootstrap flush（member_join 自证推送）。
-		if (registry.getLink(normalized)) notePeerJoin(normalized)
+		if (registry.getLink(nodeHash)) notePeerJoin(nodeHash)
 		scheduleDial()
 	}
 
@@ -143,10 +129,9 @@ export function createGroupLinkSet(options) {
 	 * @returns {{ handler: ((payload: unknown, peerId: string) => void) | null, backlog: Array<{ payload: unknown, peerId: string }> }} action 条目
 	 */
 	function getActionEntry(name) {
-		const key = String(name)
-		if (!actionEntries.has(key))
-			actionEntries.set(key, { handler: null, backlog: [] })
-		return actionEntries.get(key)
+		if (!actionEntries.has(name))
+			actionEntries.set(name, { handler: null, backlog: [] })
+		return actionEntries.get(name)
 	}
 
 	/**
@@ -171,7 +156,7 @@ export function createGroupLinkSet(options) {
 		registry.registerScopeInterest(scope, [...members])
 		registerCleanup(registry.subscribeScope(scope, (senderNodeHash, envelope) => {
 			notePeerCandidate(senderNodeHash)
-			const entry = actionEntries.get(String(envelope?.action || ''))
+			const entry = actionEntries.get(envelope.action)
 			if (entry)
 				if (entry.handler) entry.handler(envelope.payload, senderNodeHash)
 				else entry.backlog.push({ payload: envelope.payload, peerId: senderNodeHash })
@@ -188,13 +173,10 @@ export function createGroupLinkSet(options) {
 			notePeerLeave(nodeHash)
 		}))
 		registerCleanup(await subscribeTopic(topic, async (bytes, meta) => {
-			const packet = decryptSignalPacket(topic, bytes)
-			if (packet?.type !== 'advert' || !packet.body) return
-			const verifiedNodeHash = await verifySignedAdvert(topic, packet.body)
-			if (!verifiedNodeHash || verifiedNodeHash === selfNodeHash) return
-			noteAdvertPeerHints(verifiedNodeHash, packet.body, meta)
+			const ingested = await ingestSignedAdvert(topic, bytes, meta)
+			if (!ingested || ingested.verifiedNodeHash === selfNodeHash) return
 			// 发现新成员：并入成员集并去抖重算稀疏建链目标（notePeerCandidate 内部会 scheduleDial）。
-			notePeerCandidate(verifiedNodeHash)
+			notePeerCandidate(ingested.verifiedNodeHash)
 		}))
 		registerCleanup(await advertiseTopic(topic, encryptSignalPacket(topic, {
 			type: 'advert',
@@ -229,7 +211,7 @@ export function createGroupLinkSet(options) {
 		 * @returns {string | null} 对端 id；无链路时为 null
 		 */
 		getPeerIdByNodeHash(nodeHash) {
-			return registry.getLink(nodeHash) ? String(nodeHash) : null
+			return registry.getLink(nodeHash) ? nodeHash : null
 		},
 		/**
 		 * 向单个 peer 发送 scope action。
@@ -239,7 +221,7 @@ export function createGroupLinkSet(options) {
 		 * @returns {Promise<boolean>} 是否发送成功
 		 */
 		async sendToPeer(peerId, actionName, payload) {
-			return await registry.sendToNodeLink(peerId, { scope, action: String(actionName), payload })
+			return await registry.sendToNodeLink(peerId, { scope, action: actionName, payload })
 		},
 		/**
 		 * 向单个或全部在线成员发送 action。
@@ -252,7 +234,7 @@ export function createGroupLinkSet(options) {
 			if (peerId) return await this.sendToPeer(peerId, actionName, payload) ? 1 : 0
 			let sent = 0
 			for (const { peerId: targetPeerId } of activeRoster())
-				if (await registry.sendToNodeLink(targetPeerId, { scope, action: String(actionName), payload })) sent++
+				if (await registry.sendToNodeLink(targetPeerId, { scope, action: actionName, payload })) sent++
 			return sent
 		},
 		/**
@@ -299,17 +281,16 @@ export function createGroupLinkSet(options) {
 		 * @returns {[(payload: unknown, peerId?: string | string[] | null) => Promise<void>, (handler: (payload: unknown, peerId: string) => void) => void]} send 与 on 函数对
 		 */
 		makeAction(name) {
-			const actionName = String(name)
 			return [
 				async (payload, peerId = null) => {
 					if (Array.isArray(peerId)) {
-						await Promise.all(peerId.map(targetPeerId => this.sendToPeer(targetPeerId, actionName, payload)))
+						await Promise.all(peerId.map(targetPeerId => this.sendToPeer(targetPeerId, name, payload)))
 						return
 					}
-					await this.send(actionName, payload, peerId)
+					await this.send(name, payload, peerId)
 				},
 				handler => {
-					const entry = getActionEntry(actionName)
+					const entry = getActionEntry(name)
 					entry.handler = handler
 					for (const pending of entry.backlog.splice(0))
 						handler(pending.payload, pending.peerId)

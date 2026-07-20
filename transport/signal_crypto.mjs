@@ -3,10 +3,14 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 
 import { normalizeHex64 } from '../core/hexIds.mjs'
 import { sha256Hex } from '../crypto/crypto.mjs'
+import { createLruMap } from '../utils/lru.mjs'
 
 const SIGNAL_DOMAIN = 'fount-signal'
 const NODE_TOPIC_DOMAIN = 'fount-rdv-node:'
 const GROUP_TOPIC_DOMAIN = 'fount-rdv-group:'
+
+/** topic → AES-256 密钥缓存上限（群/节点 topic 会随时间增长，须有界） */
+export const SIGNAL_KEY_CACHE_MAX = 512
 
 /**
  * 由 nodeHash 派生节点 rendezvous topic。
@@ -23,16 +27,34 @@ export function nodeRendezvousTopic(nodeHash) {
  * @returns {string} rendezvous topic 哈希
  */
 export function groupRendezvousTopic(roomSecret) {
-	return sha256Hex(`${GROUP_TOPIC_DOMAIN}${String(roomSecret || '')}`)
+	return sha256Hex(`${GROUP_TOPIC_DOMAIN}${roomSecret}`)
 }
 
+/** topic → AES-256 密钥 LRU */
+const signalKeysByTopic = createLruMap(SIGNAL_KEY_CACHE_MAX)
+
 /**
- * 由 topic 派生信令 AES 密钥。
+ * 由 topic 派生信令 AES 密钥（同 topic 复用，避免每包 SHA-256）。
  * @param {string} topic rendezvous 主题
  * @returns {Buffer} AES-256 密钥
  */
 function signalKeyForTopic(topic) {
-	return createHash('sha256').update(`${SIGNAL_DOMAIN}:${String(topic)}`).digest()
+	let cached = signalKeysByTopic.get(topic)
+	if (cached) {
+		signalKeysByTopic.touch(topic, cached)
+		return cached
+	}
+	cached = createHash('sha256').update(`${SIGNAL_DOMAIN}:${topic}`).digest()
+	signalKeysByTopic.touch(topic, cached)
+	return cached
+}
+
+/**
+ * 当前密钥缓存条目数（测试用）。
+ * @returns {number} 缓存大小
+ */
+export function signalKeyCacheSize() {
+	return signalKeysByTopic.size
 }
 
 /**
