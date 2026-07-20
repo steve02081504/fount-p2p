@@ -29,7 +29,7 @@
 - `node scripts/find-unused-exports.mjs` — dead-export scan (`--fount <path>` optional)
 - Assertions: `test/helpers/assert.mjs` (`assert` / `assertEquals` / `assertThrows`) — use in `test/` and `sim/test/`
 - Fixed-seed identity: `test/helpers/identity.mjs` (re-exported by `test/live/helpers.mjs`)
-- Fount bridge: `test/fount/` + `test/helpers/fount_paths.mjs` (`fountBridgeSkipReason`: skip if not Deno / no fount / missing target; hard-fail on import failure). `deno.json` must set `nodeModulesDir: "none"`.
+- fount bridge: `test/fount/` + `test/helpers/fount_paths.mjs` (`fountBridgeSkipReason`: skip if not Deno / no fount / missing target; hard-fail on import failure). `deno.json` must set `nodeModulesDir: "none"`.
 
 ## Trust boundaries
 
@@ -41,7 +41,7 @@
 - **part_query:** multi-hop opaque query (`wire/part_query.mjs`); shell registers `registerQueryInboundHandler`; initiator `queryNetwork(...)`; responses reverse-path so relays can cache (`wire/part_query_cache.mjs`).
 - **Room startup:** `group_link_set.start()` / `scoped_link.start()` / first `ensureUserRoom()` must call `registry.ensureRuntime()` before subscribe/advertise.
 - **ensureRuntime:** returns after registering discovery and scheduling background warm — does **not** await listen/relays/BT. Shells must not read `lanTcpPort` or await public-signaling warm-up. Details, budgets, Nostr cleanup, BT probe: [docs/runtime.md](docs/runtime.md).
-- **Fount network:** shells use `startNode` / `ensureLinkToNode` / `sendToNodeLink` / rooms — never import `link/` or pick a transport. Internals: [docs/transports.md](docs/transports.md). WebRTC glare/signal: [docs/signaling.md](docs/signaling.md).
+- **fount network:** shells use `startNode` / `ensureLinkToNode` / `sendToNodeLink` / rooms — never import `link/` or pick a transport. Internals: [docs/transports.md](docs/transports.md). WebRTC glare/signal: [docs/signaling.md](docs/signaling.md).
 - **Bluetooth:** optionalDependencies `@stoprocent/noble` / `@stoprocent/bleno`. Hardware probe is subprocess-only (`probe_child.mjs`); never `waitPoweredOn` in the parent. See [docs/runtime.md](docs/runtime.md).
 - **Mailbox:** `{nodeDir}/mailbox/store.jsonl`.
 - **Manifest ACL / transfer owner:** shells register matchers; core does not hard-code chat/social types.

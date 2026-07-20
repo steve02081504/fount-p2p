@@ -45,7 +45,7 @@ Facade entry: `index.mjs` (`startNode`, `createGroupLinkSet`, `registerDiscovery
 
 | Module | Role |
 |---|---|
-| `link_registry.mjs` | Fount-network facade: dial fallback, scope/overlay |
+| `link_registry.mjs` | fount-network facade: dial fallback, scope/overlay |
 | `runtime_bootstrap.mjs` | Progressive `ensureRuntime` (register + background listen / discovery / BT) |
 | `offer_answer.mjs` | Discovery-signal glare for offer/answer providers |
 | `signal_crypto.mjs` | Rendezvous topics + AES-GCM signal packets |

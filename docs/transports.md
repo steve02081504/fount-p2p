@@ -1,4 +1,4 @@
-# Fount network vs internal transports
+# fount network vs internal transports
 
 ## Public contract (shell / L4)
 
@@ -20,7 +20,7 @@ Callers do **not** choose WebRTC, BLE, ICE, or DataChannels. If a path is unavai
 |---|---|
 | **Discovery** (`discovery/`) | Find peers + optional signal bytes |
 | **Link providers** (`link/providers/`) | Open a duplex pipe; sorted by **`level` (descending)** |
-| **Registry** (`transport/link_registry.mjs`) | Fount-network facade: dial fallback, scope/overlay, one canonical link per peer |
+| **Registry** (`transport/link_registry.mjs`) | fount-network facade: dial fallback, scope/overlay, one canonical link per peer |
 | **Bootstrap** (`transport/runtime_bootstrap.mjs`) | `ensureRuntime` register + progressive listen/discovery/BT warm |
 | **Offer/answer** (`transport/offer_answer.mjs`) | Discovery-signal glare path for `caps.needsOfferAnswer` |
 | **Signal crypto** (`transport/signal_crypto.mjs`) | Rendezvous topics + AES-GCM signal packets |
