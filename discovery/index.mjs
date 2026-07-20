@@ -24,11 +24,42 @@ export function unregisterDiscoveryProvider(id) {
 }
 
 /**
+ * 清空全部 discovery provider。
+ * @returns {void}
+ */
+export function clearDiscoveryProviders() {
+	providers.clear()
+}
+
+/**
  * 列出已注册的 discovery provider（按 priority 排序）。
  * @returns {DiscoveryProvider[]} 提供者列表
  */
 export function listDiscoveryProviders() {
 	return [...providers.values()].sort((left, right) => Number(left.priority || 0) - Number(right.priority || 0))
+}
+
+/**
+ * 并行启动各 provider 的 async 钩子；单路失败静默。
+ * @param {DiscoveryProvider[]} list 提供者列表
+ * @param {(provider: DiscoveryProvider) => Promise<(() => void) | null | undefined>} run 单路启动
+ * @returns {Promise<() => void>} 统一取消函数
+ */
+async function startProvidersParallel(list, run) {
+	const settled = await Promise.all(list.map(async provider => {
+		try {
+			const cleanup = await run(provider)
+			return typeof cleanup === 'function' ? cleanup : null
+		}
+		catch {
+			return null
+		}
+	}))
+	const cleanups = settled.filter(Boolean)
+	return () => {
+		for (const cleanup of cleanups)
+			try { cleanup() } catch { /* ignore */ }
+	}
 }
 
 /**
@@ -39,20 +70,8 @@ export function listDiscoveryProviders() {
  * @returns {Promise<() => void>} 统一取消函数
  */
 export async function advertiseTopic(topic, bytes) {
-	const cleanups = []
-	for (const provider of listDiscoveryProviders()) {
-		if (!provider.caps?.canDiscover || typeof provider.advertise !== 'function') continue
-		let cleanup = null
-		try {
-			cleanup = await provider.advertise(topic, bytes)
-		}
-		catch { continue }
-		if (typeof cleanup === 'function') cleanups.push(cleanup)
-	}
-	return () => {
-		for (const cleanup of cleanups)
-			try { cleanup() } catch { /* ignore */ }
-	}
+	const list = listDiscoveryProviders().filter(provider => provider.caps?.canDiscover && typeof provider.advertise === 'function')
+	return startProvidersParallel(list, provider => provider.advertise(topic, bytes))
 }
 
 /**
@@ -63,20 +82,8 @@ export async function advertiseTopic(topic, bytes) {
  * @returns {Promise<() => void>} 统一取消函数
  */
 export async function subscribeTopic(topic, onAdvert) {
-	const cleanups = []
-	for (const provider of listDiscoveryProviders()) {
-		if (!provider.caps?.canDiscover || typeof provider.subscribe !== 'function') continue
-		let cleanup = null
-		try {
-			cleanup = await provider.subscribe(topic, onAdvert)
-		}
-		catch { continue }
-		if (typeof cleanup === 'function') cleanups.push(cleanup)
-	}
-	return () => {
-		for (const cleanup of cleanups)
-			try { cleanup() } catch { /* ignore */ }
-	}
+	const list = listDiscoveryProviders().filter(provider => provider.caps?.canDiscover && typeof provider.subscribe === 'function')
+	return startProvidersParallel(list, provider => provider.subscribe(topic, onAdvert))
 }
 
 /**
@@ -93,13 +100,15 @@ export async function sendSignal(topic, to, bytes) {
 	if (!capable.length) throw new Error('p2p: no discovery provider can signal')
 	let sent = false
 	let lastError = null
-	for (const provider of capable) try {
-		if (await Promise.resolve(provider.sendSignal(topic, to, bytes)) !== false)
-			sent = true
-	}
-	catch (error) {
-		lastError = error
-	}
+	await Promise.all(capable.map(async provider => {
+		try {
+			if (await Promise.resolve(provider.sendSignal(topic, to, bytes)) !== false)
+				sent = true
+		}
+		catch (error) {
+			lastError = error
+		}
+	}))
 	if (!sent) throw lastError || new Error('p2p: no discovery provider delivered signal')
 }
 
@@ -111,18 +120,6 @@ export async function sendSignal(topic, to, bytes) {
  * @returns {Promise<() => void>} 统一取消函数
  */
 export async function listenSignals(topic, onSignal) {
-	const cleanups = []
-	for (const provider of listDiscoveryProviders()) {
-		if (!provider.caps?.canSignal || typeof provider.onSignal !== 'function') continue
-		let cleanup = null
-		try {
-			cleanup = await provider.onSignal(topic, onSignal)
-		}
-		catch { continue }
-		if (typeof cleanup === 'function') cleanups.push(cleanup)
-	}
-	return () => {
-		for (const cleanup of cleanups)
-			try { cleanup() } catch { /* ignore */ }
-	}
+	const list = listDiscoveryProviders().filter(provider => provider.caps?.canSignal && typeof provider.onSignal === 'function')
+	return startProvidersParallel(list, provider => provider.onSignal(topic, onSignal))
 }

@@ -1,12 +1,12 @@
 import { noteAdvertPeerHints } from '../discovery/advert_peer_hints.mjs'
 import { advertiseTopic, subscribeTopic } from '../discovery/index.mjs'
 import { verifySignedAdvert } from '../link/handshake.mjs'
+import { getLinkRegistry } from '../transport/link_registry.mjs'
 import {
-	groupRendezvousTopic,
 	decryptSignalPacket,
 	encryptSignalPacket,
-	getLinkRegistry,
-} from '../transport/link_registry.mjs'
+	groupRendezvousTopic,
+} from '../transport/signal_crypto.mjs'
 
 /**
  * 在指定 scope 与 roomSecret 下创建 link 层房间（discovery + registry 转发）。

@@ -283,7 +283,7 @@ export function createLanTcpLinkProvider() {
 	return {
 		id: instanceId,
 		level: LINK_LEVEL_LAN_TCP,
-		caps: { needsOfferAnswer: false, needsDiscoverySignal: false },
+		caps: { needsOfferAnswer: false, needsDiscoverySignal: false, probe: 'sync' },
 		/**
 		 * @returns {boolean} 始终可用
 		 */

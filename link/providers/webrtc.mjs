@@ -365,7 +365,7 @@ export function createWebRtcLinkProvider(options = {}) {
 	return {
 		id: 'webrtc',
 		level: LINK_LEVEL_WEBRTC,
-		caps: { needsOfferAnswer: true, needsDiscoverySignal: true },
+		caps: { needsOfferAnswer: true, needsDiscoverySignal: true, probe: 'native' },
 		isAvailable: canUseWebRtcLink,
 		/**
 		 * @param {object} dialOptions dial 参数（含 signal / iceServers 等）

@@ -48,8 +48,10 @@ test({
 		})
 		try {
 			await aliceRegistry.ensureRuntime()
+			await aliceRegistry.whenListening()
 			const portsBeforeBob = lanListenPorts()
 			await bobRegistry.ensureRuntime()
+			await bobRegistry.whenListening()
 			const bobPort = [...lanListenPorts()].find(port => !portsBeforeBob.has(port))
 			assertEquals(typeof bobPort, 'number')
 			noteLanPeerHint(bob.nodeHash, { host: '127.0.0.1', port: bobPort })

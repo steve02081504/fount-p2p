@@ -290,7 +290,7 @@ export function createBleGattLinkProvider() {
 	return {
 		id: instanceId,
 		level: LINK_LEVEL_BLE_GATT,
-		caps: { needsOfferAnswer: false, needsDiscoverySignal: false },
+		caps: { needsOfferAnswer: false, needsDiscoverySignal: false, probe: 'native' },
 		isAvailable: canUseBleGattLink,
 		/**
 		 * @param {{ nodeHash: string }} remote 远端

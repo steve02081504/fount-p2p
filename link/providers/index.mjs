@@ -15,7 +15,7 @@
  * @typedef {{
  *   id: string,
  *   level: number,
- *   caps?: { needsOfferAnswer?: boolean, needsDiscoverySignal?: boolean },
+ *   caps?: { needsOfferAnswer?: boolean, needsDiscoverySignal?: boolean, probe?: 'sync' | 'native' },
  *   isAvailable: () => boolean | Promise<boolean>,
  *   canReach?: (remote: { nodeHash: string, hints?: object }) => boolean | Promise<boolean>,
  *   dial: (options: object) => Promise<LinkHandle | null>,
@@ -57,7 +57,7 @@ export function listLinkProviders() {
 }
 
 /**
- * 清空全部 link provider（测试用）。
+ * 清空全部 link provider。
  * @returns {void}
  */
 export function clearLinkProviders() {
@@ -69,17 +69,15 @@ export function clearLinkProviders() {
  * @returns {Promise<LinkProvider[]>} 按 level 降序的可用列表
  */
 export async function listAvailableLinkProviders() {
-	const available = []
-	for (const provider of listLinkProviders()) 
+	const results = await Promise.all(listLinkProviders().map(async provider => {
 		try {
-			if (await Promise.resolve(provider.isAvailable()))
-				available.push(provider)
+			return await Promise.resolve(provider.isAvailable()) ? provider : null
 		}
 		catch {
-			/* probe failure → skip */
+			return null
 		}
-	
-	return available
+	}))
+	return results.filter(Boolean)
 }
 
 /** 重导出 level 常量。 */

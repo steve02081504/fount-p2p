@@ -3,11 +3,20 @@
  */
 
 const ICE_URL_RE = /^(stun|turn|turns):/iu
-const MAX_ICE_SERVERS = 8
+const MAX_ICE_SERVERS = 12
 
 /** @type {{ urls: string, username?: string, credential?: string }[]} */
 export const DEFAULT_ICE_SERVERS = [
+	// Global first — ICE tries in order; regional CN servers are fallback when global STUN is blocked.
 	{ urls: 'stun:stun.l.google.com:19302' },
+	{ urls: 'stun:stun.cloudflare.com:3478' },
+	{ urls: 'stun:global.stun.twilio.com:3478' },
+	{ urls: 'stun:stun.nextcloud.com:3478' },
+	{ urls: 'stun:stun.voip.blackberry.com:3478' },
+	{ urls: 'stun:stun.freeswitch.org:3478' },
+	{ urls: 'stun:stun.chat.bilibili.com:3478' },
+	{ urls: 'stun:stun.hitv.com:3478' },
+	{ urls: 'stun:stun.miwifi.com:3478' },
 ]
 
 /**

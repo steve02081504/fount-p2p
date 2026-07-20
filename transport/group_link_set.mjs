@@ -4,13 +4,13 @@ import { verifySignedAdvert } from '../link/handshake.mjs'
 import { loadPeerPoolView } from '../node/network.mjs'
 import { loadReputation } from '../node/reputation_store.mjs'
 
+import { getLinkRegistry } from './link_registry.mjs'
+import { resolveFederationPoolLimits, selectLinkTargetsFromMembers } from './peer_pool.mjs'
 import {
-	groupRendezvousTopic,
 	decryptSignalPacket,
 	encryptSignalPacket,
-	getLinkRegistry,
-} from './link_registry.mjs'
-import { resolveFederationPoolLimits, selectLinkTargetsFromMembers } from './peer_pool.mjs'
+	groupRendezvousTopic,
+} from './signal_crypto.mjs'
 
 
 /**

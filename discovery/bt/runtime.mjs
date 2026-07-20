@@ -1,5 +1,8 @@
 import { existsSync, readdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import process from 'node:process'
+import { fileURLToPath } from 'node:url'
+import { spawn } from 'node:child_process'
 
 /**
  * 解析 Bluetooth 角色（scan / dual）。
@@ -31,10 +34,55 @@ export function probeBluetoothHardware() {
 
 /** @type {boolean | null} canUseBluetoothRuntime 缓存 */
 let cachedRuntimeOk = null
+/** @type {Promise<boolean> | null} 并发 canUse 合并为一次子进程探测 */
+let probeInflight = null
+
+const PROBE_CHILD = join(dirname(fileURLToPath(import.meta.url)), 'probe_child.mjs')
 
 /**
- * 探测 BT 栈是否真正可用（有适配器迹象 → 能 load → poweredOn）。
- * 任一步失败返回 false，调用方回落其它 discovery/link；不抛错。
+ * 在子进程中探测 BT（父进程 waitPoweredOn 会拖住事件循环；stop() 还可能 AV）。
+ * @param {number} timeoutMs waitPoweredOn 超时
+ * @returns {Promise<boolean>} 子进程 exit 0 为可用
+ */
+function probeBluetoothInSubprocess(timeoutMs) {
+	return new Promise(resolve => {
+		const child = spawn(process.execPath, [PROBE_CHILD], {
+			stdio: 'ignore',
+			env: {
+				...process.env,
+				FOUNT_BT_PROBE_MS: String(timeoutMs),
+			},
+			windowsHide: true,
+		})
+		// 探测是旁路缓存填充；勿拖住父进程事件循环 / shutdown 退出。
+		child.unref()
+		let settled = false
+		/**
+		 * @param {boolean} ok 探测结果
+		 * @returns {void}
+		 */
+		const finish = ok => {
+			if (settled) return
+			settled = true
+			clearTimeout(timer)
+			resolve(ok)
+		}
+		const timer = setTimeout(() => {
+			child.kill('SIGKILL')
+			finish(false)
+		}, timeoutMs + 5_000)
+		timer.unref()
+		child.once('error', () => finish(false))
+		child.once('exit', (code, signal) => {
+			if (signal) finish(false)
+			else finish(code === 0)
+		})
+	})
+}
+
+/**
+ * 探测 BT 栈是否真正可用（硬件迹象 → 子进程 load → poweredOn）。
+ * 任一步失败返回 false；不抛错。
  * @param {number} [timeoutMs=3000] waitPoweredOn 超时
  * @returns {Promise<boolean>} 可用为 true
  */
@@ -44,19 +92,15 @@ export async function canUseBluetoothRuntime(timeoutMs = 3000) {
 		cachedRuntimeOk = false
 		return false
 	}
-	try {
-		const noble = await loadNoble()
-		if (!noble.startScanningAsync) {
-			cachedRuntimeOk = false
-			return false
-		}
-		await waitPoweredOn(noble, timeoutMs)
-		cachedRuntimeOk = true
+	if (!probeInflight) {
+		probeInflight = probeBluetoothInSubprocess(timeoutMs)
+			.then(ok => {
+				cachedRuntimeOk = ok
+				return ok
+			})
+			.finally(() => { probeInflight = null })
 	}
-	catch {
-		cachedRuntimeOk = false
-	}
-	return cachedRuntimeOk
+	return probeInflight
 }
 
 /**

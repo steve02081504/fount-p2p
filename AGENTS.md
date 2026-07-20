@@ -14,13 +14,17 @@
 
 **Facade:** `index.mjs`; subpath exports mirror directories (`./transport/*`, `./registries/*`, `./core/*`, …).
 
+**L3 transport modules:** `link_registry` (fount-network facade), `runtime_bootstrap` (`ensureRuntime`), `offer_answer` (glare), `signal_crypto` (rendezvous + AES-GCM). See [docs/transports.md](docs/transports.md).
+
 **File naming:** parent directory is scope — child `.mjs` files use short names (`mailbox/store.mjs`, `wire/ingress.mjs`). Tunables default: `<dir>/tunables.json`. Subpath `package.json` exports mirror filenames.
 
 **Import boundary:** `test/integration/p2p_shell_import_guard.test.mjs`.
 
 **Tests / tools:**
-- `npm test` — package pure logic (Node)
+- `npm test` — package pure + integration (Node; `--test-force-exit`)
+- `npm run test:live` — live link / LAN smoke (Node; `--test-force-exit`)
 - `npm run test:fount` — cross-repo bridge (Deno; fount social uses `npm:`)
+- `npm run test:sim` — tunables co-evolution sim (dev-only)
 - `node scripts/check-imports.mjs` — relative import check
 - `node scripts/find-unused-exports.mjs` — dead-export scan (`--fount <path>` optional)
 - Assertions: `test/helpers/assert.mjs` (`assert` / `assertEquals` / `assertThrows`) — use in `test/` and `sim/test/`
@@ -36,8 +40,9 @@
 - **Fanout vs targeted:** timeline/chunk exploration → `fanoutToTopNodes`; Mailbox / targeted packets → `sendToNode` / User Room, never fanout.
 - **part_query:** multi-hop opaque query (`wire/part_query.mjs`); shell registers `registerQueryInboundHandler`; initiator `queryNetwork(...)`; responses reverse-path so relays can cache (`wire/part_query_cache.mjs`).
 - **Room startup:** `group_link_set.start()` / `scoped_link.start()` / first `ensureUserRoom()` must call `registry.ensureRuntime()` before subscribe/advertise.
-- **Fount network:** shells use `startNode` / `ensureLinkToNode` / `sendToNodeLink` / rooms — never import `link/` or pick a transport. Internals + silent multi-path degrade: [docs/transports.md](docs/transports.md). WebRTC glare/signal: [docs/signaling.md](docs/signaling.md).
-- **Bluetooth:** optionalDependencies `@stoprocent/noble` / `bleno`. `canUseBluetoothRuntime` (hardware probe → load → poweredOn) returns false on any failure so discovery/link fall back to other paths; skip native import when no adapter is present (avoids CI SIGSEGV). Do not add env kill-switches to disable BT.
+- **ensureRuntime:** returns after registering discovery and scheduling background warm — does **not** await listen/relays/BT. Shells must not read `lanTcpPort` or await public-signaling warm-up. Details, budgets, Nostr cleanup, BT probe: [docs/runtime.md](docs/runtime.md).
+- **Fount network:** shells use `startNode` / `ensureLinkToNode` / `sendToNodeLink` / rooms — never import `link/` or pick a transport. Internals: [docs/transports.md](docs/transports.md). WebRTC glare/signal: [docs/signaling.md](docs/signaling.md).
+- **Bluetooth:** optionalDependencies `@stoprocent/noble` / `@stoprocent/bleno`. Hardware probe is subprocess-only (`probe_child.mjs`); never `waitPoweredOn` in the parent. See [docs/runtime.md](docs/runtime.md).
 - **Mailbox:** `{nodeDir}/mailbox/store.jsonl`.
 - **Manifest ACL / transfer owner:** shells register matchers; core does not hard-code chat/social types.
 - **Channel encryption:** per-channel `K_ch`, scheme `ckg` (`crypto/channel.mjs`); decrypted payloads are untrusted outside DAG Ed25519 context.

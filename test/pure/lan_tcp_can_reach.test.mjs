@@ -108,6 +108,7 @@ test('buildLocalAdvert includes lan_tcp listen port after ensureRuntime', async 
 	})
 	try {
 		await registry.ensureRuntime()
+		await registry.whenListening()
 		const port = registry.lanTcpPort()
 		assertEquals(typeof port, 'number')
 		const advert = await registry.buildLocalAdvert('test-topic')
@@ -138,8 +139,10 @@ test('second registry ensureRuntime does not hijack first lan_tcp identity', asy
 	})
 	try {
 		await aliceRegistry.ensureRuntime()
+		await aliceRegistry.whenListening()
 		const alicePort = aliceRegistry.lanTcpPort()
 		await bobRegistry.ensureRuntime()
+		await bobRegistry.whenListening()
 		assertEquals(aliceRegistry.lanTcpPort(), alicePort)
 		assertEquals(typeof bobRegistry.lanTcpPort(), 'number')
 		assertEquals(alicePort !== bobRegistry.lanTcpPort(), true)
