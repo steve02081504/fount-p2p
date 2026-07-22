@@ -1,6 +1,8 @@
 import { normalizeHex64 } from '../core/hexIds.mjs'
 import { buildSignedAdvert, verifySignedAdvert } from '../link/handshake.mjs'
 
+import { listMulticastIpv4Addresses } from './lan_interfaces.mjs'
+
 import {
 	decryptSignalPacket,
 	encryptSignalPacket,
@@ -33,9 +35,13 @@ export function rendezvousKeyForScope(scope, selfNodeHash) {
  */
 export async function buildSignedAdvertForScope(scope, localIdentity, tcpPort) {
 	const key = rendezvousKeyForScope(scope, localIdentity.nodeHash)
+	const lanHosts = scope === 'network' && tcpPort != null
+		? listMulticastIpv4Addresses()
+		: []
 	return await buildSignedAdvert(key, Date.now(), {
 		...localIdentity,
 		...tcpPort != null ? { tcpPort } : {},
+		...lanHosts.length ? { lanHosts } : {},
 	})
 }
 

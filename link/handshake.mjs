@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 
 import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
+import { normalizeLanHosts } from '../discovery/lan_interfaces.mjs'
 import { normalizeTcpPort } from '../core/tcp_port.mjs'
 import { keyPairFromSeed, pubKeyHash, sign, verify } from '../crypto/crypto.mjs'
 import { ensureNodeSeed, getNodeHash } from '../node/identity.mjs'
@@ -139,20 +140,24 @@ export async function verifyAuth(hello, auth, expectedNonce, remoteBinding) {
  * @param {number} ts 时间戳（毫秒）
  * @param {string} nodeHash 节点 nodeHash
  * @param {number | null} [tcpPort=null] 可选 LAN TCP 监听端口（签入消息）
+ * @param {unknown} [lanHosts=null] 可选 LAN IPv4 列表（签入消息）
  * @returns {Uint8Array} 待签名消息字节
  */
-export function buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort = null) {
+export function buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort = null, lanHosts = null) {
 	const base = `fount-advert\0${String(rendezvousKey)}\0${String(ts)}\0${normalizeHex64(nodeHash)}`
 	const port = normalizeTcpPort(tcpPort)
-	return Buffer.from(port ? `${base}\0${port}` : base, 'utf8')
+	let message = port ? `${base}\0${port}` : base
+	const hosts = normalizeLanHosts(lanHosts)
+	if (hosts.length) message += `\0${hosts.join(',')}`
+	return Buffer.from(message, 'utf8')
 }
 
 /**
  * 构造带签名的 discovery advert。
  * @param {string} rendezvousKey discovery 内部汇合键
  * @param {number} [ts=Date.now()] 时间戳（毫秒）
- * @param {{ secretKey?: Uint8Array, nodeHash?: string, nodePubKey?: string, tcpPort?: number } | null} [options] 签名身份与可选 tcpPort
- * @returns {Promise<{ nodeHash: string, nodePubKey: string, ts: number, sig: string, tcpPort?: number }>} 签名 advert
+ * @param {{ secretKey?: Uint8Array, nodeHash?: string, nodePubKey?: string, tcpPort?: number, lanHosts?: unknown }} | null} [options] 签名身份与可选 tcpPort / lanHosts
+ * @returns {Promise<{ nodeHash: string, nodePubKey: string, ts: number, sig: string, tcpPort?: number, lanHosts?: string[] }>} 签名 advert
  */
 export async function buildSignedAdvert(rendezvousKey, ts = Date.now(), options = null) {
 	const seed = options?.secretKey
@@ -166,7 +171,8 @@ export async function buildSignedAdvert(rendezvousKey, ts = Date.now(), options 
 	const tcpPort = normalizeTcpPort(options?.tcpPort)
 	if (options?.tcpPort && !tcpPort)
 		throw new Error('p2p: advert tcpPort invalid')
-	const message = buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort)
+	const lanHosts = normalizeLanHosts(options?.lanHosts)
+	const message = buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort, lanHosts)
 	const sig = await sign(message, secretKey)
 	const advert = {
 		nodeHash,
@@ -175,6 +181,7 @@ export async function buildSignedAdvert(rendezvousKey, ts = Date.now(), options 
 		sig: Buffer.from(sig).toString('hex'),
 	}
 	if (tcpPort) advert.tcpPort = tcpPort
+	if (lanHosts.length) advert.lanHosts = lanHosts
 	return advert
 }
 
@@ -195,7 +202,8 @@ export async function verifySignedAdvert(rendezvousKey, advert, now = Date.now()
 	const hasTcpPortField = !!advert?.tcpPort
 	const tcpPort = normalizeTcpPort(advert?.tcpPort)
 	if (hasTcpPortField && !tcpPort) return null
-	const message = buildAdvertMessage(rendezvousKey, ts, parsedHello.nodeHash, tcpPort)
+	const lanHosts = normalizeLanHosts(advert?.lanHosts)
+	const message = buildAdvertMessage(rendezvousKey, ts, parsedHello.nodeHash, tcpPort, lanHosts)
 	const ok = await verify(Buffer.from(sig, 'hex'), message, Buffer.from(parsedHello.nodePubKey, 'hex'))
 	return ok ? parsedHello.nodeHash : null
 }

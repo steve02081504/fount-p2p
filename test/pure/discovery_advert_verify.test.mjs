@@ -15,17 +15,29 @@ import {
 	listNostrGroupVisibleNodeHashes,
 	listNostrVisibleNodeHashes,
 } from '../../discovery/nostr.mjs'
+import { clearLanPeerHints, getLanPeerHint, listLanPeerHints } from '../../discovery/lan_peer_hints.mjs'
+import { buildSignedAdvert } from '../../link/handshake.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'
 
 test('acceptNostrAdvert verifies network advert before visible pool', async () => {
 	clearNostrVisibleNodes()
+	clearLanPeerHints()
 	const local = identity(11)
-	const body = await buildSignedAdvertForScope('network', local)
+	const body = await buildSignedAdvert(networkRendezvousKey(), Date.now(), {
+		...local,
+		tcpPort: 19092,
+		lanHosts: ['192.168.1.10', '10.0.0.5'],
+	})
 	const bytes = encryptAdvertForScope('network', local, body)
 	assertEquals(await acceptNostrAdvert(networkRendezvousKey(), bytes), local.nodeHash)
 	assertEquals(listNostrVisibleNodeHashes().includes(local.nodeHash), true)
+	assertEquals(listLanPeerHints(local.nodeHash), [
+		{ host: '192.168.1.10', port: 19092 },
+		{ host: '10.0.0.5', port: 19092 },
+	])
 	clearNostrVisibleNodes()
+	clearLanPeerHints()
 })
 
 test('acceptNostrAdvert rejects forged network advert', async () => {
@@ -47,6 +59,7 @@ test('acceptNostrAdvert rejects forged network advert', async () => {
 
 test('acceptNostrAdvert verifies group advert into group pool only', async () => {
 	clearNostrVisibleNodes()
+	clearLanPeerHints()
 	const local = identity(13)
 	const roomSecret = 'room-verify-1'
 	const body = await buildSignedAdvertForScope({ roomSecret }, local)
@@ -57,5 +70,7 @@ test('acceptNostrAdvert verifies group advert into group pool only', async () =>
 	)
 	assertEquals(listNostrGroupVisibleNodeHashes(roomSecret), [local.nodeHash])
 	assertEquals(listNostrVisibleNodeHashes().includes(local.nodeHash), false)
+	assertEquals(getLanPeerHint(local.nodeHash), null)
 	clearNostrVisibleNodes()
+	clearLanPeerHints()
 })

@@ -5,8 +5,10 @@ import { base64ToBytes, bytesToBase64 } from '../core/bytes_codec.mjs'
 import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
 import { nodeDebug, shortHash } from '../node/log.mjs'
 
+import { noteAdvertPeerHints } from './advert_peer_hints.mjs'
 import { ingestNetworkAdvert } from './adverts.mjs'
-import { getLanPeerHint, noteLanPeerHint } from './lan_peer_hints.mjs'
+import { listMulticastIpv4Addresses } from './lan_interfaces.mjs'
+import { getLanPeerHint } from './lan_peer_hints.mjs'
 
 const DEFAULT_PORT = 53531
 const DEFAULT_GROUP = '239.255.42.99'
@@ -51,25 +53,26 @@ export function clearLanVisibleNodes() {
 /**
  * Untrusted ingress：验签 network advert 后写入可见池 / peer hint。
  * @param {Uint8Array} advertBytes 加密 network advert
- * @param {{ address?: string }} [meta] 发送方地址
+ * @param {{ address?: string, skipNodeHash?: string }} [meta] 发送方地址 / 本机 nodeHash（过滤自回环）
  * @returns {Promise<{ verifiedNodeHash: string, body: object } | null>} 验签结果
  */
 export async function acceptLanPresenceAdvert(advertBytes, meta = {}) {
 	if (!advertBytes?.byteLength) return null
 	const ingested = await ingestNetworkAdvert(advertBytes, meta)
 	if (!ingested) return null
+	const skipHash = meta.skipNodeHash ? normalizeHex64(meta.skipNodeHash) : null
+	if (skipHash && ingested.verifiedNodeHash === skipHash) return ingested
 	const firstSeen = !visibleByHash.has(ingested.verifiedNodeHash)
 	noteLanVisibleNode(ingested.verifiedNodeHash)
-	const host = String(meta.address || '').trim()
-	const tcpPort = Number(ingested.body?.tcpPort)
-	if (host && Number.isFinite(tcpPort) && tcpPort > 0)
-		noteLanPeerHint(ingested.verifiedNodeHash, { host, port: tcpPort })
-	if (firstSeen)
+	noteAdvertPeerHints(ingested.verifiedNodeHash, ingested.body, meta)
+	if (firstSeen) {
+		const host = String(meta.address || '').trim()
 		nodeDebug('p2p:lan peer visible', {
 			peer: shortHash(ingested.verifiedNodeHash),
 			host: host || undefined,
-			tcpPort: tcpPort > 0 ? tcpPort : undefined,
+			tcpPort: ingested.body?.tcpPort,
 		})
+	}
 	return ingested
 }
 
@@ -88,10 +91,27 @@ export function createLanDiscoveryProvider(options = {}) {
 	let refs = 0
 	/** @type {ReturnType<typeof setInterval> | null} */
 	let beaconTimer = null
+	/** @type {string | null} */
+	let selfNodeHash = null
+	/** @type {Set<string>} */
+	const joinedAddresses = new Set()
 
 	/**
-	 * @returns {import('node:dgram').Socket} 复用的组播 UDP socket
+	 * @param {import('node:dgram').Socket} sock UDP socket
+	 * @returns {void}
 	 */
+	function ensureMemberships(sock) {
+		for (const addr of listMulticastIpv4Addresses()) {
+			if (joinedAddresses.has(addr)) continue
+			try {
+				sock.addMembership(group, addr)
+				joinedAddresses.add(addr)
+			}
+			catch { /* ignore per-interface join failure */ }
+		}
+		if (!joinedAddresses.size)
+			try { sock.addMembership(group) } catch { /* ignore */ }
+	}
 	function getSocket() {
 		return socket ||= dgram.createSocket({ type: 'udp4', reuseAddr: true })
 	}
@@ -108,7 +128,7 @@ export function createLanDiscoveryProvider(options = {}) {
 					sock.once('error', reject)
 					sock.bind(port, '0.0.0.0', () => {
 						sock.off('error', reject)
-						sock.addMembership(group)
+						ensureMemberships(sock)
 						sock.setMulticastTTL(1)
 						resolve()
 					})
@@ -117,6 +137,7 @@ export function createLanDiscoveryProvider(options = {}) {
 					try { sock.close() } catch { /* ignore */ }
 					if (socket === sock) socket = null
 					bound = false
+					joinedAddresses.clear()
 					return
 				}
 				sock.on('message', (raw, rinfo) => {
@@ -131,8 +152,11 @@ export function createLanDiscoveryProvider(options = {}) {
 					}
 					catch { return }
 					if (!advertBytes?.byteLength) return
-					void acceptLanPresenceAdvert(advertBytes, { address: rinfo?.address, provider: 'lan' })
-						.catch(() => { })
+					void acceptLanPresenceAdvert(advertBytes, {
+						address: rinfo?.address,
+						provider: 'lan',
+						skipNodeHash: selfNodeHash || undefined,
+					}).catch(() => { })
 				})
 				bound = true
 			})().finally(() => {
@@ -148,10 +172,34 @@ export function createLanDiscoveryProvider(options = {}) {
 	async function multicastBeacon(beacon) {
 		await ensureBound()
 		const sock = getSocket()
+		ensureMemberships(sock)
 		const packet = Buffer.from(JSON.stringify({ type: 'presence', ...beacon }))
-		await new Promise((resolve, reject) => {
+		const addrs = listMulticastIpv4Addresses()
+		/**
+		 * @param {string | undefined} ifaceAddr 组播出口地址
+		 * @returns {Promise<void>}
+		 */
+		const sendOnce = ifaceAddr => new Promise((resolve, reject) => {
+			if (ifaceAddr) sock.setMulticastInterface(ifaceAddr)
 			sock.send(packet, port, group, error => error ? reject(error) : resolve())
 		})
+		if (!addrs.length) {
+			await sendOnce()
+			return
+		}
+		let sent = 0
+		/** @type {unknown} */
+		let lastError = null
+		for (const addr of addrs) {
+			try {
+				await sendOnce(addr)
+				sent++
+			}
+			catch (error) {
+				lastError = error
+			}
+		}
+		if (!sent) throw lastError || new Error('p2p: lan multicast send failed')
 	}
 
 	/**
@@ -164,6 +212,8 @@ export function createLanDiscoveryProvider(options = {}) {
 			refs = Math.max(0, refs - 1)
 			if (refs > 0 || !socket) return
 			if (beaconTimer) { clearInterval(beaconTimer); beaconTimer = null }
+			selfNodeHash = null
+			joinedAddresses.clear()
 			try { socket.close() } catch { /* ignore */ }
 			socket = null
 			bound = false
@@ -206,6 +256,7 @@ export function createLanDiscoveryProvider(options = {}) {
 			const send = async () => {
 				const body = await getBeacon?.()
 				if (!body) return
+				if (body.nodeHash) selfNodeHash = normalizeHex64(body.nodeHash)
 				const advertBytes = body.advertBytes?.byteLength
 					? body.advertBytes
 					: null

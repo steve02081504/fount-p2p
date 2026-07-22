@@ -1,4 +1,5 @@
 import { getSignalingRuntimeConfig } from '../../node/instance.mjs'
+import { nodeDebug } from '../../node/log.mjs'
 import { ms } from '../../utils/duration.mjs'
 import { createLruMap } from '../../utils/lru.mjs'
 import {
@@ -43,8 +44,9 @@ export async function canUseWebRtcLink() {
 		await loadNodeRtcPolyfill()
 		cachedAvailable = true
 	}
-	catch {
+	catch (error) {
 		cachedAvailable = false
+		nodeDebug('p2p:webrtc unavailable', { err: formatErrorReason(error) })
 	}
 	return cachedAvailable
 }

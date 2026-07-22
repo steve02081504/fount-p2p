@@ -83,3 +83,20 @@ test('advert with tcpPort signs port into the message', async () => {
 	const { tcpPort: _omit, ...withoutPort } = advert
 	assertEquals(await verifySignedAdvert(rendezvousKey, withoutPort, 1234), null)
 })
+
+test('advert with lanHosts signs hosts into the message', async () => {
+	const seed = Buffer.alloc(32, 7)
+	const { publicKey, secretKey } = keyPairFromSeed(seed)
+	const nodeHash = pubKeyHash(publicKey)
+	const rendezvousKey = `rdv:${nodeHash}`
+	const advert = await buildSignedAdvert(rendezvousKey, 1234, {
+		secretKey,
+		nodeHash,
+		nodePubKey: Buffer.from(publicKey).toString('hex'),
+		tcpPort: 18080,
+		lanHosts: ['192.168.1.10', '10.0.0.5'],
+	})
+	assertEquals(advert.lanHosts, ['192.168.1.10', '10.0.0.5'])
+	assertEquals(await verifySignedAdvert(rendezvousKey, advert, 1234), nodeHash)
+	assertEquals(await verifySignedAdvert(rendezvousKey, { ...advert, lanHosts: ['10.0.0.5'] }, 1234), null)
+})

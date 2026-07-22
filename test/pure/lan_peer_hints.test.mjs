@@ -4,6 +4,7 @@ import {
 	LAN_PEER_HINT_TTL_MS,
 	clearLanPeerHints,
 	getLanPeerHint,
+	listLanPeerHints,
 	noteLanPeerHint,
 } from '../../discovery/lan_peer_hints.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
@@ -22,4 +23,16 @@ test('lan peer hints store and expire by TTL', () => {
 	assertEquals(getLanPeerHint(nodeHash, t0 + LAN_PEER_HINT_TTL_MS + 1), null)
 	clearLanPeerHints()
 	assertEquals(getLanPeerHint(nodeHash, t0), null)
+})
+
+test('lan peer hints keep newest observation first', () => {
+	clearLanPeerHints()
+	const nodeHash = 'cd'.repeat(32)
+	noteLanPeerHint(nodeHash, { host: '10.0.0.1', port: 1000 })
+	noteLanPeerHint(nodeHash, { host: '10.0.0.2', port: 1000 })
+	noteLanPeerHint(nodeHash, { host: '10.0.0.1', port: 1000 })
+	assertEquals(listLanPeerHints(nodeHash), [
+		{ host: '10.0.0.1', port: 1000 },
+		{ host: '10.0.0.2', port: 1000 },
+	])
 })

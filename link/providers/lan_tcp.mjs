@@ -3,13 +3,50 @@ import { randomBytes } from 'node:crypto'
 import net from 'node:net'
 
 import { normalizeHex64 } from '../../core/hexIds.mjs'
-import { getLanPeerHint } from '../../discovery/lan_peer_hints.mjs'
+import { getLanPeerHint, listLanPeerHints } from '../../discovery/lan_peer_hints.mjs'
 import { asLinkHandle } from '../pipe.mjs'
 
 import { LINK_LEVEL_LAN_TCP } from './levels.mjs'
 import { buildLinkOpen, createLinkIdBoundPipe, parseLinkOpen } from './link_id_pipe.mjs'
 
 const MAX_FRAME_BYTES = 1 << 20
+/** LAN TCP 单 endpoint 连接超时。 */
+const LAN_TCP_CONNECT_TIMEOUT_MS = 3_000
+
+/**
+ * @param {string} host 目标 host
+ * @param {number} port 目标 port
+ * @param {number} [timeoutMs=LAN_TCP_CONNECT_TIMEOUT_MS] 超时
+ * @returns {Promise<import('node:net').Socket>} 已连接 socket
+ */
+function connectTcp(host, port, timeoutMs = LAN_TCP_CONNECT_TIMEOUT_MS) {
+	return new Promise((resolve, reject) => {
+		const conn = net.createConnection({ host, port })
+		const timer = setTimeout(() => {
+			conn.destroy()
+			reject(new Error(`p2p: lan_tcp connect timeout ${host}:${port}`))
+		}, timeoutMs)
+		/**
+		 * @param {Error} error 连接错误
+		 * @returns {void}
+		 */
+		const onError = error => {
+			clearTimeout(timer)
+			conn.off('connect', onConnect)
+			reject(error)
+		}
+		/**
+		 * @returns {void}
+		 */
+		function onConnect() {
+			clearTimeout(timer)
+			conn.off('error', onError)
+			resolve(conn)
+		}
+		conn.once('error', onError)
+		conn.once('connect', onConnect)
+	})
+}
 
 /**
  * 在 socket 上挂 length-prefix 编解码（u32be + payload）。
@@ -168,41 +205,33 @@ async function openTcpPipe(options) {
  */
 async function dialLanTcp(options) {
 	const remoteNodeHash = normalizeHex64(options.nodeHash)
-	const hint = getLanPeerHint(remoteNodeHash)
-	if (!hint) throw new Error('p2p: lan_tcp no peer hint')
+	const hints = listLanPeerHints(remoteNodeHash)
+	if (!hints.length) throw new Error('p2p: lan_tcp no peer hint')
 
-	const socket = await new Promise((resolve, reject) => {
-		const conn = net.createConnection({ host: hint.host, port: hint.port })
-		/**
-		 * @param {Error} error 连接错误
-		 * @returns {void}
-		 */
-		const onError = error => {
-			conn.off('connect', onConnect)
-			reject(error)
+	let lastError = null
+	for (const hint of hints) {
+		/** @type {import('node:net').Socket | null} */
+		let socket = null
+		try {
+			socket = await connectTcp(hint.host, hint.port)
+			const link = await openTcpPipe({
+				initiator: true,
+				linkId: randomBytes(32).toString('hex'),
+				nodeHash: remoteNodeHash,
+				localIdentity: options.localIdentity,
+				socket,
+				host: hint.host,
+				port: hint.port,
+			})
+			await link.ready
+			return link
 		}
-		/**
-		 * @returns {void}
-		 */
-		function onConnect() {
-			conn.off('error', onError)
-			resolve(conn)
+		catch (error) {
+			lastError = error
+			try { socket?.destroy() } catch { /* ignore */ }
 		}
-		conn.once('error', onError)
-		conn.once('connect', onConnect)
-	})
-
-	const link = await openTcpPipe({
-		initiator: true,
-		linkId: randomBytes(32).toString('hex'),
-		nodeHash: remoteNodeHash,
-		localIdentity: options.localIdentity,
-		socket,
-		host: hint.host,
-		port: hint.port,
-	})
-	await link.ready
-	return link
+	}
+	throw lastError || new Error('p2p: lan_tcp dial failed')
 }
 
 /**

@@ -9,6 +9,7 @@ import { sha256Hex } from '../crypto/crypto.mjs'
 import { nodeDebug, shortHash } from '../node/log.mjs'
 
 import { ingestEncryptedAdvert } from './adverts.mjs'
+import { noteAdvertPeerHints } from './advert_peer_hints.mjs'
 import {
 	encryptSignalPacket,
 	groupRendezvousKey,
@@ -28,10 +29,13 @@ export const NOSTR_CONNECT_TIMEOUT_MS = 2_000
 /** 先 close，超时未 CLOSED 再 terminate（给对端优雅关闭的窗口）。 */
 export const NOSTR_CLOSE_GRACE_MS = 1_000
 
-/** Nostr advert 事件 kind。 */
-export const NOSTR_ADVERT_KIND = 27235
-/** Nostr signal 事件 kind。 */
-export const NOSTR_SIGNAL_KIND = 27236
+/** 单 relay 等待 EVENT OK 回执超时。 */
+export const NOSTR_PUBLISH_OK_TIMEOUT_MS = 3_000
+
+/** Nostr network advert 事件 kind（addressable，可存储）。 */
+export const NOSTR_ADVERT_KIND = 30787
+/** Nostr signal 事件 kind（ephemeral，实时转发）。 */
+export const NOSTR_SIGNAL_KIND = 20787
 
 const ADVERT_TTL_MS = 10 * 60_000
 
@@ -135,6 +139,7 @@ export async function acceptNostrAdvert(rendezvousKey, bytes, options = {}) {
 	}
 	if (firstSeen)
 		nodeDebug('p2p:nostr peer visible', { peer: shortHash(hash), group: !!roomSecret })
+	noteAdvertPeerHints(hash, ingested.body, options.meta || {})
 	return hash
 }
 
@@ -253,6 +258,70 @@ function connectRelay(relayUrl, timeoutMs = NOSTR_CONNECT_TIMEOUT_MS, signal) {
 }
 
 /**
+ * @param {import('ws').WebSocket} ws 已连接 relay
+ * @param {string} relayUrl 中继 URL
+ * @param {object} event 待发布事件
+ * @param {AbortSignal} [signal] 取消信号
+ * @returns {Promise<boolean>} relay 是否接受 EVENT
+ */
+function publishEventOnRelay(ws, relayUrl, event, signal) {
+	return new Promise((resolve, reject) => {
+		if (signal?.aborted) {
+			reject(new Error('nostr: aborted'))
+			return
+		}
+		let settled = false
+		/**
+		 * @param {boolean} ok relay 是否接受
+		 * @param {Error | null} [error] 失败原因
+		 * @returns {void}
+		 */
+		const finish = (ok, error = null) => {
+			if (settled) return
+			settled = true
+			clearTimeout(timer)
+			signal?.removeEventListener('abort', onAbort)
+			ws.off('message', onMessage)
+			if (error) reject(error)
+			else resolve(ok)
+		}
+		/**
+		 * @returns {void}
+		 */
+		const onAbort = () => finish(false, new Error('nostr: aborted'))
+		/**
+		 * @param {import('ws').RawData} data relay 消息
+		 * @returns {void}
+		 */
+		const onMessage = data => {
+			let parsed
+			try { parsed = JSON.parse(String(data)) } catch { return }
+			if (parsed?.[0] !== 'OK' || parsed[1] !== event.id) return
+			const accepted = parsed[2] === true
+			if (!accepted)
+				nodeDebug('p2p:nostr publish rejected', {
+					url: relayUrl,
+					reason: String(parsed[3] || 'rejected'),
+				})
+			finish(accepted)
+		}
+		const timer = setTimeout(
+			() => finish(false, new Error(`nostr: publish ok timeout for ${relayUrl}`)),
+			NOSTR_PUBLISH_OK_TIMEOUT_MS,
+		)
+		timer.unref()
+		signal?.addEventListener('abort', onAbort, { once: true })
+		ws.on('message', onMessage)
+		try {
+			ws.send(JSON.stringify(['EVENT', event]))
+		}
+		catch (error) {
+			finish(false, error instanceof Error ? error : new Error(String(error)))
+		}
+	})
+}
+
+/**
  * @param {string[]} relayUrls 中继 URL 列表
  * @param {object} event 待发布事件
  * @param {AbortSignal} [signal] 取消信号
@@ -267,8 +336,8 @@ async function publishEvent(relayUrls, event, signal) {
 		const ws = await connectRelay(relayUrl, NOSTR_CONNECT_TIMEOUT_MS, signal)
 		try {
 			if (signal?.aborted) throw new Error('nostr: aborted')
-			ws.send(JSON.stringify(['EVENT', event]))
-			published = true
+			const ok = await publishEventOnRelay(ws, relayUrl, event, signal)
+			if (ok) published = true
 		}
 		catch (error) {
 			lastError = error
@@ -313,7 +382,7 @@ function connectRelaysProgressive(relayUrls, onOpen, signal, sockets) {
  * @returns {() => void} 取消订阅
  */
 function subscribeNostrKind(relayUrls, options) {
-	const { kind, rendezvousKey, tagX, onPayload } = options
+	const { kind, rendezvousKey, tagX, onPayload, addressable = false } = options
 	const abortController = new AbortController()
 	/** @type {import('ws').WebSocket[]} */
 	const sockets = []
@@ -332,7 +401,9 @@ function subscribeNostrKind(relayUrls, options) {
 			}
 			catch { /* ignore */ }
 		})
-		ws.send(JSON.stringify(['REQ', subscriptionId, { kinds: [kind], '#t': [rendezvousKey], '#x': [tagX] }]))
+		const filter = { kinds: [kind], '#t': [rendezvousKey], '#x': [tagX] }
+		if (addressable) filter['#d'] = [rendezvousKey]
+		ws.send(JSON.stringify(['REQ', subscriptionId, filter]))
 	}, abortController.signal, sockets)
 	return () => {
 		abortController.abort()
@@ -378,6 +449,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 			kind: NOSTR_ADVERT_KIND,
 			rendezvousKey,
 			tagX: 'advert',
+			addressable: true,
 			/**
 			 * @param {Uint8Array} bytes 加密 advert 载荷
 			 * @returns {Promise<void>}
@@ -400,6 +472,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 			kind: NOSTR_ADVERT_KIND,
 			rendezvousKey,
 			tagX: 'advert',
+			addressable: true,
 			/**
 			 * @param {Uint8Array} bytes 加密 advert 载荷
 			 * @returns {Promise<void>}
@@ -441,6 +514,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 					kind: NOSTR_ADVERT_KIND,
 					rendezvousKey,
 					tagX: 'advert',
+					addressable: true,
 					/**
 					 * @param {Uint8Array} bytes 加密 advert 载荷
 					 * @returns {Promise<void>}
@@ -467,12 +541,11 @@ export function createNostrDiscoveryProvider(options = {}) {
 				if (abortController.signal.aborted) return
 				const beacon = await getBeacon?.()
 				if (!beacon?.nodeHash) return
-				noteNostrVisibleNode(beacon.nodeHash)
 				const advertBody = beacon.advertBody || beacon.body || beacon
 				const bytes = encryptSignalPacket(rendezvousKey, { type: 'advert', body: advertBody })
 				const event = await signNostrEvent(
 					NOSTR_ADVERT_KIND,
-					[['t', rendezvousKey], ['x', 'advert']],
+					[['t', rendezvousKey], ['x', 'advert'], ['d', rendezvousKey]],
 					bytesToBase64(bytes),
 					secretKey,
 				)
@@ -547,6 +620,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 				kind: NOSTR_ADVERT_KIND,
 				rendezvousKey,
 				tagX: 'advert',
+				addressable: true,
 				/**
 				 * @param {Uint8Array} bytes 加密 advert 载荷
 				 * @param {object} meta relay 元数据
@@ -573,12 +647,11 @@ export function createNostrDiscoveryProvider(options = {}) {
 				if (abortController.signal.aborted) return
 				const beacon = await getBeacon?.()
 				if (!beacon?.nodeHash) return
-				noteNostrGroupVisibleNode(key, beacon.nodeHash)
 				const advertBody = beacon.advertBody || beacon.body || beacon
 				const bytes = encryptSignalPacket(rendezvousKey, { type: 'advert', body: advertBody })
 				const event = await signNostrEvent(
 					NOSTR_ADVERT_KIND,
-					[['t', rendezvousKey], ['x', 'advert']],
+					[['t', rendezvousKey], ['x', 'advert'], ['d', rendezvousKey]],
 					bytesToBase64(bytes),
 					secretKey,
 				)
@@ -605,6 +678,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 				kind: NOSTR_ADVERT_KIND,
 				rendezvousKey,
 				tagX: 'advert',
+				addressable: true,
 				/**
 				 * @param {Uint8Array} bytes 加密 advert 载荷
 				 * @param {object} meta relay 元数据
