@@ -44,11 +44,11 @@ export async function encryptReadableToParts(readable, ceMode = 'convergent', on
 	}
 
 	for await (const chunk of readable) {
-		const buf = Buffer.from(chunk)
-		total += buf.length
+		const buffer = Buffer.from(chunk)
+		total += buffer.length
 		if (total > maxBytes)
 			throw new Error('plaintext exceeds max upload size')
-		pending = Buffer.concat([pending, buf])
+		pending = Buffer.concat([pending, buffer])
 		while (pending.length >= FEDERATION_CHUNK_MAX_BYTES) {
 			const slice = pending.subarray(0, FEDERATION_CHUNK_MAX_BYTES)
 			pending = pending.subarray(FEDERATION_CHUNK_MAX_BYTES)
@@ -91,11 +91,11 @@ function readStreamChunk(stream) {
 			resolve(null)
 		}
 		/**
-		 * @param {Error} err 错误
+		 * @param {Error} error 错误
 		 */
-		const onError = err => {
+		const onError = error => {
 			cleanup()
-			reject(err)
+			reject(error)
 		}
 		/**
 		 *

@@ -1,6 +1,6 @@
 {
 	"name": "@steve02081504/fount-p2p",
-	"version": "0.0.12",
+	"version": "0.0.13",
 	"description": "fount federation P2P layer — link, trust graph, mailbox, DAG, EVFS.",
 	"keywords": [
 		"network",
@@ -30,8 +30,13 @@
 		"!sim/**",
 		"!scripts/**"
 	],
+	"bin": {
+		"fount-p2p": "./infra/cli.mjs"
+	},
 	"exports": {
 		".": "./index.mjs",
+		"./infra": "./infra/service.mjs",
+		"./link": "./link/providers/index.mjs",
 		"./core/*": "./core/*.mjs",
 		"./crypto": "./crypto/crypto.mjs",
 		"./crypto/*": "./crypto/*.mjs",
@@ -42,7 +47,12 @@
 		"./discovery/bt": "./discovery/bt/index.mjs",
 		"./discovery/bt/*": "./discovery/bt/*.mjs",
 		"./discovery/*": "./discovery/*.mjs",
-		"./transport/*": "./transport/*.mjs",
+		"./transport/link_registry": "./transport/link_registry.mjs",
+		"./transport/user_room": "./transport/user_room.mjs",
+		"./transport/group_link_set": "./transport/group_link_set.mjs",
+		"./transport/node_scope": "./transport/node_scope.mjs",
+		"./transport/room_scopes": "./transport/room_scopes.mjs",
+		"./transport/remote_user_room": "./transport/remote_user_room.mjs",
 		"./rooms/*": "./rooms/*.mjs",
 		"./overlay": "./overlay/index.mjs",
 		"./overlay/*": "./overlay/*.mjs",
@@ -62,6 +72,7 @@
 	"dependencies": {
 		"@noble/curves": "latest",
 		"node-datachannel": "latest",
+		"on-shutdown": "latest",
 		"ws": "latest"
 	},
 	"devDependencies": {

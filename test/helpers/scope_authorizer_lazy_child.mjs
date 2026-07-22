@@ -2,7 +2,7 @@
  * 子进程：验证 registerScopeAuthorizer 不急切建 registry，并在首次 getLinkRegistry 时 flush。
  * 由 `scope_authorizer_lazy.test.mjs` spawn。
  *
- * env FOUNT_SCOPE_AUTH_LAZY_MODE:
+ * argv[2] mode:
  * - register — 未 initNode 仅注册（不得抛）
  * - flush — pending authorizer 在 getLinkRegistry 后对入站 envelope 生效
  */
@@ -11,12 +11,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { clearLinkProviders, registerLinkProvider } from '../../link/providers/index.mjs'
-import { getLinkRegistry, registerScopeAuthorizer } from '../../transport/link_registry.mjs'
+import {
+	configureLinkRegistry,
+	getLinkRegistry,
+	registerScopeAuthorizer,
+	resetLinkRegistryForTests,
+} from '../../transport/link_registry.mjs'
 
 import { identity } from './identity.mjs'
 import { initTestP2pNode } from './node.mjs'
 
-const mode = String(process.env.FOUNT_SCOPE_AUTH_LAZY_MODE || 'register').trim()
+const mode = String(process.argv[2] || 'register').trim()
 
 /**
  * @param {object} options mock link 选项
@@ -85,6 +90,8 @@ else if (mode === 'flush') {
 	try {
 		await mkdir(dir, { recursive: true })
 		initTestP2pNode({ nodeDir: dir })
+		resetLinkRegistryForTests()
+		configureLinkRegistry({ meshKeepalive: false, autoRegisterDiscoveryProviders: false, autoRegisterLinkProviders: false })
 		const bob = identity(42)
 		const decisions = []
 		registerScopeAuthorizer('lazy:', async (_scope, sender) => {

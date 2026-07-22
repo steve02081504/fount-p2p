@@ -51,7 +51,7 @@ export function buildAuthMessage(peerNonce, localBinding, localNodeHash) {
 /**
  * 构造 link hello 握手包。
  * @param {{ nodeHash?: string, nodePubKey?: string, nonce?: string }} [options] 可选身份字段，省略则从本地节点种子推导
- * @returns {{ v: 1, nodeHash: string, nodePubKey: string, nonce: string }} hello 对象
+ * @returns {{ nodeHash: string, nodePubKey: string, nonce: string }} hello 对象
  */
 export function buildHello(options = {}) {
 	let publicKey = null
@@ -66,7 +66,7 @@ export function buildHello(options = {}) {
 		throw new Error('p2p: invalid hello fields')
 	if (pubKeyHash(Buffer.from(nodePubKey, 'hex')) !== nodeHash)
 		throw new Error('p2p: hello nodePubKey does not match nodeHash')
-	return { v: 1, nodeHash, nodePubKey, nonce }
+	return { nodeHash, nodePubKey, nonce }
 }
 
 /**
@@ -92,13 +92,12 @@ export async function buildAuth(peerNonce, localBinding, options = {}) {
 /**
  * 解析并校验 hello 对象，无效时返回 null。
  * @param {unknown} hello 原始 hello 载荷
- * @returns {{ v: 1, nodeHash: string, nodePubKey: string, nonce: string } | null} 规范化 hello 或 null
+ * @returns {{ nodeHash: string, nodePubKey: string, nonce: string } | null} 规范化 hello 或 null
  */
 export function parseHello(hello) {
 	const nodeHash = normalizeHex64(hello?.nodeHash)
 	const nodePubKey = normalizeHex64(hello?.nodePubKey)
 	const nonce = normalizeHex64(hello?.nonce)
-	if (Number(hello?.v) !== 1) return null
 	if (!isHex64(nodeHash) || !isHex64(nodePubKey) || !isHex64(nonce)) return null
 	try {
 		if (pubKeyHash(Buffer.from(nodePubKey, 'hex')) !== nodeHash) return null
@@ -106,7 +105,7 @@ export function parseHello(hello) {
 	catch {
 		return null
 	}
-	return { v: 1, nodeHash, nodePubKey, nonce }
+	return { nodeHash, nodePubKey, nonce }
 }
 
 /**
@@ -136,26 +135,26 @@ export async function verifyAuth(hello, auth, expectedNonce, remoteBinding) {
 
 /**
  * 构造 discovery advert 待签名字节串。
- * @param {string} topic 广播主题
+ * @param {string} rendezvousKey discovery 内部汇合键
  * @param {number} ts 时间戳（毫秒）
  * @param {string} nodeHash 节点 nodeHash
  * @param {number | null} [tcpPort=null] 可选 LAN TCP 监听端口（签入消息）
  * @returns {Uint8Array} 待签名消息字节
  */
-export function buildAdvertMessage(topic, ts, nodeHash, tcpPort = null) {
-	const base = `fount-advert\0${String(topic)}\0${String(ts)}\0${normalizeHex64(nodeHash)}`
+export function buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort = null) {
+	const base = `fount-advert\0${String(rendezvousKey)}\0${String(ts)}\0${normalizeHex64(nodeHash)}`
 	const port = normalizeTcpPort(tcpPort)
 	return Buffer.from(port ? `${base}\0${port}` : base, 'utf8')
 }
 
 /**
  * 构造带签名的 discovery advert。
- * @param {string} topic 广播主题
+ * @param {string} rendezvousKey discovery 内部汇合键
  * @param {number} [ts=Date.now()] 时间戳（毫秒）
  * @param {{ secretKey?: Uint8Array, nodeHash?: string, nodePubKey?: string, tcpPort?: number } | null} [options] 签名身份与可选 tcpPort
  * @returns {Promise<{ nodeHash: string, nodePubKey: string, ts: number, sig: string, tcpPort?: number }>} 签名 advert
  */
-export async function buildSignedAdvert(topic, ts = Date.now(), options = null) {
+export async function buildSignedAdvert(rendezvousKey, ts = Date.now(), options = null) {
 	const seed = options?.secretKey
 		? Buffer.from(options.secretKey)
 		: Buffer.from(ensureNodeSeed(), 'hex')
@@ -167,7 +166,7 @@ export async function buildSignedAdvert(topic, ts = Date.now(), options = null) 
 	const tcpPort = normalizeTcpPort(options?.tcpPort)
 	if (options?.tcpPort && !tcpPort)
 		throw new Error('p2p: advert tcpPort invalid')
-	const message = buildAdvertMessage(topic, ts, nodeHash, tcpPort)
+	const message = buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort)
 	const sig = await sign(message, secretKey)
 	const advert = {
 		nodeHash,
@@ -181,14 +180,14 @@ export async function buildSignedAdvert(topic, ts = Date.now(), options = null) 
 
 /**
  * 验证 discovery advert 签名与时间戳，成功返回发布者 nodeHash。
- * @param {string} topic 期望的广播主题
+ * @param {string} rendezvousKey 期望的汇合键
  * @param {unknown} advert 原始 advert 载荷
  * @param {number} [now=Date.now()] 当前时间（毫秒）
  * @param {number} [maxSkewMs=10 * 60_000] 允许的最大时钟偏差（毫秒）
  * @returns {Promise<string | null>} 验证通过的 nodeHash，失败返回 null
  */
-export async function verifySignedAdvert(topic, advert, now = Date.now(), maxSkewMs = 10 * 60_000) {
-	const parsedHello = parseHello({ v: 1, nodeHash: advert?.nodeHash, nodePubKey: advert?.nodePubKey, nonce: '0'.repeat(64) })
+export async function verifySignedAdvert(rendezvousKey, advert, now = Date.now(), maxSkewMs = 10 * 60_000) {
+	const parsedHello = parseHello({ nodeHash: advert?.nodeHash, nodePubKey: advert?.nodePubKey, nonce: '0'.repeat(64) })
 	if (!parsedHello) return null
 	const ts = Number(advert?.ts)
 	const sig = String(advert?.sig ?? '').trim().toLowerCase()
@@ -196,7 +195,7 @@ export async function verifySignedAdvert(topic, advert, now = Date.now(), maxSke
 	const hasTcpPortField = !!advert?.tcpPort
 	const tcpPort = normalizeTcpPort(advert?.tcpPort)
 	if (hasTcpPortField && !tcpPort) return null
-	const message = buildAdvertMessage(topic, ts, parsedHello.nodeHash, tcpPort)
+	const message = buildAdvertMessage(rendezvousKey, ts, parsedHello.nodeHash, tcpPort)
 	const ok = await verify(Buffer.from(sig, 'hex'), message, Buffer.from(parsedHello.nodePubKey, 'hex'))
 	return ok ? parsedHello.nodeHash : null
 }

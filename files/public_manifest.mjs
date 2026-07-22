@@ -116,18 +116,18 @@ export function shouldPreferIncomingPublicManifest(localManifest, incoming) {
 }
 
 /**
- * @param {object} params 参数
- * @param {string} params.ownerEntityHash owner
- * @param {string} params.logicalPath 路径
- * @param {Buffer | Uint8Array} params.plaintext 明文
- * @param {string} [params.name] 文件名
- * @param {string} [params.mimeType] MIME
- * @param {Uint8Array | Buffer} params.entitySecretKey recovery 私钥种子
- * @param {string} params.entityPubKeyHex recovery 公钥 hex
- * @param {number} [params.publishedAt] 发布时间（默认 Date.now）
+ * @param {object} parameters 参数
+ * @param {string} parameters.ownerEntityHash owner
+ * @param {string} parameters.logicalPath 路径
+ * @param {Buffer | Uint8Array} parameters.plaintext 明文
+ * @param {string} [parameters.name] 文件名
+ * @param {string} [parameters.mimeType] MIME
+ * @param {Uint8Array | Buffer} parameters.entitySecretKey recovery 私钥种子
+ * @param {string} parameters.entityPubKeyHex recovery 公钥 hex
+ * @param {number} [parameters.publishedAt] 发布时间（默认 Date.now）
  * @returns {Promise<import('./manifest.mjs').FileManifest>} 已签名并落盘的公开清单
  */
-export async function publishPublicFile(params) {
+export async function publishPublicFile(parameters) {
 	const {
 		ownerEntityHash,
 		logicalPath,
@@ -137,7 +137,7 @@ export async function publishPublicFile(params) {
 		entitySecretKey,
 		entityPubKeyHex,
 		publishedAt = Date.now(),
-	} = params
+	} = parameters
 	const base = await putFileManifest({
 		ownerEntityHash,
 		logicalPath,

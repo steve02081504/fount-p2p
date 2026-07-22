@@ -51,9 +51,9 @@ test('parsePartQueryReq rejects missing fields and oversize query', () => {
 })
 
 test('parsePartQueryReq clamps ttl and budget.maxHits', () => {
-	const req = parsePartQueryReq(validReq({ ttl: 99, budget: { maxHits: 999 } }))
-	assertEquals(req?.ttl, 3)
-	assertEquals(req?.budget.maxHits, 32)
+	const request = parsePartQueryReq(validReq({ ttl: 99, budget: { maxHits: 999 } }))
+	assertEquals(request?.ttl, 3)
+	assertEquals(request?.budget.maxHits, 32)
 })
 
 test('parsePartQueryRes rejects bad rows / node hash', () => {

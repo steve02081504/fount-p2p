@@ -32,7 +32,7 @@ function waitForMessage(channel, timeoutMs) {
 		}
 		channel.addEventListener?.('message', handler)
 		channel.onmessage = handler
-		channel.onMessage?.subscribe(msg => handler({ data: msg }))
+		channel.onMessage?.subscribe(message => handler({ data: message }))
 	})
 }
 

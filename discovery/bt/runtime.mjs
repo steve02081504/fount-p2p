@@ -6,13 +6,10 @@ import { fileURLToPath } from 'node:url'
 
 /**
  * 解析 Bluetooth 角色（scan / dual）。
- * Win32 默认 scan（单适配器 central+peripheral 常冲突）；可用 FOUNT_BT_DISCOVERY_ROLE 覆盖。
+ * Win32 默认 scan（单适配器 central+peripheral 常冲突）；其他平台 dual。
  * @returns {'scan' | 'dual'} 生效角色
  */
 export function resolveBtRole() {
-	const override = String(process.env.FOUNT_BT_DISCOVERY_ROLE || '').trim().toLowerCase()
-	if (override === 'dual') return 'dual'
-	if (override === 'scan') return 'scan'
 	return process.platform === 'win32' ? 'scan' : 'dual'
 }
 
@@ -46,12 +43,8 @@ const PROBE_CHILD = join(dirname(fileURLToPath(import.meta.url)), 'probe_child.m
  */
 function probeBluetoothInSubprocess(timeoutMs) {
 	return new Promise(resolve => {
-		const child = spawn(process.execPath, [PROBE_CHILD], {
+		const child = spawn(process.execPath, [PROBE_CHILD, String(timeoutMs)], {
 			stdio: 'ignore',
-			env: {
-				...process.env,
-				FOUNT_BT_PROBE_MS: String(timeoutMs),
-			},
 			windowsHide: true,
 		})
 		// 探测是旁路缓存填充；勿拖住父进程事件循环 / shutdown 退出。

@@ -22,13 +22,9 @@ const childScript = join(here, '../helpers/shutdown_exit_child.mjs')
 async function assertShutdownExitsWithin(options) {
 	const warmMs = Math.max(0, Number(options.warmMs) || 0)
 	const { afterShutdownBudgetMs } = options
-	const child = spawn(process.execPath, [childScript], {
+	const child = spawn(process.execPath, [childScript, String(warmMs)], {
 		cwd: packageRoot,
 		stdio: ['ignore', 'pipe', 'ignore'],
-		env: {
-			...process.env,
-			FOUNT_SHUTDOWN_EXIT_WARM_MS: String(warmMs),
-		},
 		windowsHide: true,
 	})
 	const result = await new Promise(resolve => {

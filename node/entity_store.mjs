@@ -80,9 +80,9 @@ export function createFsEntityStore(baseDir) {
 				const entries = await fsp.readdir(root, { withFileTypes: true })
 				return entries.filter(e => e.isDirectory()).map(e => e.name.toLowerCase()).filter(h => parseEntityHash(h))
 			}
-			catch (err) {
-				if (/** @type {NodeJS.ErrnoException} */ err.code === 'ENOENT') return []
-				throw err
+			catch (error) {
+				if (/** @type {NodeJS.ErrnoException} */ error.code === 'ENOENT') return []
+				throw error
 			}
 		},
 
@@ -115,9 +115,9 @@ export function createFsEntityStore(baseDir) {
 			try {
 				return await fsp.readFile(filePath)
 			}
-			catch (err) {
-				if (/** @type {NodeJS.ErrnoException} */ err.code === 'ENOENT') return null
-				throw err
+			catch (error) {
+				if (/** @type {NodeJS.ErrnoException} */ error.code === 'ENOENT') return null
+				throw error
 			}
 		},
 

@@ -150,9 +150,9 @@ export function sha256TextHex(text) {
 /**
  * Buffer / Uint8Array → 小写 hex 字符串
  *
- * @param {Uint8Array|Buffer} buf 二进制缓冲
+ * @param {Uint8Array|Buffer} buffer 二进制缓冲
  * @returns {string} 小写十六进制文本
  */
-function bufferToHexSimple(buf) {
-	return Buffer.from(buf).toString('hex')
+function bufferToHexSimple(buffer) {
+	return Buffer.from(buffer).toString('hex')
 }

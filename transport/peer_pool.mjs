@@ -1,9 +1,11 @@
 /**
- * 稀疏连接池纯计算逻辑（§0、§4）：
- * Top-K 信任连接 + M 随机探索，可被 chat shell 与 subfounts 共用。
- * 不含文件 I/O；I/O 层由调用方注入。
+ * 连接池纯计算：
+ * - 群联邦稀疏拨号：trustedSlots + exploreSlots（groupSettings）
+ * - 节点 mesh 保活：N / K_max（routing profile + transport tunables）
+ * 不含文件 I/O；I/O 由调用方注入。
  */
 
+import { compareHex64Asc } from '../core/hexIds.mjs'
 import { loadPeerPoolView, mergeNetworkPeerPools } from '../node/network.mjs'
 import { loadReputation } from '../node/reputation_store.mjs'
 import { isQuarantinedPure } from '../reputation/engine.mjs'
@@ -97,9 +99,9 @@ export function selectExploreWithSourceQuota(exploreIds, exploreSources, k, maxP
 	/** @type {Map<string, string[]>} */
 	const bySource = new Map()
 	for (const id of exploreIds) {
-		const src = exploreSources.get(id) || 'unknown'
-		if (!bySource.has(src)) bySource.set(src, [])
-		bySource.get(src).push(id)
+		const source = exploreSources.get(id) || 'unknown'
+		if (!bySource.has(source)) bySource.set(source, [])
+		bySource.get(source).push(id)
 	}
 	for (const ids of bySource.values()) shuffleInPlace(ids)
 	const out = []
@@ -107,12 +109,12 @@ export function selectExploreWithSourceQuota(exploreIds, exploreSources, k, maxP
 	const picked = new Map()
 	while (out.length < k) {
 		let progressed = false
-		for (const [src, ids] of bySource) {
+		for (const [source, ids] of bySource) {
 			if (out.length >= k) break
-			const idx = picked.get(src) ?? 0
-			if (idx >= maxPerSource || idx >= ids.length) continue
-			out.push(ids[idx])
-			picked.set(src, idx + 1)
+			const index = picked.get(source) ?? 0
+			if (index >= maxPerSource || index >= ids.length) continue
+			out.push(ids[index])
+			picked.set(source, index + 1)
 			progressed = true
 		}
 		if (!progressed) break
@@ -133,7 +135,7 @@ export function selectExploreWithSourceQuota(exploreIds, exploreSources, k, maxP
  *   inRoomNodeHashes?: Set<string> | string[] 群内在线 node_id；有则优先，仅全不可达时用 explore 中非房内节点
  *   hintSources?: Map<string, string> explore 节点来源（用于配额）
  * }} options 选取参数（roster、peers、rep、limits、selfNodeHash）
- * @returns {string[]} 目标 Trystero peerId 列表（去重，长度 ≤ maxPeers）
+ * @returns {string[]} 目标 peerId 列表（去重，长度 ≤ maxPeers）
  */
 export function selectPeerIdsFromPool({ roster, peers, rep, limits, selfNodeHash, inRoomNodeHashes, hintSources }) {
 	const blocked = new Set(peers.blockedPeers)
@@ -292,10 +294,10 @@ export function applyRosterToPeerPool(options) {
 /**
  * 稀疏连接池：优先 trusted，再 explore，再其余在线节点。
  * @param {string} groupId 群
- * @param {{ peerId: string, remoteNodeHash?: string }[]} roster Trystero 在线表
+ * @param {{ peerId: string, remoteNodeHash?: string }[]} roster 在线表
  * @param {object} groupSettings 物化群设置
  * @param {string} selfNodeHash 本机 node_id
- * @returns {string[]} 目标 Trystero peerId（去重）
+ * @returns {string[]} 目标 peerId（去重）
  */
 export function pickFederationTargetPeerIds(groupId, roster, groupSettings, selfNodeHash) {
 	const limits = resolveFederationPoolLimits(groupSettings)
@@ -341,4 +343,104 @@ export function reconcilePeerPoolFromRoster(groupId, roster, groupSettings) {
 	const rep = loadReputation()
 	const { trustedPeers, explorePeers } = applyRosterToPeerPool({ peers, rep, roster, limits })
 	mergeNetworkPeerPools({ trustedPeers, explorePeers })
+}
+
+/**
+ * Mesh 保活 N/K 槽位（routing profile 可缩 N 与 K_max）。
+ * @param {'default' | 'low'} [routingProfile='default'] 路由 profile
+ * @param {object} [tunables={}] transport tunables
+ * @returns {{ N: number, K_max: number }} mesh 槽位上限 N 与熟人槽 K_max
+ */
+export function resolveMeshPoolLimits(routingProfile = 'default', tunables = {}) {
+	const low = routingProfile === 'low'
+	const N = Math.max(1, Math.min(32, Number(low ? tunables.meshNLow : tunables.meshN) || (low ? 4 : 8)))
+	const K_max = Math.max(0, Math.min(N, Number(low ? tunables.meshKMaxLow : tunables.meshKMax) || (low ? 2 : 5)))
+	return { N, K_max }
+}
+
+/**
+ * 选取 mesh 拨号目标：补齐 K 熟人（可超出当前空位，由调用方先踢探索），再按 N−K 探索配额填空。
+ * @param {{
+ *   selfNodeHash: string,
+ *   trustedPeers: string[],
+ *   exploreCandidates: string[],
+ *   hintSources?: Map<string, string>,
+ *   limits: ReturnType<typeof resolveMeshPoolLimits>,
+ *   connectedHashes: Set<string>,
+ *   rep: { byNodeHash?: Record<string, { score?: number, quarantinedUntil?: number }> },
+ *   blockedPeers?: string[],
+ *   now?: number,
+ * }} options 选取参数
+ * @returns {string[]} 应拨号的 nodeHash（熟人可导致需先驱逐探索）
+ */
+export function selectMeshLinkTargets(options) {
+	const {
+		selfNodeHash,
+		trustedPeers = [],
+		exploreCandidates = [],
+		hintSources,
+		limits,
+		connectedHashes,
+		rep,
+		blockedPeers = [],
+		now = Date.now(),
+	} = options
+	const blocked = new Set(blockedPeers)
+	const connected = connectedHashes
+
+	const eligibleTrusted = [...new Set(trustedPeers)]
+		.filter(id => id && id !== selfNodeHash && !blocked.has(id))
+		.filter(id => !isQuarantinedPure(rep, id, now))
+	const trustedSet = new Set(eligibleTrusted)
+	/** 目标组成：K 熟人槽 + (N−K) 探索槽 */
+	const K = Math.min(limits.K_max, eligibleTrusted.length)
+	let connectedTrusted = 0
+	let connectedExplore = 0
+	for (const id of connected)
+		if (trustedSet.has(id)) connectedTrusted++
+		else connectedExplore++
+	const trustedSlotsLeft = Math.max(0, K - connectedTrusted)
+	const trustedRanked = eligibleTrusted
+		.filter(id => !connected.has(id))
+		.sort((a, b) => repScore(b, rep) - repScore(a, rep))
+	// 熟人缺口优先补齐，即使当前已满 N（调用方应先踢探索腾位）
+	const trustedPick = trustedRanked.slice(0, trustedSlotsLeft)
+
+	const exploreQuota = Math.max(0, limits.N - K)
+	const exploreSlotsLeft = Math.max(0, exploreQuota - connectedExplore)
+	const freeAfterTrustedDial = Math.max(0, limits.N - connected.size - trustedPick.length)
+	const exploreNeed = Math.min(exploreSlotsLeft, freeAfterTrustedDial)
+	const explorePool = [...new Set(exploreCandidates)]
+		.filter(id => id && id !== selfNodeHash && !blocked.has(id) && !connected.has(id) && !trustedSet.has(id))
+		.filter(id => !isQuarantinedPure(rep, id, now))
+	const explorePick = selectExploreWithSourceQuota(explorePool, hintSources, exploreNeed)
+	return [...trustedPick, ...explorePick]
+}
+
+/**
+ * mesh trim：探索链优先驱逐，同档取 scope 权重低、nodeHash 小。
+ * @param {string[]} linkHashes 当前链路 nodeHash
+ * @param {Set<string>} exploreLinkHashes 探索链集合
+ * @param {string[]} trustedPeers 熟人池
+ * @param {(nodeHash: string) => number} scopeWeightFn scope 权重
+ * @returns {string | null} 应驱逐的 nodeHash
+ */
+export function pickMeshEvictionVictim(linkHashes, exploreLinkHashes, trustedPeers, scopeWeightFn) {
+	const trustedSet = new Set(trustedPeers)
+	let victimHash = null
+	let victimScore = Infinity
+	for (const nodeHash of linkHashes) {
+		const isExplore = exploreLinkHashes.has(nodeHash) && !trustedSet.has(nodeHash)
+		const weight = scopeWeightFn(nodeHash)
+		const score = (isExplore ? 0 : 1000) + weight
+		if (
+			victimHash == null
+			|| score < victimScore
+			|| (score === victimScore && compareHex64Asc(nodeHash, victimHash) < 0)
+		) {
+			victimHash = nodeHash
+			victimScore = score
+		}
+	}
+	return victimHash
 }

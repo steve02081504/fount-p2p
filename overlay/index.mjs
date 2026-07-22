@@ -6,6 +6,26 @@ import { createLruMap } from '../utils/lru.mjs'
 
 const ROUTE_DOMAIN = 'fount-route'
 
+/** @type {((senderNodeHash: string, action: string) => boolean) | null} */
+let overlayRateGate = null
+
+/**
+ * 安装 overlay 入站限速门（返回 false 则丢弃）。
+ * @param {((senderNodeHash: string, action: string) => boolean) | null} rateGate 返回 false 则丢弃
+ * @returns {void}
+ */
+export function setOverlayRateGate(rateGate) {
+	overlayRateGate = typeof rateGate === 'function' ? rateGate : null
+}
+
+/**
+ * 清除 overlay 限速门。
+ * @returns {void}
+ */
+export function clearOverlayRateGate() {
+	overlayRateGate = null
+}
+
 /**
  * 构造 overlay 路由签名用的字节序列。
  * @param {string} reqId 路由请求 id
@@ -27,7 +47,7 @@ export function createOverlayRouter(registry, ttl = 3) {
 	const selfPubKey = registry.localIdentity.nodePubKey
 	const { secretKey } = registry.localIdentity
 	const seenReqs = createLruMap(4096)
-	/** @type {Map<string, { resolve: (path: string[]) => void, reject: (err: Error) => void, timer: number }>} */
+	/** @type {Map<string, { resolve: (path: string[]) => void, reject: (error: Error) => void, timer: number }>} */
 	const pendingRoutes = new Map()
 	/** @type {Set<(body: unknown, meta: { path: string[], from: string }) => void>} */
 	const relayListeners = new Set()
@@ -52,6 +72,7 @@ export function createOverlayRouter(registry, ttl = 3) {
 		const payload = envelope?.payload
 		const action = envelope?.action || ''
 		if (!payload) return
+		if (overlayRateGate && !overlayRateGate(senderNodeHash, action)) return
 		if (action === 'route_req') {
 			const reqId = payload.reqId || ''
 			const target = payload.target || ''

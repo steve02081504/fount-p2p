@@ -11,14 +11,14 @@ export function assertEquals(actual, expected) {
 }
 
 /**
- * 断言 fn 执行时抛出异常；可选校验错误类型或消息。
- * @param {() => unknown} fn 待测函数
+ * 断言 thunk 执行时抛出异常；可选校验错误类型或消息。
+ * @param {() => unknown} thunk 待测函数
  * @param {import('node:assert').AssertPredicate} [error] 期望的错误类型或匹配谓词
  * @returns {void}
  */
-export function assertThrows(fn, error) {
-	if (error) assert.throws(fn, error)
-	else assert.throws(fn)
+export function assertThrows(thunk, error) {
+	if (error) assert.throws(thunk, error)
+	else assert.throws(thunk)
 }
 
 /**

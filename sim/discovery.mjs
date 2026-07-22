@@ -68,13 +68,17 @@ function roomBucket(state, observerId) {
  * @param {string[]} roster 在线名册
  * @param {() => number} rng 随机源
  * @param {number} exploreCap explore 容量
+ * @param {boolean} [coldBootstrap=false] K=0 冷启动：不预填 explore
  * @returns {Set<string>} 观察者可见 peer 集
  */
-export function initObserverDiscovery(state, observerId, trusted, roster, rng, exploreCap = 8) {
+export function initObserverDiscovery(state, observerId, trusted, roster, rng, exploreCap = 8, coldBootstrap = false) {
 	state.trustedAnchorsByObserver.set(observerId, new Set(trusted))
 	const explore = new Set(trusted)
 	const pool = roster.filter(id => id !== observerId && !explore.has(id))
-	while (explore.size < exploreCap + trusted.length && pool.length) {
+	const minExplore = coldBootstrap
+		? 0
+		: trusted.length ? exploreCap : Math.max(exploreCap, 4)
+	while (explore.size < minExplore + trusted.length && pool.length) {
 		const i = Math.floor(rng() * pool.length)
 		explore.add(pool.splice(i, 1)[0])
 	}
@@ -92,6 +96,30 @@ export function initObserverDiscovery(state, observerId, trusted, roster, rng, e
 		takeRoomSlot(state, observerId, id, 'explore', trusted)
 	}
 	return explore
+}
+
+/**
+ * K=0 冷启动：模拟 listVisible + connectToNode 填充 explore 槽。
+ * @param {DiscoveryState} state 发现状态
+ * @param {string} observerId 观察者
+ * @param {string[]} roster 在线名册
+ * @param {() => number} rng 随机源
+ * @param {number} [batch=4] 每轮新增 explore 上限
+ * @returns {void}
+ */
+export function coldStartDiscoveryJoin(state, observerId, roster, rng, batch = 4) {
+	const trusted = [...observerTrustedAnchors(state, observerId)]
+	const explore = state.exploreByObserver.get(observerId) ?? new Set()
+	const pool = roster.filter(id => id !== observerId && !explore.has(id))
+	let added = 0
+	while (added < batch && pool.length) {
+		const i = Math.floor(rng() * pool.length)
+		const id = pool.splice(i, 1)[0]
+		explore.add(id)
+		takeRoomSlot(state, observerId, id, 'mesh:scan', trusted)
+		added++
+	}
+	state.exploreByObserver.set(observerId, explore)
 }
 
 /**
@@ -204,12 +232,19 @@ export function discoveryReach(state, observerId, friendlyIds, scoreOf, maxHop =
 export function recoverDiscoveryFromAnchors(state, observerId) {
 	state.poisonedByAttacker.delete(observerId)
 	const keep = observerTrustedAnchors(state, observerId)
+	const priorExplore = state.exploreByObserver.get(observerId) ?? new Set()
 	const explore = new Set(keep)
+	for (const id of priorExplore)
+		if (!keep.has(id)) explore.add(id)
 	state.exploreByObserver.set(observerId, explore)
 	const bucket = roomBucket(state, observerId)
 	bucket.active = new Set(keep)
 	bucket.sourceByPeer = new Map([...keep].map(id => [id, 'trusted']))
 	bucket.trustedReserved = new Set(keep)
+	for (const id of explore) {
+		if (keep.has(id)) continue
+		takeRoomSlot(state, observerId, id, 'explore', [...keep])
+	}
 }
 
 /**

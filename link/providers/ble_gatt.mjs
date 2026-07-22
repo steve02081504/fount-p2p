@@ -207,9 +207,9 @@ export function createBleGattLinkProvider() {
 			 * @returns {void}
 			 */
 			onWriteRequest(_connection, data, _offset, _withoutResponse, callback) {
-				const buf = Buffer.from(data)
-				if (sessionInbound) sessionInbound(buf)
-				else void acceptPeripheralWrite(buf).catch(() => { })
+				const buffer = Buffer.from(data)
+				if (sessionInbound) sessionInbound(buffer)
+				else void acceptPeripheralWrite(buffer).catch(() => { })
 				callback(bleno.Characteristic.RESULT_SUCCESS)
 			},
 		})
@@ -228,12 +228,12 @@ export function createBleGattLinkProvider() {
 	}
 
 	/**
-	 * @param {Buffer} buf 入站写（首包应为 link-open）
+	 * @param {Buffer} buffer 入站写（首包应为 link-open）
 	 * @returns {Promise<void>}
 	 */
-	async function acceptPeripheralWrite(buf) {
+	async function acceptPeripheralWrite(buffer) {
 		if (activeInbound || acceptInflight || !onInbound || !localIdentity) return
-		const opened = parseLinkOpen(buf)
+		const opened = parseLinkOpen(buffer)
 		if (!opened) return
 		acceptInflight = true
 		try {

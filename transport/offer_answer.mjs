@@ -1,18 +1,16 @@
 import { randomBytes } from 'node:crypto'
 
 import { normalizeHex64 } from '../core/hexIds.mjs'
-import { sendSignal } from '../discovery/index.mjs'
+import { decryptNodeSignalPacket, sendNodeSignalPacket } from '../discovery/index.mjs'
 import { listLinkProviders } from '../link/providers/index.mjs'
+import { nodeDebug, shortHash } from '../node/log.mjs'
 
-import { decryptSignalPacket, encryptSignalPacket, nodeRendezvousTopic } from './signal_crypto.mjs'
-
-/** accept/dial 挂起期间 ICE 信令 backlog 上限，防无 handler 时无限堆积 */
+/** accept/dial 挂起期间 ICE 信令 backlog 上限 */
 const SIGNAL_BACKLOG_MAX = 64
 
 /**
- * 创建带 backlog 的缓冲信令会话。
  * @param {(message: unknown) => Promise<void>} sendRemote 远端发送回调
- * @returns {{ send: (message: unknown) => Promise<void>, onRemote: (handler: (message: unknown) => void) => () => void, deliver: (message: unknown) => void, clear: () => void }} 信令会话
+ * @returns {object} 信令会话
  */
 export function createBufferedSignalSession(sendRemote) {
 	/** @type {Set<(message: unknown) => void>} */
@@ -21,17 +19,15 @@ export function createBufferedSignalSession(sendRemote) {
 	const backlog = []
 	return {
 		/**
-		 * 发送信令消息到远端。
-		 * @param {unknown} message 信令消息
+		 * @param {unknown} message 待发送信令消息
 		 * @returns {Promise<void>}
 		 */
 		async send(message) {
 			await sendRemote(message)
 		},
 		/**
-		 * 注册远端信令 handler（含 backlog 回放）。
-		 * @param {(message: unknown) => void} handler 入站回调
-		 * @returns {() => void} 取消订阅函数
+		 * @param {(message: unknown) => void} handler 远端消息回调
+		 * @returns {() => void} 取消订阅
 		 */
 		onRemote(handler) {
 			handlers.add(handler)
@@ -40,8 +36,7 @@ export function createBufferedSignalSession(sendRemote) {
 			return () => handlers.delete(handler)
 		},
 		/**
-		 * 投递信令消息；无 handler 时入 backlog（有界）。
-		 * @param {unknown} message 信令消息
+		 * @param {unknown} message 入站信令消息
 		 * @returns {void}
 		 */
 		deliver(message) {
@@ -54,7 +49,6 @@ export function createBufferedSignalSession(sendRemote) {
 				handler(message)
 		},
 		/**
-		 * 清空 backlog 与 handler。
 		 * @returns {void}
 		 */
 		clear() {
@@ -65,9 +59,8 @@ export function createBufferedSignalSession(sendRemote) {
 }
 
 /**
- * 判断信令 body 是否为发起方 offer（据此决定入站是否新建应答 PC）。
  * @param {unknown} body 信令 body
- * @returns {boolean} 是 offer 则 true
+ * @returns {boolean} 是否为 WebRTC offer description
  */
 function isOfferSignalBody(body) {
 	return !!body && typeof body === 'object'
@@ -76,30 +69,19 @@ function isOfferSignalBody(body) {
 }
 
 /**
- * 找已注册的 offer/answer provider（按 level 降序的第一个）。
- * @returns {import('../link/providers/index.mjs').LinkProvider | null} 命中的 provider；无则 null
+ * @returns {import('../link/providers/index.mjs').LinkProvider | null} 首个需要 offer/answer 的 provider
  */
 export function findOfferAnswerProvider() {
 	return listLinkProviders().find(provider => provider.caps?.needsOfferAnswer) ?? null
 }
 
 /**
- * Offer/answer glare 拨号控制器（WebRTC 等 needsOfferAnswer provider）。
- * @param {object} deps 依赖注入
- * @param {{ nodeHash: string, nodePubKey: string, secretKey: Uint8Array }} deps.localIdentity 本地身份
- * @param {RTCConfiguration['iceServers']} deps.iceServers ICE 服务器列表
- * @param {string} deps.selfTopic 本机 rendezvous topic
- * @param {Map<string, ReturnType<typeof createBufferedSignalSession>>} deps.signalSessions 按 connId 索引的信令会话
- * @param {(remoteNodeHash: string, link: object) => Promise<void>} deps.registerResolvedLink 注册规范链
- * @param {() => Promise<void>} deps.trimToBudget 超预算驱逐
- * @param {(remoteNodeHash: string) => object | null | undefined} deps.getCanonicalLink 读取当前规范链
- * @returns {{ handleIncomingSignal: (bytes: Uint8Array) => Promise<void>, dialOfferAnswer: (provider: import('../link/providers/index.mjs').LinkProvider, remoteNodeHash: string) => Promise<object | null> }} 入站信令与主动拨号
+ * @param {object} deps 依赖
+ * @returns {object} offer/answer 拨号
  */
 export function createOfferAnswerDial(deps) {
 	const {
 		localIdentity,
-		iceServers,
-		selfTopic,
 		signalSessions,
 		registerResolvedLink,
 		trimToBudget,
@@ -107,28 +89,30 @@ export function createOfferAnswerDial(deps) {
 	} = deps
 
 	/**
-	 * 为单条 PC 创建按 connId 标记的信令会话。
-	 * @param {string} remoteNodeHash 远端节点 64 hex
-	 * @param {string} connId 连接标识
-	 * @returns {ReturnType<typeof createBufferedSignalSession>} 信令会话
+	 * @param {string} remoteNodeHash 远端
+	 * @param {string} connId 连接 id
+	 * @returns {ReturnType<typeof createBufferedSignalSession>} 该连接的缓冲信令会话
 	 */
 	function createConnSession(remoteNodeHash, connId) {
 		const normalized = normalizeHex64(remoteNodeHash)
-		const topic = nodeRendezvousTopic(normalized)
 		return createBufferedSignalSession(async message => {
-			await sendSignal(topic, normalized, encryptSignalPacket(topic, {
+			await sendNodeSignalPacket(normalized, {
 				type: 'signal',
 				from: localIdentity.nodeHash,
 				connId,
 				body: message,
-			}))
+			})
 		})
 	}
 
 	/**
-	 * Offer/answer provider：为一条 connId 会话建链并走 glare 择一。
-	 * @param {{ provider: import('../link/providers/index.mjs').LinkProvider, remoteNodeHash: string, connId: string, session: ReturnType<typeof createBufferedSignalSession>, initiator: boolean }} options 建链参数
-	 * @returns {Promise<object | null>} 当前规范链；失败 null
+	 * @param {object} options 建链参数
+	 * @param {import('../link/providers/index.mjs').LinkProvider} options.provider 链路提供者
+	 * @param {string} options.remoteNodeHash 远端 nodeHash
+	 * @param {string} options.connId 连接 id
+	 * @param {ReturnType<typeof createBufferedSignalSession>} options.session 信令会话
+	 * @param {boolean} options.initiator 是否主动拨号
+	 * @returns {Promise<object | null>} 建链成功返回规范链路，否则 null
 	 */
 	async function buildConnLink({ provider, remoteNodeHash, connId, session, initiator }) {
 		try {
@@ -136,11 +120,16 @@ export function createOfferAnswerDial(deps) {
 			const link = await (initiator ? provider.dial : provider.accept)({
 				nodeHash: remoteNodeHash,
 				signal: session,
-				iceServers,
+				iceServers: deps.iceServers,
 				localIdentity,
 			})
 			if (!link) {
 				signalSessions.delete(connId)
+				nodeDebug('p2p:webrtc null', {
+					peer: shortHash(remoteNodeHash),
+					provider: provider.id,
+					role: initiator ? 'dial' : 'accept',
+				})
 				return null
 			}
 			link.onDown(() => signalSessions.delete(connId))
@@ -148,19 +137,24 @@ export function createOfferAnswerDial(deps) {
 			await registerResolvedLink(remoteNodeHash, link)
 			return getCanonicalLink(remoteNodeHash) ?? null
 		}
-		catch {
+		catch (error) {
 			signalSessions.delete(connId)
+			nodeDebug('p2p:webrtc fail', {
+				peer: shortHash(remoteNodeHash),
+				provider: provider.id,
+				role: initiator ? 'dial' : 'accept',
+				err: String(error?.message || error),
+			})
 			return null
 		}
 	}
 
 	/**
-	 * 处理入站加密信令并可能发起被动建链。
-	 * @param {Uint8Array} bytes 加密信令字节
+	 * @param {Uint8Array} bytes 加密信令
 	 * @returns {Promise<void>}
 	 */
 	async function handleIncomingSignal(bytes) {
-		const packet = decryptSignalPacket(selfTopic, bytes)
+		const packet = decryptNodeSignalPacket(localIdentity.nodeHash, bytes)
 		if (packet?.type !== 'signal') return
 		const remoteNodeHash = normalizeHex64(packet.from)
 		const connId = String(packet.connId || '')
@@ -170,6 +164,10 @@ export function createOfferAnswerDial(deps) {
 			if (!isOfferSignalBody(packet.body)) return
 			const provider = findOfferAnswerProvider()
 			if (!provider) return
+			nodeDebug('p2p:webrtc inbound offer', {
+				peer: shortHash(remoteNodeHash),
+				provider: provider.id,
+			})
 			session = createConnSession(remoteNodeHash, connId)
 			signalSessions.set(connId, session)
 			void buildConnLink({ provider, remoteNodeHash, connId, session, initiator: false })
@@ -178,10 +176,9 @@ export function createOfferAnswerDial(deps) {
 	}
 
 	/**
-	 * 经 offer/answer provider 拨号（discovery signal + glare）。
 	 * @param {import('../link/providers/index.mjs').LinkProvider} provider 链路提供者
-	 * @param {string} remoteNodeHash 远端 64 hex
-	 * @returns {Promise<object | null>} 当前规范链；失败 null
+	 * @param {string} remoteNodeHash 远端 nodeHash
+	 * @returns {Promise<object | null>} 建链成功返回规范链路，否则 null
 	 */
 	async function dialOfferAnswer(provider, remoteNodeHash) {
 		const connId = randomBytes(16).toString('hex')

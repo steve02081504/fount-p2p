@@ -1,10 +1,13 @@
-/** @type {Map<string, { graph: Map<string, object>, builtAt: number, revision: number }>} */
+import { getLocalDataRevision } from '../node/local_data_revision.mjs'
+
+/** @type {Map<string, { graph: Map<string, object>, builtAt: number, revision: number, dataRevision: number }>} */
 const cacheByUsername = new Map()
 let revision = 0
 
 const DEFAULT_TTL_MS = 30_000
 
 /**
+ * 显式失效（测试 / 特殊路径）；常态依赖 local_data_revision。
  * @returns {void}
  */
 export function invalidateTrustGraphCache() {
@@ -21,11 +24,17 @@ export function invalidateTrustGraphCache() {
 export async function getCachedTrustGraph(username, build, ttlMs = DEFAULT_TTL_MS) {
 	const key = String(username || '')
 	const now = Date.now()
+	const dataRevision = getLocalDataRevision()
 	const cached = cacheByUsername.get(key)
-	if (cached && cached.revision === revision && now - cached.builtAt < ttlMs)
+	if (
+		cached
+		&& cached.revision === revision
+		&& cached.dataRevision === dataRevision
+		&& now - cached.builtAt < ttlMs
+	)
 		return cached.graph
 
 	const graph = await build()
-	cacheByUsername.set(key, { graph, builtAt: now, revision })
+	cacheByUsername.set(key, { graph, builtAt: now, revision, dataRevision })
 	return graph
 }

@@ -76,7 +76,7 @@ function recordGeneration(pool, best) {
  * @param {number} [options.seedBase=42] 搜索种子基
  * @param {import('./metrics.mjs').MetricWeights} [options.weights] 权重
  * @param {number | null} [options.durationMs] 墙钟时长上限（毫秒）；设则按时间停止
- * @param {import('./metrics.mjs').EvalOpts} [options.evalOpts] 评估并行选项
+ * @param {import('./metrics.mjs').EvalOptions} [options.evalOptions] 评估并行选项
  * @param {(info: OptimizerProgress) => void} [options.onProgress] 进度回调
  * @returns {Promise<OptimizerResult>} 搜索结论
  */
@@ -89,7 +89,7 @@ export async function runOptimizer(options) {
 		seedBase = 42,
 		weights,
 		durationMs = null,
-		evalOpts,
+		evalOptions,
 		onProgress,
 	} = options
 
@@ -119,7 +119,7 @@ export async function runOptimizer(options) {
 	}
 
 	const baselineTunables = loadDefaultTunables()
-	const baselineResult = await evaluateTunables(scenarios, seeds, baselineTunables, runSimulation, weights, evalOpts)
+	const baselineResult = await evaluateTunables(scenarios, seeds, baselineTunables, runSimulation, weights, evalOptions)
 	const baseline = { tunables: baselineTunables, result: baselineResult, generation: 0 }
 
 	/** @type {CandidateRecord} */
@@ -131,7 +131,7 @@ export async function runOptimizer(options) {
 	let pool = [{ ...baseline }]
 	for (let i = 1; i < population; i++) {
 		const tunables = randomCandidate(seedBase + i)
-		const result = await evaluateTunables(scenarios, seeds, tunables, runSimulation, weights, evalOpts)
+		const result = await evaluateTunables(scenarios, seeds, tunables, runSimulation, weights, evalOptions)
 		const rec = { tunables, result, generation: 0 }
 		pool.push(rec)
 		if (result.fitness > best.result.fitness) best = rec
@@ -174,7 +174,7 @@ export async function runOptimizer(options) {
 		while (next.length < population) {
 			const parent = elites[next.length % elites.length]
 			const tunables = mutateCandidate(parent.tunables, seedBase + gen * 1000 + next.length)
-			const result = await evaluateTunables(scenarios, seeds, tunables, runSimulation, weights, evalOpts)
+			const result = await evaluateTunables(scenarios, seeds, tunables, runSimulation, weights, evalOptions)
 			const rec = { tunables, result, generation: gen }
 			next.push(rec)
 			if (result.fitness > best.result.fitness) best = rec

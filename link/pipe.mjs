@@ -28,25 +28,25 @@ export function asLinkHandle(pipe, extras = {}) {
 		/** @returns {number} 提供者 level */
 		get level() { return pipe.level },
 		/**
-		 * @param {...any} args 透传 send
+		 * @param {...any} callArguments 透传 send
 		 * @returns {ReturnType<typeof pipe.send>} 是否发送成功
 		 */
-		send: (...args) => pipe.send(...args),
+		send: (...callArguments) => pipe.send(...callArguments),
 		/**
-		 * @param {...any} args 透传 onEnvelope
+		 * @param {...any} callArguments 透传 onEnvelope
 		 * @returns {ReturnType<typeof pipe.onEnvelope>} 取消订阅
 		 */
-		onEnvelope: (...args) => pipe.onEnvelope(...args),
+		onEnvelope: (...callArguments) => pipe.onEnvelope(...callArguments),
 		/**
-		 * @param {...any} args 透传 onDown
+		 * @param {...any} callArguments 透传 onDown
 		 * @returns {ReturnType<typeof pipe.onDown>} 取消订阅
 		 */
-		onDown: (...args) => pipe.onDown(...args),
+		onDown: (...callArguments) => pipe.onDown(...callArguments),
 		/**
-		 * @param {...any} args 透传 close
+		 * @param {...any} callArguments 透传 close
 		 * @returns {ReturnType<typeof pipe.close>} 关闭完成
 		 */
-		close: (...args) => pipe.close(...args),
+		close: (...callArguments) => pipe.close(...callArguments),
 		/** @returns {ReturnType<typeof pipe.stats>} 运行时统计 */
 		stats: () => pipe.stats(),
 		...extras,

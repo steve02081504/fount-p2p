@@ -1,5 +1,5 @@
+import { bumpLocalDataRevision } from '../node/local_data_revision.mjs'
 import { registerFederationRoomProvider } from '../registries/room_provider.mjs'
-import { invalidateTrustGraphCache } from '../trust_graph/cache.mjs'
 
 import { closeLink, ensureLinkToNode, getLink } from './link_registry.mjs'
 import { USER_ROOM_SCOPE } from './room_scopes.mjs'
@@ -14,7 +14,7 @@ import { USER_ROOM_SCOPE } from './room_scopes.mjs'
 
 /** @type {Map<string, RemoteUserRoomSlot>} nodeHash → slot */
 const slots = new Map()
-/** @type {Map<string, Promise<RemoteUserRoomSlot | null>>} nodeHash → 进行中的 promise */
+/** @type {Map<string, Promise<RemoteUserRoomSlot>>} nodeHash → 进行中的 promise */
 const inflights = new Map()
 
 registerFederationRoomProvider('remote-user-room', () => {
@@ -25,7 +25,7 @@ registerFederationRoomProvider('remote-user-room', () => {
  * 加入目标节点的用户房间（幂等）。
  * @param {string} username 本地 replica 用户名
  * @param {string} targetNodeHash 目标节点 64 hex
- * @returns {Promise<RemoteUserRoomSlot | null>} 房间槽
+ * @returns {Promise<RemoteUserRoomSlot>} 房间槽
  */
 export async function ensureRemoteUserRoom(username, targetNodeHash) {
 	void username
@@ -37,7 +37,8 @@ export async function ensureRemoteUserRoom(username, targetNodeHash) {
 
 	const task = (async () => {
 		try {
-			if (!await ensureLinkToNode(key)) return null
+			if (!await ensureLinkToNode(key))
+				throw new Error(`p2p: ensureRemoteUserRoom link failed for ${key}`)
 
 			/** @type {import('../registries/room_provider.mjs').FederationRoomSlot} */
 			const roomSlot = {
@@ -78,12 +79,8 @@ export async function ensureRemoteUserRoom(username, targetNodeHash) {
 				},
 			}
 			slots.set(key, slot)
-			invalidateTrustGraphCache()
+			bumpLocalDataRevision()
 			return slot
-		}
-		catch (error) {
-			console.error('p2p: failed to join remote user room', key, error)
-			return null
 		}
 		finally {
 			inflights.delete(key)

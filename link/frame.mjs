@@ -2,12 +2,10 @@ import { randomBytes } from 'node:crypto'
 
 import { bytesToHex, hexToBytes, toBytes } from '../core/bytes_codec.mjs'
 
-/** 二进制帧协议版本号。 */
-export const FRAME_VERSION = 1
 /** frameId 字段字节长度（128 位）。 */
 export const FRAME_ID_BYTES = 16
-/** 帧头：version(1) + frameId(16) + seq(4) + total(4)。 */
-export const FRAME_HEADER_BYTES = 1 + FRAME_ID_BYTES + 4 + 4
+/** 帧头：frameId(16) + seq(4) + total(4)。 */
+export const FRAME_HEADER_BYTES = FRAME_ID_BYTES + 4 + 4
 /** 默认单帧最大 chunk 大小（15 KiB）。 */
 export const DEFAULT_MAX_FRAME_CHUNK_BYTES = 15 * 1024
 /** 重组后消息最大字节数（8 MiB）。 */
@@ -62,11 +60,10 @@ export function encodeFrames(frameId, bytes, maxChunkBytes = DEFAULT_MAX_FRAME_C
 		const end = Math.min(body.byteLength, start + chunkBytes)
 		const chunk = body.subarray(start, end)
 		const frame = new Uint8Array(FRAME_HEADER_BYTES + chunk.byteLength)
-		frame[0] = FRAME_VERSION
-		frame.set(idBytes, 1)
+		frame.set(idBytes, 0)
 		const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength)
-		view.setUint32(1 + FRAME_ID_BYTES, seq, false)
-		view.setUint32(1 + FRAME_ID_BYTES + 4, total, false)
+		view.setUint32(FRAME_ID_BYTES, seq, false)
+		view.setUint32(FRAME_ID_BYTES + 4, total, false)
 		frame.set(chunk, FRAME_HEADER_BYTES)
 		frames.push(frame)
 	}
@@ -76,23 +73,19 @@ export function encodeFrames(frameId, bytes, maxChunkBytes = DEFAULT_MAX_FRAME_C
 /**
  * 解析单帧头与 chunk。
  * @param {Uint8Array | ArrayBuffer | ArrayBufferView} frame 原始帧
- * @returns {{ version: number, frameId: string, seq: number, total: number, chunk: Uint8Array }} 帧字段
+ * @returns {{ frameId: string, seq: number, total: number, chunk: Uint8Array }} 帧字段
  */
 export function decodeFrame(frame) {
 	const bytes = toBytes(frame)
 	if (bytes.byteLength < FRAME_HEADER_BYTES)
 		throw new Error('p2p: frame too short')
-	const version = bytes[0]
-	if (version !== FRAME_VERSION)
-		throw new Error(`p2p: unsupported frame version ${version}`)
-	const frameId = bytesToHex(bytes.subarray(1, 1 + FRAME_ID_BYTES))
+	const frameId = bytesToHex(bytes.subarray(0, FRAME_ID_BYTES))
 	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-	const seq = view.getUint32(1 + FRAME_ID_BYTES, false)
-	const total = view.getUint32(1 + FRAME_ID_BYTES + 4, false)
+	const seq = view.getUint32(FRAME_ID_BYTES, false)
+	const total = view.getUint32(FRAME_ID_BYTES + 4, false)
 	if (!total || seq >= total)
 		throw new Error('p2p: invalid frame sequence')
 	return {
-		version,
 		frameId,
 		seq,
 		total,

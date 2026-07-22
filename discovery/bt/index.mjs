@@ -1,5 +1,10 @@
 import { Buffer } from 'node:buffer'
 
+import { isHex64, normalizeHex64 } from '../../core/hexIds.mjs'
+import { nodeDebug, shortHash } from '../../node/log.mjs'
+import { noteAdvertPeerHints } from '../advert_peer_hints.mjs'
+import { ingestNetworkAdvert } from '../adverts.mjs'
+
 import { getBtPeerHint } from './peer_hints.mjs'
 import { canUseBluetoothRuntime, loadBleno, loadNoble, resolveBtRole, waitPoweredOn } from './runtime.mjs'
 
@@ -10,12 +15,44 @@ const BT_SERVICE_UUID = 'f017f017f017f017f017f017f017f017'
 const BT_CHARACTERISTIC_UUID = 'f017f017f017f017f017f017f017f018'
 const BT_SIGNAL_CHAR_UUID = 'f017f017f017f017f017f017f017f01b'
 const BT_DEVICE_NAME = 'fount-bt'
-const MAX_ADVERT_BLOB_BYTES = 12 * 1024
+const MAX_PRESENCE_BLOB_BYTES = 12 * 1024
 const MAX_SIGNAL_BLOB_BYTES = 8 * 1024
 const PERIPHERAL_RESCAN_MS = 15_000
 
+/** @type {Map<string, number>} nodeHash → lastSeenAt */
+const visibleByHash = new Map()
+
 /**
- * 探测本机 BT discovery 是否可用；失败则回落其它 discovery，不抛错。
+ * @param {string} nodeHash 节点 hash
+ * @param {number} [now=Date.now()] 当前时间
+ * @returns {void}
+ */
+export function noteBtVisibleNode(nodeHash, now = Date.now()) {
+	const hash = normalizeHex64(nodeHash)
+	if (!isHex64(hash)) return
+	visibleByHash.set(hash, now)
+}
+
+/**
+ * @param {number} [now=Date.now()] 当前时间
+ * @param {number} [ttlMs=PERIPHERAL_RESCAN_MS * 4] TTL
+ * @returns {string[]} 可见 nodeHash
+ */
+export function listBtVisibleNodeHashes(now = Date.now(), ttlMs = PERIPHERAL_RESCAN_MS * 4) {
+	/** @type {string[]} */
+	const out = []
+	for (const [hash, seenAt] of visibleByHash)
+		if (now - seenAt <= ttlMs) out.push(hash)
+		else visibleByHash.delete(hash)
+	return out
+}
+
+/** @returns {void} 测试用 */
+export function clearBtVisibleNodes() {
+	visibleByHash.clear()
+}
+
+/**
  * @returns {Promise<boolean>} 可用为 true
  */
 export async function canUseBluetoothDiscovery() {
@@ -23,34 +60,32 @@ export async function canUseBluetoothDiscovery() {
 }
 
 /**
- * 将 advert 映射序列化为可读 characteristic blob。
- * @param {Map<string, Uint8Array>} adverts topic → payload 映射
- * @returns {Buffer} JSON 序列化后的 advert blob
+ * @param {Map<string, Uint8Array>} presence nodeHash → encrypted advert
+ * @returns {Buffer} JSON blob
  */
-function serializeAdvertBlob(adverts) {
-	const entries = [...adverts.entries()].map(([topic, bytes]) => ({
-		topic,
+function serializePresenceBlob(presence) {
+	const entries = [...presence.entries()].map(([nodeHash, bytes]) => ({
+		nodeHash,
 		data: Buffer.from(bytes).toString('base64'),
 	}))
 	const blob = Buffer.from(JSON.stringify({ entries }), 'utf8')
-	if (blob.byteLength > MAX_ADVERT_BLOB_BYTES)
-		throw new Error(`p2p: bluetooth advert blob exceeds ${MAX_ADVERT_BLOB_BYTES} bytes`)
+	if (blob.byteLength > MAX_PRESENCE_BLOB_BYTES)
+		throw new Error(`p2p: bluetooth presence blob exceeds ${MAX_PRESENCE_BLOB_BYTES} bytes`)
 	return blob
 }
 
 /**
- * 从 characteristic blob 解析 advert 列表。
- * @param {Uint8Array | Buffer} raw 原始 blob 字节
- * @returns {Array<{ topic: string, bytes: Uint8Array }>} 解析出的 advert 条目
+ * 外层 JSON 的 nodeHash 不可信；只抽出加密 advert bytes，验签后再记可见池 / hint。
+ * @param {Uint8Array | Buffer} raw 原始 blob
+ * @returns {Uint8Array[]} 加密 advert 列表
  */
-function parseAdvertBlob(raw) {
+function parsePresenceBlob(raw) {
 	try {
 		const parsed = JSON.parse(Buffer.from(raw).toString('utf8'))
 		if (!parsed?.entries?.length) return []
-		return parsed.entries.map(entry => ({
-			topic: entry.topic || '',
-			bytes: Uint8Array.from(Buffer.from(entry.data || '', 'base64')),
-		})).filter(entry => entry.topic && entry.bytes.byteLength)
+		return parsed.entries.map(entry =>
+			Uint8Array.from(Buffer.from(entry.data || '', 'base64')),
+		).filter(bytes => bytes.byteLength)
 	}
 	catch {
 		return []
@@ -58,38 +93,36 @@ function parseAdvertBlob(raw) {
 }
 
 /**
- * 向 topic bucket 注册监听器。
- * @param {Map<string, Set<Function>>} bucket topic → 监听器集合
- * @param {string} topic 订阅 topic
- * @param {Function} listener advert 回调
- * @returns {() => void} 取消订阅函数
+ * 扫描到的 BT presence：验签 network advert 后写入可见池与 peer hint。
+ * @param {Uint8Array} bytes 加密 network advert
+ * @param {{ peripheralId: string }} meta 扫描 meta（至少 peripheralId）
+ * @returns {Promise<{ verifiedNodeHash: string, body: object } | null>} 验签结果
  */
-function addListener(bucket, topic, listener) {
-	if (!bucket.has(topic)) bucket.set(topic, new Set())
-	bucket.get(topic).add(listener)
-	return () => {
-		const set = bucket.get(topic)
-		if (!set) return
-		set.delete(listener)
-		if (!set.size) bucket.delete(topic)
-	}
+export async function acceptBtScannedPresence(bytes, meta) {
+	const peripheralId = String(meta?.peripheralId || '').trim()
+	if (!peripheralId || !bytes?.byteLength) return null
+	const ingested = await ingestNetworkAdvert(bytes, meta)
+	if (!ingested) return null
+	const firstSeen = !visibleByHash.has(ingested.verifiedNodeHash)
+	noteBtVisibleNode(ingested.verifiedNodeHash)
+	noteAdvertPeerHints(ingested.verifiedNodeHash, ingested.body, meta)
+	if (firstSeen)
+		nodeDebug('p2p:bt peer visible', {
+			peer: shortHash(ingested.verifiedNodeHash),
+			peripheralId,
+		})
+	return ingested
 }
 
 /**
- * 蓝牙发现提供者：
- * - 默认在 Windows 上只启用 scan 侧发现（单适配器 central+peripheral 常冲突）
- * - 其他平台默认 dual：advertise + scan
- * - 通过固定 BLE service + read characteristic 传输完整 advert 列表，避免 31-byte 广告包限制
- * - dual 下额外暴露 write characteristic 传短信令；central 可按 peer hint 写信令
- *
- * @returns {import('./index.mjs').DiscoveryProvider} Bluetooth 发现提供者
+ * Bluetooth 发现提供者：固定 GATT service 传 presence / node signal，无 topic。
+ * Win 默认 scan-only；非 Win 默认 dual（scan+advertise）。
+ * @returns {import('../index.mjs').DiscoveryProvider} Bluetooth 发现提供者
  */
 export function createBluetoothDiscoveryProvider() {
 	const role = resolveBtRole()
 	/** @type {Map<string, Uint8Array>} */
-	const adverts = new Map()
-	/** @type {Map<string, Set<Function>>} */
-	const advertListeners = new Map()
+	const localPresence = new Map()
 	/** @type {Map<string, Set<Function>>} */
 	const signalListeners = new Map()
 	/** @type {Map<string, number>} */
@@ -98,28 +131,28 @@ export function createBluetoothDiscoveryProvider() {
 	let blenoRuntime = null
 	let scanningStarted = false
 	let advertisingStarted = false
+	/** @type {string | null} */
+	let localNodeHash = null
 
 	/**
-	 * 初始化 peripheral（Bleno）运行时。
-	 * @returns {Promise<any|null>} Bleno 实例；scan 模式下为 null
+	 * @returns {Promise<any|null>} Bleno 实例
 	 */
 	async function ensurePeripheralRuntime() {
 		if (role === 'scan') return null
 		if (blenoRuntime) return blenoRuntime
 		const bleno = await loadBleno()
-		const advertCharacteristic = new bleno.Characteristic({
+		const presenceCharacteristic = new bleno.Characteristic({
 			uuid: BT_CHARACTERISTIC_UUID,
 			properties: ['read'],
 			/**
-			 * stoprocent/bleno onReadRequest(connection, offset, callback)
-			 * @param {*} _connection 连接句柄
+			 * @param {*} _connection 连接
 			 * @param {number} offset 偏移
 			 * @param {Function} callback 结果
 			 * @returns {void}
 			 */
 			onReadRequest(_connection, offset, callback) {
 				try {
-					const blob = serializeAdvertBlob(adverts)
+					const blob = serializePresenceBlob(localPresence)
 					if (offset > blob.length) {
 						callback(bleno.Characteristic.RESULT_INVALID_OFFSET)
 						return
@@ -135,8 +168,7 @@ export function createBluetoothDiscoveryProvider() {
 			uuid: BT_SIGNAL_CHAR_UUID,
 			properties: ['write', 'writeWithoutResponse'],
 			/**
-			 * stoprocent/bleno onWriteRequest(connection, data, offset, withoutResponse, callback)
-			 * @param {*} _connection 连接句柄
+			 * @param {*} _connection 连接
 			 * @param {Buffer} data 信令 blob
 			 * @param {number} _offset 偏移
 			 * @param {boolean} _withoutResponse 无响应写
@@ -146,12 +178,11 @@ export function createBluetoothDiscoveryProvider() {
 			onWriteRequest(_connection, data, _offset, _withoutResponse, callback) {
 				try {
 					const parsed = JSON.parse(Buffer.from(data).toString('utf8'))
-					const topic = String(parsed?.topic || '')
+					const to = normalizeHex64(parsed?.to)
 					const bytes = Uint8Array.from(Buffer.from(String(parsed?.data || ''), 'base64'))
-					if (topic && bytes.byteLength)
-						for (const listener of signalListeners.get(topic) || [])
+					if (isHex64(to) && bytes.byteLength)
+						for (const listener of signalListeners.get(to) || [])
 							listener(bytes, { provider: 'bt' })
-
 					callback(bleno.Characteristic.RESULT_SUCCESS)
 				}
 				catch {
@@ -163,7 +194,7 @@ export function createBluetoothDiscoveryProvider() {
 		await bleno.setServicesAsync([
 			new bleno.PrimaryService({
 				uuid: BT_SERVICE_UUID,
-				characteristics: [advertCharacteristic, signalCharacteristic],
+				characteristics: [presenceCharacteristic, signalCharacteristic],
 			}),
 		])
 		blenoRuntime = bleno
@@ -171,21 +202,20 @@ export function createBluetoothDiscoveryProvider() {
 	}
 
 	/**
-	 * 刷新 BLE 广播状态。
 	 * @returns {Promise<void>}
 	 */
 	async function refreshAdvertising() {
 		if (role === 'scan') return
 		const bleno = await ensurePeripheralRuntime()
 		if (!bleno) return
-		if (!adverts.size && !signalListeners.size) {
+		if (!localPresence.size && !signalListeners.size) {
 			if (advertisingStarted) {
 				await bleno.stopAdvertisingAsync().catch(() => { })
 				advertisingStarted = false
 			}
 			return
 		}
-		if (adverts.size) serializeAdvertBlob(adverts)
+		if (localPresence.size) serializePresenceBlob(localPresence)
 		if (!advertisingStarted) {
 			await bleno.startAdvertisingAsync(BT_DEVICE_NAME, [BT_SERVICE_UUID])
 			advertisingStarted = true
@@ -193,8 +223,7 @@ export function createBluetoothDiscoveryProvider() {
 	}
 
 	/**
-	 * 连接并读取远端 peripheral 的 advert characteristic。
-	 * @param {*} peripheral Noble peripheral 对象
+	 * @param {*} peripheral Noble peripheral
 	 * @returns {Promise<void>}
 	 */
 	async function inspectPeripheral(peripheral) {
@@ -211,23 +240,16 @@ export function createBluetoothDiscoveryProvider() {
 			)
 			if (!characteristics?.length) return
 			const raw = await characteristics[0].readAsync()
-			for (const { topic, bytes } of parseAdvertBlob(raw)) {
-				const listeners = advertListeners.get(topic)
-				if (!listeners?.size) continue
-				for (const listener of listeners)
-					listener(bytes, { provider: 'bt', peripheralId: inspectKey })
-			}
+			for (const bytes of parsePresenceBlob(raw))
+				await acceptBtScannedPresence(bytes, { provider: 'bt', peripheralId: inspectKey })
 		}
-		catch {
-			/* ignore transient bluetooth failures */
-		}
+		catch { /* ignore */ }
 		finally {
 			try { await peripheral.disconnectAsync() } catch { /* ignore */ }
 		}
 	}
 
 	/**
-	 * 启动 Noble 扫描运行时。
 	 * @returns {Promise<void>}
 	 */
 	async function ensureScanRuntime() {
@@ -243,19 +265,16 @@ export function createBluetoothDiscoveryProvider() {
 	}
 
 	/**
-	 * Central：按 peer hint 连接并对端 signal characteristic 写短包。
-	 * 无 hint 时返回 false（正常降级，不算错误）。
-	 * @param {string} topic 信令 topic
-	 * @param {string} to 目标 nodeHash
+	 * @param {string} toNodeHash 目标
 	 * @param {Uint8Array} bytes 载荷
-	 * @returns {Promise<boolean>} 是否投递
+	 * @returns {Promise<boolean>} 是否经 GATT 发出
 	 */
-	async function sendSignalViaGatt(topic, to, bytes) {
-		const hint = getBtPeerHint(to)
+	async function sendNodeSignalViaGatt(toNodeHash, bytes) {
+		const hash = normalizeHex64(toNodeHash)
+		const hint = getBtPeerHint(hash)
 		if (!hint) return false
 		const blob = Buffer.from(JSON.stringify({
-			topic: String(topic),
-			to: String(to),
+			to: hash,
 			data: Buffer.from(bytes).toString('base64'),
 		}), 'utf8')
 		if (blob.byteLength > MAX_SIGNAL_BLOB_BYTES)
@@ -264,8 +283,7 @@ export function createBluetoothDiscoveryProvider() {
 		const noble = nobleRuntime
 		const wantId = hint.peripheralId
 		/**
-		 * 先查 noble 已缓存的 peripheral，避免只等下一次 advertise 漏报。
-		 * @returns {*|null} 已缓存的 peripheral，未命中为 null
+		 * @returns {*|null} Noble 缓存中的 peripheral，未找到为 null
 		 */
 		function cachedPeripheral() {
 			const table = noble?._peripherals
@@ -325,53 +343,76 @@ export function createBluetoothDiscoveryProvider() {
 		priority: 20,
 		caps: { canDiscover: true, canSignal: true, canRelay: false },
 		/**
-		 * 广播指定 topic 的 advert。
-		 * @param {string} topic advert 主题
-		 * @param {Uint8Array} bytes advert 载荷
-		 * @returns {Promise<() => void>} 取消广播函数
+		 * @param {{ limit?: number, roomSecret?: string }} [options] 扫描选项
+		 * @returns {Promise<string[]>} 群扫描时 BT 无群语义，返回空
 		 */
-		async advertise(topic, bytes) {
+		async listVisibleNodeHashes(options = {}) {
+			if (options.roomSecret) return []
+			const limit = Math.max(1, Number(options.limit) || 64)
+			if (role !== 'scan') await ensureScanRuntime().catch(() => { })
+			return listBtVisibleNodeHashes().slice(0, limit)
+		},
+		/**
+		 * @param {string} nodeHash 目标
+		 * @returns {Promise<boolean>} 有 BT hint 且 GATT 可达时为 true
+		 */
+		async connectToNode(nodeHash) {
+			const hash = normalizeHex64(nodeHash)
+			if (!isHex64(hash)) return false
+			if (!getBtPeerHint(hash)) return false
+			return await sendNodeSignalViaGatt(hash, new Uint8Array([0])).catch(() => false)
+		},
+		/**
+		 * @param {() => Promise<{ nodeHash: string, advertBytes?: Uint8Array } | null>} getBeacon beacon
+		 * @returns {Promise<() => void>} 停止 presence 广播
+		 */
+		async startPresence(getBeacon) {
 			if (role === 'scan') return () => { }
-			adverts.set(String(topic), Uint8Array.from(bytes))
-			await refreshAdvertising()
+			/**
+			 * @returns {Promise<void>}
+			 */
+			const refresh = async () => {
+				const body = await getBeacon?.()
+				if (!body?.nodeHash || !body.advertBytes?.byteLength) return
+				const hash = normalizeHex64(body.nodeHash)
+				if (!isHex64(hash)) return
+				localNodeHash = hash
+				localPresence.set(hash, Uint8Array.from(body.advertBytes))
+				noteBtVisibleNode(hash)
+				await refreshAdvertising()
+			}
+			await refresh().catch(() => { })
+			const timer = setInterval(() => { void refresh().catch(() => { }) }, 30_000)
 			return () => {
-				adverts.delete(String(topic))
+				clearInterval(timer)
+				if (localNodeHash) localPresence.delete(localNodeHash)
 				void refreshAdvertising().catch(() => { })
 			}
 		},
 		/**
-		 * 订阅指定 topic 的远端 advert。
-		 * @param {string} topic advert 主题
-		 * @param {Function} onAdvert advert 回调
-		 * @returns {Promise<() => void>} 取消订阅函数
-		 */
-		async subscribe(topic, onAdvert) {
-			await ensureScanRuntime()
-			return addListener(advertListeners, String(topic), onAdvert)
-		},
-		/**
-		 * 经 GATT 向近场 peer 发送信令；无 peer hint 时返回 false。
-		 * @param {string} topic 信令 topic
-		 * @param {string} to 目标 nodeHash
+		 * @param {string} toNodeHash 目标
 		 * @param {Uint8Array} bytes 载荷
-		 * @returns {Promise<boolean>} 是否投递
+		 * @returns {Promise<void>}
 		 */
-		sendSignal(topic, to, bytes) {
-			return sendSignalViaGatt(topic, to, bytes)
+		async sendNodeSignal(toNodeHash, bytes) {
+			const ok = await sendNodeSignalViaGatt(toNodeHash, bytes)
+			if (!ok) throw new Error('p2p: bt signal unavailable')
 		},
 		/**
-		 * 监听经本机 peripheral signal characteristic 写入的信令。
-		 * @param {string} topic 信令 topic
-		 * @param {Function} onSignal 回调
-		 * @returns {Promise<() => void>} 取消订阅
+		 * @param {string} localNodeHash 本机 hash
+		 * @param {(bytes: Uint8Array) => void} onSignal 回调
+		 * @returns {Promise<() => void>} 取消信令监听
 		 */
-		async onSignal(topic, onSignal) {
+		async listenNodeSignals(localNodeHash, onSignal) {
 			if (role === 'scan') return () => { }
+			const hash = normalizeHex64(localNodeHash)
+			if (!isHex64(hash)) throw new Error('p2p: invalid nodeHash')
 			await ensurePeripheralRuntime()
+			if (!signalListeners.has(hash)) signalListeners.set(hash, new Set())
+			signalListeners.get(hash).add(onSignal)
 			await refreshAdvertising()
-			const stop = addListener(signalListeners, String(topic), onSignal)
 			return () => {
-				stop()
+				signalListeners.get(hash)?.delete(onSignal)
 				void refreshAdvertising().catch(() => { })
 			}
 		},

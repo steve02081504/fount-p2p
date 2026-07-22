@@ -3,7 +3,6 @@ import { loadNetwork } from '../node/network.mjs'
 import { loadReputation } from '../node/reputation_store.mjs'
 import { listFederationRoomSlots } from '../registries/room_provider.mjs'
 import { isQuarantinedPure } from '../reputation/engine.mjs'
-import { ensureUserRoom } from '../transport/user_room.mjs'
 
 import { getCachedTrustGraph } from './cache.mjs'
 import { mergeGraph, pickTopFromGraph } from './engine.mjs'
@@ -90,7 +89,6 @@ export async function buildMergedGraph(username) {
  * @returns {Promise<TrustNode[]>} 按信誉降序
  */
 export async function pickTopNodes(username, limit = trustGraphTunables.pickTopNodesDefaultLimit) {
-	await ensureUserRoom({ replicaUsername: username })
 	const rep = loadReputation()
 	const quarantined = new Set(
 		Object.keys(rep.byNodeHash || {}).filter(id => isQuarantinedPure(rep, id)),

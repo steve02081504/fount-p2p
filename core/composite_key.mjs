@@ -77,15 +77,15 @@ export function mapDeleteByPrefix(map, ...prefixParts) {
  * 遍历前缀子树；回调收到前缀之后的各段与值。
  * @template V
  * @param {Map<string, V>} map 根表
- * @param {...(string | ((tail: string[], value: V) => void))} prefixPartsAndFn 前缀段 + 末尾回调
+ * @param {...(string | ((tail: string[], value: V) => void))} prefixPartsAndCallback 前缀段 + 末尾回调
  * @returns {void}
  */
-export function mapForEachUnder(map, ...prefixPartsAndFn) {
-	const fn = prefixPartsAndFn.pop()
-	const prefix = compositePrefix(...prefixPartsAndFn)
+export function mapForEachUnder(map, ...prefixPartsAndCallback) {
+	const callback = prefixPartsAndCallback.pop()
+	const prefix = compositePrefix(...prefixPartsAndCallback)
 	for (const [k, value] of map) {
 		if (!k.startsWith(prefix)) continue
 		const tail = k.slice(prefix.length).split(SEP).filter(Boolean)
-		fn(tail, value)
+		callback(tail, value)
 	}
 }

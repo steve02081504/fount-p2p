@@ -5,7 +5,6 @@ import { listFederationRoomSlots } from '../registries/room_provider.mjs'
 import { isQuarantinedPure } from '../reputation/engine.mjs'
 import { sendToNodeLink } from '../transport/link_registry.mjs'
 import { USER_ROOM_SCOPE } from '../transport/room_scopes.mjs'
-import { ensureUserRoom } from '../transport/user_room.mjs'
 
 import { buildMergedGraph } from './build.mjs'
 import { pickTopFromGraph } from './engine.mjs'
@@ -23,7 +22,6 @@ import trustGraphTunables from './tunables.json' with { type: 'json' }
 export async function sendToNode(username, targetNodeHash, actionName, payload, graph) {
 	const target = normalizeHex64(targetNodeHash) || String(targetNodeHash || '').trim().toLowerCase()
 	if (!isHex64(target)) return false
-	await ensureUserRoom({ replicaUsername: username })
 
 	// 已直连 peer 不经 trust-graph scope 也应能收发 node scope action（非成员 CAS chunk / follow hint 等）
 	if (await sendToNodeLink(target, { scope: 'node', action: actionName, payload }))
@@ -73,7 +71,6 @@ export async function sendToNode(username, targetNodeHash, actionName, payload, 
  * @returns {Promise<number>} 发送次数
  */
 export async function fanoutToTopNodes(username, actionName, payload, limit) {
-	await ensureUserRoom({ replicaUsername: username })
 	const graph = await buildMergedGraph(username)
 	const k = limit ?? resolveFederationFanoutTopK(graph.size, trustGraphTunables)
 	const rep = loadReputation()

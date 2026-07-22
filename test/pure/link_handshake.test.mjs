@@ -47,40 +47,39 @@ test('parseHello rejects spoofed pubkey hash', () => {
 	const seed = Buffer.alloc(32, 9)
 	const { publicKey } = keyPairFromSeed(seed)
 	assertEquals(parseHello({
-		v: 1,
 		nodeHash: 'ff'.repeat(32),
 		nodePubKey: Buffer.from(publicKey).toString('hex'),
 		nonce: '33'.repeat(32),
 	}), null)
 })
 
-test('advert signatures verify against topic and timestamp', async () => {
+test('advert signatures verify against rendezvousKey and timestamp', async () => {
 	const seed = Buffer.alloc(32, 5)
 	const { publicKey, secretKey } = keyPairFromSeed(seed)
 	const nodeHash = pubKeyHash(publicKey)
-	const topic = `topic:${nodeHash}`
-	const advert = await buildSignedAdvert(topic, 1234, {
+	const rendezvousKey = `rdv:${nodeHash}`
+	const advert = await buildSignedAdvert(rendezvousKey, 1234, {
 		secretKey,
 		nodeHash,
 		nodePubKey: Buffer.from(publicKey).toString('hex'),
 	})
-	assertEquals(await verifySignedAdvert(topic, advert, 1234), nodeHash)
+	assertEquals(await verifySignedAdvert(rendezvousKey, advert, 1234), nodeHash)
 })
 
 test('advert with tcpPort signs port into the message', async () => {
 	const seed = Buffer.alloc(32, 6)
 	const { publicKey, secretKey } = keyPairFromSeed(seed)
 	const nodeHash = pubKeyHash(publicKey)
-	const topic = `topic:${nodeHash}`
-	const advert = await buildSignedAdvert(topic, 1234, {
+	const rendezvousKey = `rdv:${nodeHash}`
+	const advert = await buildSignedAdvert(rendezvousKey, 1234, {
 		secretKey,
 		nodeHash,
 		nodePubKey: Buffer.from(publicKey).toString('hex'),
 		tcpPort: 18080,
 	})
 	assertEquals(advert.tcpPort, 18080)
-	assertEquals(await verifySignedAdvert(topic, advert, 1234), nodeHash)
-	assertEquals(await verifySignedAdvert(topic, { ...advert, tcpPort: 18081 }, 1234), null)
+	assertEquals(await verifySignedAdvert(rendezvousKey, advert, 1234), nodeHash)
+	assertEquals(await verifySignedAdvert(rendezvousKey, { ...advert, tcpPort: 18081 }, 1234), null)
 	const { tcpPort: _omit, ...withoutPort } = advert
-	assertEquals(await verifySignedAdvert(topic, withoutPort, 1234), null)
+	assertEquals(await verifySignedAdvert(rendezvousKey, withoutPort, 1234), null)
 })

@@ -111,7 +111,7 @@ test('buildLocalAdvert includes lan_tcp listen port after ensureRuntime', async 
 		await registry.whenListening()
 		const port = registry.lanTcpPort()
 		assertEquals(typeof port, 'number')
-		const advert = await registry.buildLocalAdvert('test-topic')
+		const advert = await registry.buildLocalAdvert('node')
 		assertEquals(advert.tcpPort, port)
 		assertEquals(advert.nodeHash, alice.nodeHash)
 	}

@@ -23,6 +23,7 @@
  *   eclipseTargetCount?: number,
  *   sleeperTurnRound?: number,
  *   keyRecoveryRound?: number,
+ *   coldStartObserver?: boolean,
  * }} SimScenario
  */
 
@@ -290,6 +291,16 @@ export const SCENARIOS = [
 		attacks: { archive_forger: 2, equivocator: 1 },
 		rounds: 30,
 		groupSize: 3,
+	},
+	{
+		id: 'cold_start',
+		label: 'K=0 冷启动观察者',
+		honestCount: 10,
+		relayCount: 2,
+		attacks: { sybil: 2, eclipse: 1 },
+		rounds: 20,
+		groupSize: 6,
+		coldStartObserver: true,
 	},
 	{
 		id: 'pair_group',

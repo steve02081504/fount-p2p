@@ -20,40 +20,40 @@ const ATOMIC_RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'EACCES'])
  * @param {string} filePath 目标路径
  * @returns {string} 唯一临时文件路径
  */
-function atomicTmpPath(filePath) {
+function atomicTemporaryPath(filePath) {
 	return `${filePath}.tmp.${process.pid}.${randomUUID()}`
 }
 
 /**
- * @param {string} tmp 临时文件路径
+ * @param {string} temporaryPath 临时文件路径
  * @returns {Promise<void>}
  */
-async function cleanupAtomicTmp(tmp) {
-	try { await unlink(tmp) } catch { /* ok */ }
+async function cleanupAtomicTemporary(temporaryPath) {
+	try { await unlink(temporaryPath) } catch { /* ok */ }
 }
 
 /**
- * 完成原子写的最终 rename；若目标目录已在 cleanup 中消失，则清理残余 tmp 后静默返回。
- * @param {string} tmp 临时文件路径
+ * 完成原子写的最终 rename；若目标目录已在 cleanup 中消失，则清理残余临时文件后静默返回。
+ * @param {string} temporaryPath 临时文件路径
  * @param {string} filePath 最终目标路径
  * @returns {Promise<boolean>} 是否已成功落到目标路径
  */
-export async function finalizeAtomicRename(tmp, filePath) {
+export async function finalizeAtomicRename(temporaryPath, filePath) {
 	/** @type {NodeJS.ErrnoException | undefined} */
 	let lastError
 	for (const delayMs of ATOMIC_RENAME_RETRY_DELAYS_MS) {
 		if (delayMs) await sleep(delayMs)
 		try {
-			await rename(tmp, filePath)
+			await rename(temporaryPath, filePath)
 			return true
 		}
-		catch (err) {
-			lastError = err
-			if (ATOMIC_RENAME_RETRY_CODES.has(err?.code)) continue
+		catch (error) {
+			lastError = error
+			if (ATOMIC_RENAME_RETRY_CODES.has(error?.code)) continue
 			break
 		}
 	}
-	await cleanupAtomicTmp(tmp)
+	await cleanupAtomicTemporary(temporaryPath)
 	if (lastError?.code === 'ENOENT') return false
 	throw lastError
 }
@@ -132,7 +132,7 @@ export async function* readJsonlStream(filePath, options = {}) {
 export async function rewriteJsonlKeeping(filePath, keep, options = {}) {
 	const dir = dirname(filePath)
 	await mkdir(dir, { recursive: true })
-	const tmp = atomicTmpPath(filePath)
+	const temporaryPath = atomicTemporaryPath(filePath)
 	/** @type {object[]} */
 	const buffer = []
 	let kept = 0
@@ -143,7 +143,7 @@ export async function rewriteJsonlKeeping(filePath, keep, options = {}) {
 		let block = ''
 		for (const row of buffer)
 			block += `${JSON.stringify(row)}\n`
-		await appendFile(tmp, block, 'utf8')
+		await appendFile(temporaryPath, block, 'utf8')
 		buffer.length = 0
 	}
 	try {
@@ -159,7 +159,7 @@ export async function rewriteJsonlKeeping(filePath, keep, options = {}) {
 	}
 	catch { /* source missing */ }
 	if (kept > 0 || dropped > 0)
-		await finalizeAtomicRename(tmp, filePath)
+		await finalizeAtomicRename(temporaryPath, filePath)
 	else
 		try { await writeFile(filePath, '', 'utf8') }
 		catch { /* ok */ }
@@ -179,9 +179,9 @@ export async function readJsonlTipId(filePath) {
 			const { size } = await fh.stat()
 			if (!size) return null
 			const chunk = Math.min(size, 65_536)
-			const buf = Buffer.alloc(chunk)
-			await fh.read(buf, 0, chunk, size - chunk)
-			const lines = buf.toString('utf8').split('\n').filter(Boolean)
+			const buffer = Buffer.alloc(chunk)
+			await fh.read(buffer, 0, chunk, size - chunk)
+			const lines = buffer.toString('utf8').split('\n').filter(Boolean)
 			const last = lines[lines.length - 1]
 			if (!last) return null
 			const row = JSON.parse(last)
@@ -205,14 +205,14 @@ export async function readJsonlTipId(filePath) {
 export async function writeJsonl(filePath, records) {
 	const dir = dirname(filePath)
 	await mkdir(dir, { recursive: true })
-	const tmp = atomicTmpPath(filePath)
+	const temporaryPath = atomicTemporaryPath(filePath)
 	/** @returns {Generator<string>} JSONL 行 */
 	function* lines() {
 		for (const rec of records)
 			yield `${JSON.stringify(rec)}\n`
 	}
-	await pipeline(Readable.from(lines()), createWriteStream(tmp, { encoding: 'utf8' }))
-	await finalizeAtomicRename(tmp, filePath)
+	await pipeline(Readable.from(lines()), createWriteStream(temporaryPath, { encoding: 'utf8' }))
+	await finalizeAtomicRename(temporaryPath, filePath)
 }
 
 /**
@@ -253,18 +253,18 @@ export async function appendJsonlSynced(filePath, record) {
 
 /**
  * 写入原子临时文件；若父目录已在 cleanup 竞态中消失（ENOENT）则返回 false。
- * @param {string} tmp 临时文件路径
+ * @param {string} temporaryPath 临时文件路径
  * @param {string} data 文件内容
  * @returns {Promise<boolean>} 是否已写入
  */
-async function writeAtomicTmp(tmp, data) {
+async function writeAtomicTemporary(temporaryPath, data) {
 	try {
-		await writeFile(tmp, data, 'utf8')
+		await writeFile(temporaryPath, data, 'utf8')
 		return true
 	}
-	catch (err) {
-		if (err?.code === 'ENOENT') return false
-		throw err
+	catch (error) {
+		if (error?.code === 'ENOENT') return false
+		throw error
 	}
 }
 
@@ -277,9 +277,9 @@ async function writeAtomicTmp(tmp, data) {
 export async function writeJsonAtomic(filePath, obj) {
 	const dir = dirname(filePath)
 	await mkdir(dir, { recursive: true })
-	const tmp = atomicTmpPath(filePath)
-	if (!await writeAtomicTmp(tmp, JSON.stringify(obj, null, '\t'))) return
-	await finalizeAtomicRename(tmp, filePath)
+	const temporaryPath = atomicTemporaryPath(filePath)
+	if (!await writeAtomicTemporary(temporaryPath, JSON.stringify(obj, null, '\t'))) return
+	await finalizeAtomicRename(temporaryPath, filePath)
 }
 
 /**
@@ -291,16 +291,16 @@ export async function writeJsonAtomic(filePath, obj) {
 export async function writeJsonAtomicSynced(filePath, obj) {
 	const dir = dirname(filePath)
 	await mkdir(dir, { recursive: true })
-	const tmp = atomicTmpPath(filePath)
-	if (!await writeAtomicTmp(tmp, JSON.stringify(obj, null, '\t'))) return
-	const fh = await open(tmp, 'r+')
+	const temporaryPath = atomicTemporaryPath(filePath)
+	if (!await writeAtomicTemporary(temporaryPath, JSON.stringify(obj, null, '\t'))) return
+	const fileHandle = await open(temporaryPath, 'r+')
 	try {
-		await fh.sync()
+		await fileHandle.sync()
 	}
 	finally {
-		await fh.close()
+		await fileHandle.close()
 	}
-	if (!await finalizeAtomicRename(tmp, filePath)) return
+	if (!await finalizeAtomicRename(temporaryPath, filePath)) return
 	const outFh = await open(filePath, 'r+')
 	try {
 		await outFh.sync()

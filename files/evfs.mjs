@@ -128,18 +128,18 @@ export async function readManifestPlaintextStream(replicaUsername, manifest, opt
 }
 
 /**
- * @param {object} params 参数
- * @param {string} params.ownerEntityHash owner
- * @param {string} params.logicalPath 路径
- * @param {Buffer | Uint8Array} params.plaintext 明文
- * @param {string} [params.name] 文件名
- * @param {string} [params.mimeType] MIME
- * @param {import('./manifest.mjs').CeMode} [params.ceMode] 模式
- * @param {import('./manifest.mjs').TransferKeyDescriptor} [params.transferKeyDescriptor] 传递密钥
- * @param {object} [params.meta] meta
+ * @param {object} parameters 参数
+ * @param {string} parameters.ownerEntityHash owner
+ * @param {string} parameters.logicalPath 路径
+ * @param {Buffer | Uint8Array} parameters.plaintext 明文
+ * @param {string} [parameters.name] 文件名
+ * @param {string} [parameters.mimeType] MIME
+ * @param {import('./manifest.mjs').CeMode} [parameters.ceMode] 模式
+ * @param {import('./manifest.mjs').TransferKeyDescriptor} [parameters.transferKeyDescriptor] 传递密钥
+ * @param {object} [parameters.meta] meta
  * @returns {Promise<import('./manifest.mjs').FileManifest>} 写入后的 manifest
  */
-export async function putFileManifest(params) {
+export async function putFileManifest(parameters) {
 	const {
 		ownerEntityHash,
 		logicalPath,
@@ -149,15 +149,15 @@ export async function putFileManifest(params) {
 		ceMode = 'convergent',
 		transferKeyDescriptor,
 		meta,
-	} = params
-	const plainBuf = Buffer.from(plaintext)
-	const enc = plainBuf.length > FEDERATION_CHUNK_MAX_BYTES
-		? await encryptPlaintextToMultiPartsAsync(plainBuf, ceMode)
-		: encryptPlaintextToParts(plainBuf, ceMode)
+	} = parameters
+	const plaintextBuffer = Buffer.from(plaintext)
+	const enc = plaintextBuffer.length > FEDERATION_CHUNK_MAX_BYTES
+		? await encryptPlaintextToMultiPartsAsync(plaintextBuffer, ceMode)
+		: encryptPlaintextToParts(plaintextBuffer, ceMode)
 	const manifest = buildFileManifestFromEnc({
 		ownerEntityHash,
 		logicalPath,
-		plaintext: plainBuf,
+		plaintext: plaintextBuffer,
 		name,
 		mimeType,
 		ceMode,
@@ -171,19 +171,19 @@ export async function putFileManifest(params) {
 
 /**
  * 流式写入文件（请求流 -> 加密分块 -> chunk store）。
- * @param {object} params 参数
- * @param {string} params.ownerEntityHash owner
- * @param {string} params.logicalPath 路径
- * @param {import('node:stream').Readable} params.readable 明文流
- * @param {number} params.plainSize 明文字节数
- * @param {string} [params.name] 文件名
- * @param {string} [params.mimeType] MIME
- * @param {import('./manifest.mjs').CeMode} [params.ceMode] 模式
- * @param {import('./manifest.mjs').TransferKeyDescriptor} [params.transferKeyDescriptor] 传递密钥
- * @param {object} [params.meta] meta
+ * @param {object} parameters 参数
+ * @param {string} parameters.ownerEntityHash owner
+ * @param {string} parameters.logicalPath 路径
+ * @param {import('node:stream').Readable} parameters.readable 明文流
+ * @param {number} parameters.plainSize 明文字节数
+ * @param {string} [parameters.name] 文件名
+ * @param {string} [parameters.mimeType] MIME
+ * @param {import('./manifest.mjs').CeMode} [parameters.ceMode] 模式
+ * @param {import('./manifest.mjs').TransferKeyDescriptor} [parameters.transferKeyDescriptor] 传递密钥
+ * @param {object} [parameters.meta] meta
  * @returns {Promise<import('./manifest.mjs').FileManifest>} 写入后的 manifest
  */
-export async function putFileManifestFromStream(params) {
+export async function putFileManifestFromStream(parameters) {
 	const {
 		ownerEntityHash,
 		logicalPath,
@@ -194,7 +194,7 @@ export async function putFileManifestFromStream(params) {
 		ceMode = 'convergent',
 		transferKeyDescriptor,
 		meta,
-	} = params
+	} = parameters
 	const enc = await encryptReadableToParts(readable, ceMode, async part =>
 		putChunk(part.hash, part.raw), plainSize)
 	const manifest = normalizeFileManifest({
@@ -228,6 +228,7 @@ export async function readPublicFile(replicaUsername, entityHash, logicalPath, o
 		username: options.username || replicaUsername,
 		ownerEntityHash: entityHash,
 		logicalPath,
+		cache: true,
 	})
 	if (!manifest) return null
 	return readManifestPlaintext(replicaUsername, manifest, options)

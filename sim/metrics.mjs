@@ -41,7 +41,7 @@ import { runSimulationJobs, defaultConcurrency } from './sim_pool.mjs'
 
 /** @typedef {Partial<Record<keyof SimSnapshot, number>>} MetricWeights */
 
-/** @typedef {{ concurrency?: number, serial?: boolean }} EvalOpts */
+/** @typedef {{ concurrency?: number, serial?: boolean }} EvalOptions */
 
 /** 参与适应度加权的速率类指标 */
 export const RATE_METRIC_KEYS = Object.freeze([
@@ -141,7 +141,7 @@ export function aggregateSnapshots(snaps, weights = DEFAULT_WEIGHTS) {
  * @param {import('./tunables_bundle.mjs').TunablesBundle} tunables 参数
  * @param {(scenario: import('./scenarios.mjs').SimScenario, seed: number, tunables: import('./tunables_bundle.mjs').TunablesBundle) => SimSnapshot} runSim 仿真函数
  * @param {MetricWeights} [weights] 权重
- * @param {EvalOpts} [options] 评估选项
+ * @param {EvalOptions} [options] 评估选项
  * @returns {Promise<{ fitness: number, mean: number, min: number, max: number, std: number, byScenario: Record<string, ReturnType<typeof aggregateSnapshots>> }>} 跨场景评估结果
  */
 export async function evaluateTunables(scenarios, seeds, tunables, runSim, weights = DEFAULT_WEIGHTS, options = {}) {
@@ -229,7 +229,7 @@ function buildEvalFromGroupedSnaps(scenarios, seeds, panel, snapsByScenarioSeed,
  * @param {EvalCandidate[]} candidates 候选列表（各自 tunables + attackPanel）
  * @param {(scenario: import('./scenarios.mjs').SimScenario, seed: number, tunables: import('./tunables_bundle.mjs').TunablesBundle, attackGenome?: import('./attack_space.mjs').AttackGenome) => SimSnapshot} runSim 仿真
  * @param {MetricWeights} [weights] 权重
- * @param {EvalOpts} [options] 评估选项
+ * @param {EvalOptions} [options] 评估选项
  * @returns {Promise<EvalResult[]>} 与 candidates 同序的评估结果
  */
 export async function evaluateManyAgainstAttacks(scenarios, seeds, candidates, runSim, weights = DEFAULT_WEIGHTS, options = {}) {
@@ -270,9 +270,9 @@ export async function evaluateManyAgainstAttacks(scenarios, seeds, candidates, r
 	}
 
 	const poolResults = await runSimulationJobs(jobs, { concurrency })
-	for (const res of poolResults)
-		if (res.error)
-			throw new Error(`sim job ${res.id} failed: ${res.error}`)
+	for (const poolResult of poolResults)
+		if (poolResult.error)
+			throw new Error(`sim job ${poolResult.id} failed: ${poolResult.error}`)
 
 	/** @type {Map<number, Map<string, Map<number, { attackIndex: number, snap: SimSnapshot }[]>>>} */
 	const byCandidate = new Map()
@@ -305,7 +305,7 @@ export async function evaluateManyAgainstAttacks(scenarios, seeds, candidates, r
  * @param {Array<import('./attack_space.mjs').AttackGenome | undefined>} attackPanel 攻击者面板
  * @param {(scenario: import('./scenarios.mjs').SimScenario, seed: number, tunables: import('./tunables_bundle.mjs').TunablesBundle, attackGenome?: import('./attack_space.mjs').AttackGenome) => SimSnapshot} runSim 仿真
  * @param {MetricWeights} [weights] 权重
- * @param {EvalOpts} [options] 评估选项（concurrency / serial）
+ * @param {EvalOptions} [options] 评估选项（concurrency / serial）
  * @returns {Promise<{ fitness: number, mean: number, min: number, max: number, std: number, byScenario: Record<string, ReturnType<typeof aggregateSnapshots>> }>} 跨场景面板最差评估
  */
 export async function evaluateTunablesAgainstAttacks(scenarios, seeds, tunables, attackPanel, runSim, weights = DEFAULT_WEIGHTS, options = {}) {
@@ -342,9 +342,9 @@ export async function evaluateTunablesAgainstAttacks(scenarios, seeds, tunables,
 				}
 
 		const poolResults = await runSimulationJobs(jobs, { concurrency })
-		for (const res of poolResults)
-			if (res.error)
-				throw new Error(`sim job ${res.id} failed: ${res.error}`)
+		for (const poolResult of poolResults)
+			if (poolResult.error)
+				throw new Error(`sim job ${poolResult.id} failed: ${poolResult.error}`)
 
 		/** @type {Map<string, Map<number, { attackIndex: number, snap: SimSnapshot }[]>>} */
 		const snapsByScenarioSeed = new Map()

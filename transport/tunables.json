@@ -1,0 +1,11 @@
+{
+	"meshKeepaliveIntervalMs": 60000,
+	"meshScanLimit": 64,
+	"meshPromoteStableMs": 1800000,
+	"meshN": 8,
+	"meshKMax": 5,
+	"meshNLow": 4,
+	"meshKMaxLow": 2,
+	"groupMemberScanIntervalMs": 30000,
+	"groupMemberScanLimit": 64
+}

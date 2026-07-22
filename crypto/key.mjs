@@ -164,8 +164,8 @@ function edPubToX25519(edPub) {
 	for (let i = 31; i >= 0; i--) y = (y << 8n) | BigInt(yCopy[i])
 	const u = (1n + y) * modInv(1n - y + P25519, P25519) % P25519
 	const result = new Uint8Array(32)
-	let tmp = u
-	for (let i = 0; i < 32; i++) { result[i] = Number(tmp & 0xffn); tmp >>= 8n }
+	let remaining = u
+	for (let i = 0; i < 32; i++) { result[i] = Number(remaining & 0xffn); remaining >>= 8n }
 	return result
 }
 
@@ -346,11 +346,11 @@ export function encryptRandomPlaintextWithKey(plaintext, contentKey) {
  */
 export function decryptConvergentCiphertext(raw, contentHashHex) {
 	try {
-		const buf = Buffer.from(raw)
-		if (buf.length < 28) return null
-		const iv = buf.subarray(0, 12)
-		const authTag = buf.subarray(12, 28)
-		const ciphertext = buf.subarray(28)
+		const buffer = Buffer.from(raw)
+		if (buffer.length < 28) return null
+		const iv = buffer.subarray(0, 12)
+		const authTag = buffer.subarray(12, 28)
+		const ciphertext = buffer.subarray(28)
 		const contentKey = deriveContentKey(contentHashHex)
 		const decipher = createDecipheriv('aes-256-gcm', contentKey, iv)
 		decipher.setAuthTag(authTag)
@@ -371,11 +371,11 @@ export function decryptConvergentCiphertext(raw, contentHashHex) {
  */
 export function decryptRandomCiphertext(raw, contentKey, contentHashHex = '') {
 	try {
-		const buf = Buffer.from(raw)
-		if (buf.length < 28) return null
-		const iv = buf.subarray(0, 12)
-		const authTag = buf.subarray(12, 28)
-		const ciphertext = buf.subarray(28)
+		const buffer = Buffer.from(raw)
+		if (buffer.length < 28) return null
+		const iv = buffer.subarray(0, 12)
+		const authTag = buffer.subarray(12, 28)
+		const ciphertext = buffer.subarray(28)
 		const decipher = createDecipheriv('aes-256-gcm', Buffer.from(contentKey), iv)
 		decipher.setAuthTag(authTag)
 		const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()])

@@ -1,8 +1,16 @@
 import { normalizeTcpPort } from '../core/tcp_port.mjs'
-import { advertiseTopic, listenSignals, listDiscoveryProviders, registerDiscoveryProvider } from '../discovery/index.mjs'
-import { createMdnsDiscoveryProvider } from '../discovery/mdns.mjs'
+import {
+	buildSignedAdvertForScope,
+	clearDiscoveryProviders,
+	encryptAdvertForScope,
+	listDiscoveryProviders,
+	listenNodeSignals,
+	registerDiscoveryProvider,
+	startDiscoveryPresence,
+	unregisterDiscoveryProvider,
+} from '../discovery/index.mjs'
+import { createLanDiscoveryProvider } from '../discovery/lan.mjs'
 import { mergeSignalingRelayUrls, createNostrDiscoveryProvider } from '../discovery/nostr.mjs'
-import { buildSignedAdvert } from '../link/handshake.mjs'
 import { createBleGattLinkProvider } from '../link/providers/ble_gatt.mjs'
 import {
 	listLinkProviders,
@@ -12,24 +20,20 @@ import {
 import { createLanTcpLinkProvider } from '../link/providers/lan_tcp.mjs'
 import { createWebRtcLinkProvider } from '../link/providers/webrtc.mjs'
 import { getNodeTransportSettings } from '../node/identity.mjs'
-import { getSignalingRuntimeConfig } from '../node/instance.mjs'
-
-import { encryptSignalPacket } from './signal_crypto.mjs'
+import { getSignalingRuntimeConfig, onNodeChange } from '../node/instance.mjs'
+import { isConnectivityDebug, nodeDebug, shortHash } from '../node/log.mjs'
 
 /**
- * Provider 是否会在 isAvailable() 调用时触发 native/异步探测（不得在 ensureRuntime 快路径调用）。
  * @param {import('../link/providers/index.mjs').LinkProvider} provider 链路提供者
- * @returns {boolean} `caps.probe === 'native'` 时 true
+ * @returns {boolean} 是否使用原生 probe 路径
  */
 export function providerHasNativeProbe(provider) {
 	return provider.caps?.probe === 'native'
 }
 
 /**
- * 收集快路径应 listen 的 provider（仅 owned lan_tcp + 同步可用者）。
- * 切勿调用 caps.probe==='native' 的 isAvailable（会触发 ble/webrtc 探测）。
  * @param {import('../link/providers/index.mjs').LinkProvider | null} ownedLanTcp 本 registry 持有的 lan_tcp
- * @returns {import('../link/providers/index.mjs').LinkProvider[]} 可在 ensureRuntime 快路径 listen 的 provider
+ * @returns {import('../link/providers/index.mjs').LinkProvider[]} 可快速启动监听的 provider 列表
  */
 export function collectFastListenProviders(ownedLanTcp) {
 	/** @type {import('../link/providers/index.mjs').LinkProvider[]} */
@@ -43,7 +47,6 @@ export function collectFastListenProviders(ownedLanTcp) {
 		if (typeof provider.isAvailable === 'function')
 			try {
 				const available = provider.isAvailable()
-				// 未标 probe:native 却返回 thenable：跳过，勿 await。
 				if (available && typeof available.then === 'function') continue
 				if (!available) continue
 			}
@@ -55,29 +58,17 @@ export function collectFastListenProviders(ownedLanTcp) {
 }
 
 /**
- * Discovery + link listen 暖机（ensureRuntime 立即返回；listen/公网/BT 后台渐进）。
  * @param {object} deps 依赖注入
  * @param {{ nodeHash: string, nodePubKey: string, secretKey: Uint8Array }} deps.localIdentity 本地身份
- * @param {string} deps.selfTopic 本机 rendezvous topic
  * @param {boolean} deps.autoRegisterDiscoveryProviders 是否自动注册 discovery provider
  * @param {boolean} deps.autoRegisterLinkProviders 是否自动注册内置 link provider
  * @param {(link: object) => void} deps.onInboundLink 入站链路回调
  * @param {(bytes: Uint8Array) => Promise<void>} deps.handleIncomingSignal 入站加密信令处理
- * @returns {{
- *   ensureRuntime: () => Promise<void>,
- *   whenListening: () => Promise<void>,
- *   whenSignalListening: () => Promise<void>,
- *   buildLocalAdvert: (topic: string) => Promise<object>,
- *   lanTcpPort: () => number | null,
- *   ownedLanTcp: () => object | null,
- *   ownedBleGatt: () => object | null,
- *   shutdown: () => Promise<void>,
- * }} 运行时暖机句柄
+ * @returns {object} 运行时暖机句柄
  */
 export function createRuntimeBootstrap(deps) {
 	const {
 		localIdentity,
-		selfTopic,
 		autoRegisterDiscoveryProviders,
 		autoRegisterLinkProviders,
 		onInboundLink,
@@ -89,14 +80,14 @@ export function createRuntimeBootstrap(deps) {
 	let runtimeStart = null
 	/** @type {Promise<void> | null} */
 	let lanListenReady = null
-	/** @type {Promise<void> | null} selfTopic listenSignals 已挂上（offer/answer dial 前必须等） */
+	/** @type {Promise<void> | null} */
 	let signalListenReady = null
 	/** @type {Promise<void> | null} */
 	let runtimeWarm = null
 	/** @type {Promise<void> | null} */
 	let bluetoothWarm = null
 	/** @type {(() => void) | null} */
-	let stopAdvert = null
+	let stopPresence = null
 	/** @type {(() => void) | null} */
 	let stopSignalListener = null
 	/** @type {Array<() => void>} */
@@ -105,19 +96,49 @@ export function createRuntimeBootstrap(deps) {
 	let ownedLanTcp = null
 	/** @type {ReturnType<typeof createBleGattLinkProvider> | null} */
 	let ownedBleGatt = null
-	/** @type {number} shutdown 时递增，后台任务检查后退出 */
 	let generation = 0
+	/** @type {Promise<void> | null} */
+	let reloadInflight = null
+	/** @type {(() => void) | null} */
+	let stopSignalingWatch = null
 
 	/**
-	 * 暖机是否仍在运行（shutdown 后为 false）。
-	 * @returns {boolean} runtime 已启动且未 shutdown 时 true
+	 * @returns {string[]} 当前 Nostr relay URL 列表
+	 */
+	function resolveNostrRelayUrls() {
+		return getSignalingRuntimeConfig().relayOverride
+			?? mergeSignalingRelayUrls(getNodeTransportSettings().relayUrls)
+	}
+
+	/**
+	 * @returns {void}
+	 */
+	function registerDiscoveryDefaults() {
+		const providerIds = new Set(listDiscoveryProviders().map(provider => provider.id))
+		if (!providerIds.has('lan'))
+			registerDiscoveryProvider(createLanDiscoveryProvider())
+		if (!providerIds.has('nostr'))
+			registerNostrProvider()
+	}
+
+	/**
+	 * @returns {void}
+	 */
+	function registerNostrProvider() {
+		unregisterDiscoveryProvider('nostr')
+		registerDiscoveryProvider(createNostrDiscoveryProvider({
+			getRelayUrls: resolveNostrRelayUrls,
+		}))
+	}
+
+	/**
+	 * @returns {boolean} runtime 是否已启动
 	 */
 	function isLive() {
 		return runtimeStarted
 	}
 
 	/**
-	 * 自动注册默认 LinkProvider（lan_tcp / webrtc / ble_gatt）。
 	 * @returns {Promise<void>}
 	 */
 	async function ensureLinkProviders() {
@@ -136,8 +157,7 @@ export function createRuntimeBootstrap(deps) {
 	}
 
 	/**
-	 * 本 registry 的 LAN TCP 监听端口。
-	 * @returns {number | null} listen 端口；未 listen 为 null
+	 * @returns {number | null} 本机 lan_tcp 监听端口，未就绪为 null
 	 */
 	function lanTcpPort() {
 		const endpoint = typeof ownedLanTcp?.localEndpoint === 'function' ? ownedLanTcp.localEndpoint() : null
@@ -145,7 +165,6 @@ export function createRuntimeBootstrap(deps) {
 	}
 
 	/**
-	 * 等待本地 lan_tcp listen 落定。shell / startNode 不应调用。
 	 * @returns {Promise<void>}
 	 */
 	async function whenListening() {
@@ -153,7 +172,6 @@ export function createRuntimeBootstrap(deps) {
 	}
 
 	/**
-	 * 等待 selfTopic 信令监听挂上（needsOfferAnswer dial 前调用）。
 	 * @returns {Promise<void>}
 	 */
 	async function whenSignalListening() {
@@ -161,21 +179,16 @@ export function createRuntimeBootstrap(deps) {
 	}
 
 	/**
-	 * 构造带本机身份与（若已 listen）tcpPort 的签名 advert。
-	 * @param {string} topic 广播主题
-	 * @returns {Promise<object>} 签名 advert
+	 * @param {import('../discovery/adverts.mjs').AdvertScope} [scope='node'] advert 域
+	 * @returns {Promise<object>} 签名后的 advert body
 	 */
-	async function buildLocalAdvert(topic) {
+	async function buildLocalAdvert(scope = 'node') {
 		await whenListening()
 		const tcpPort = lanTcpPort()
-		return await buildSignedAdvert(topic, Date.now(), {
-			...localIdentity,
-			...tcpPort != null ? { tcpPort } : {},
-		})
+		return await buildSignedAdvertForScope(scope, localIdentity, tcpPort ?? undefined)
 	}
 
 	/**
-	 * 对单个 link provider 调用 ensureListening，收集 stop。
 	 * @param {import('../link/providers/index.mjs').LinkProvider} provider 链路提供者
 	 * @returns {Promise<void>}
 	 */
@@ -188,39 +201,18 @@ export function createRuntimeBootstrap(deps) {
 			})
 			if (typeof stop === 'function') stopLinkListeners.push(stop)
 		}
-		catch { /* provider listen unavailable — normal degrade */ }
+		catch { /* provider listen unavailable */ }
 	}
 
 	/**
-	 * 把晚注册 provider 的 stop 链到现有 cleanup。
-	 * @param {'signal' | 'advert'} kind 停止钩子类型
-	 * @param {() => void} stop 新 provider 的取消函数
-	 * @returns {void}
+	 * @returns {Promise<Uint8Array>} 加密后的全网 advert 字节
 	 */
-	function chainStop(kind, stop) {
-		if (kind === 'signal') {
-			const prev = stopSignalListener
-			/**
-			 *
-			 */
-			stopSignalListener = () => {
-				try { stop() } catch { /* ignore */ }
-				prev?.()
-			}
-			return
-		}
-		const prev = stopAdvert
-		/**
-		 *
-		 */
-		stopAdvert = () => {
-			try { stop() } catch { /* ignore */ }
-			prev?.()
-		}
+	async function buildNetworkAdvertBytes() {
+		const body = await buildLocalAdvert('network')
+		return encryptAdvertForScope('network', localIdentity, body)
 	}
 
 	/**
-	 * 后台探测 BT discovery / ble_gatt listen。
 	 * @param {number} gen 启动世代
 	 * @returns {Promise<void>}
 	 */
@@ -235,23 +227,33 @@ export function createRuntimeBootstrap(deps) {
 					const provider = bt.createBluetoothDiscoveryProvider()
 					registerDiscoveryProvider(provider)
 					if (generation !== gen || !isLive()) return
-					if (provider.caps?.canSignal && typeof provider.onSignal === 'function')
+					if (typeof provider.startPresence === 'function')
 						try {
-							const stop = await provider.onSignal(selfTopic, bytes => {
-								void handleIncomingSignal(bytes).catch(() => { })
-							})
-							if (typeof stop === 'function' && generation === gen && isLive())
-								chainStop('signal', stop)
+							const stop = await provider.startPresence(async () => ({
+								nodeHash: localIdentity.nodeHash,
+								advertBytes: await buildNetworkAdvertBytes(),
+							}))
+							if (typeof stop === 'function' && generation === gen && isLive()) {
+								const prev = stopPresence
+								/**
+								 *
+								 */
+								stopPresence = () => { try { stop() } catch { /* ignore */ }; prev?.() }
+							}
 						}
 						catch { /* ignore */ }
-					if (provider.caps?.canDiscover && typeof provider.advertise === 'function')
+					if (provider.caps?.canSignal && typeof provider.listenNodeSignals === 'function')
 						try {
-							const stop = await provider.advertise(selfTopic, encryptSignalPacket(selfTopic, {
-								type: 'advert',
-								body: await buildLocalAdvert(selfTopic),
-							}))
-							if (typeof stop === 'function' && generation === gen && isLive())
-								chainStop('advert', stop)
+							const stop = await provider.listenNodeSignals(localIdentity.nodeHash, bytes => {
+								void handleIncomingSignal(bytes).catch(() => { })
+							})
+							if (typeof stop === 'function' && generation === gen && isLive()) {
+								const prev = stopSignalListener
+								/**
+								 *
+								 */
+								stopSignalListener = () => { try { stop() } catch { /* ignore */ }; prev?.() }
+							}
 						}
 						catch { /* ignore */ }
 				}
@@ -265,35 +267,82 @@ export function createRuntimeBootstrap(deps) {
 	}
 
 	/**
-	 * 后台：lan_tcp listen → selfTopic listenSignals/advertise。
-	 * @param {number} gen 启动世代（shutdown 时递增以作废后台任务）
+	 * @param {number} gen 启动世代
 	 * @returns {Promise<void>}
 	 */
 	function warmListenAndDiscovery(gen) {
 		const listenProviders = collectFastListenProviders(ownedLanTcp)
-		// 同步挂上 Promise，避免 ensureRuntime 返回后 buildLocalAdvert 看不到 lanListenReady。
 		lanListenReady = Promise.all(listenProviders.map(provider => startProviderListening(provider))).then(() => { })
 		signalListenReady = (async () => {
 			await lanListenReady.catch(() => { })
 			if (generation !== gen || !isLive()) return
 			if (!listDiscoveryProviders().length) return
-			stopSignalListener = await listenSignals(selfTopic, bytes => {
+			stopSignalListener = await listenNodeSignals(localIdentity.nodeHash, bytes => {
 				void handleIncomingSignal(bytes).catch(() => { })
+			})
+			nodeDebug('p2p:runtime signal listening', {
+				self: shortHash(localIdentity.nodeHash),
+				providers: listDiscoveryProviders().map(provider => provider.id),
 			})
 		})()
 		return (async () => {
 			await signalListenReady.catch(() => { })
 			if (generation !== gen || !isLive()) return
 			if (!listDiscoveryProviders().length) return
-			stopAdvert = await advertiseTopic(selfTopic, encryptSignalPacket(selfTopic, {
-				type: 'advert',
-				body: await buildLocalAdvert(selfTopic),
+			stopPresence = await startDiscoveryPresence(async () => ({
+				nodeHash: localIdentity.nodeHash,
+				tcpPort: lanTcpPort() ?? undefined,
+				advertBody: await buildLocalAdvert('network'),
+				advertBytes: await buildNetworkAdvertBytes(),
 			}))
+			if (isConnectivityDebug())
+				nodeDebug('p2p:runtime presence started', {
+					self: shortHash(localIdentity.nodeHash),
+					lanTcpPort: lanTcpPort(),
+					relays: resolveNostrRelayUrls().length,
+				})
 		})()
 	}
 
 	/**
-	 * 仅注册 provider 并调度后台暖机后立即返回。
+	 * @returns {Promise<void>}
+	 */
+	async function reloadDiscoveryRelays() {
+		if (!runtimeStarted || !autoRegisterDiscoveryProviders) return
+		if (reloadInflight) return await reloadInflight
+		reloadInflight = (async () => {
+			const gen = generation
+			stopPresence?.()
+			stopSignalListener?.()
+			stopPresence = null
+			stopSignalListener = null
+			registerNostrProvider()
+			if (generation !== gen || !isLive()) return
+			signalListenReady = (async () => {
+				if (generation !== gen || !isLive()) return
+				if (!listDiscoveryProviders().length) return
+				stopSignalListener = await listenNodeSignals(localIdentity.nodeHash, bytes => {
+					void handleIncomingSignal(bytes).catch(() => { })
+				})
+			})()
+			await signalListenReady.catch(() => { })
+			if (generation !== gen || !isLive()) return
+			stopPresence = await startDiscoveryPresence(async () => ({
+				nodeHash: localIdentity.nodeHash,
+				tcpPort: lanTcpPort() ?? undefined,
+				advertBody: await buildLocalAdvert('network'),
+				advertBytes: await buildNetworkAdvertBytes(),
+			}))
+		})()
+		try {
+			await reloadInflight
+		}
+		finally {
+			reloadInflight = null
+		}
+	}
+
+	/**
 	 * @returns {Promise<void>}
 	 */
 	async function ensureRuntime() {
@@ -303,16 +352,19 @@ export function createRuntimeBootstrap(deps) {
 			runtimeStarted = true
 			const gen = generation
 			await ensureLinkProviders()
-			if (autoRegisterDiscoveryProviders) {
-				const providerIds = new Set(listDiscoveryProviders().map(provider => provider.id))
-				if (!providerIds.has('mdns'))
-					registerDiscoveryProvider(createMdnsDiscoveryProvider())
-				if (!providerIds.has('nostr'))
-					registerDiscoveryProvider(createNostrDiscoveryProvider({
-						relayUrls: getSignalingRuntimeConfig().relayOverride
-							?? mergeSignalingRelayUrls(getNodeTransportSettings().relayUrls),
-					}))
-			}
+			if (autoRegisterDiscoveryProviders)
+				registerDiscoveryDefaults()
+			if (isConnectivityDebug())
+				nodeDebug('p2p:runtime ensure', {
+					self: shortHash(localIdentity.nodeHash),
+					discovery: listDiscoveryProviders().map(provider => provider.id),
+					relays: resolveNostrRelayUrls(),
+				})
+			if (!stopSignalingWatch)
+				stopSignalingWatch = onNodeChange(event => {
+					if (event === 'signaling-changed')
+						void reloadDiscoveryRelays().catch(() => { })
+				})
 			bluetoothWarm = warmBluetoothTask(gen).catch(() => { })
 			runtimeWarm = warmListenAndDiscovery(gen)
 			void runtimeWarm.catch(() => { })
@@ -326,20 +378,24 @@ export function createRuntimeBootstrap(deps) {
 	}
 
 	/**
-	 * 停止暖机与 owned providers（链路表由 registry 自行清理）。
-	 * 不 await bluetoothWarm：noble/poweredOn 可能挂死；generation 已作废其后副作用。
 	 * @returns {Promise<void>}
 	 */
 	async function shutdown() {
 		runtimeStarted = false
 		generation++
-		await runtimeWarm?.catch(() => { })
-		stopAdvert?.()
+		stopSignalingWatch?.()
+		stopSignalingWatch = null
+		stopPresence?.()
 		stopSignalListener?.()
-		stopAdvert = null
+		stopPresence = null
 		stopSignalListener = null
+		await Promise.race([
+			runtimeWarm?.catch(() => { }) ?? Promise.resolve(),
+			new Promise(resolve => setTimeout(resolve, 500)),
+		])
 		for (const stop of stopLinkListeners.splice(0))
 			try { stop() } catch { /* ignore */ }
+		clearDiscoveryProviders()
 		if (ownedLanTcp) {
 			unregisterLinkProvider(ownedLanTcp.id)
 			ownedLanTcp = null
@@ -352,6 +408,7 @@ export function createRuntimeBootstrap(deps) {
 		signalListenReady = null
 		runtimeWarm = null
 		bluetoothWarm = null
+		reloadInflight = null
 	}
 
 	return {
@@ -360,10 +417,15 @@ export function createRuntimeBootstrap(deps) {
 		whenSignalListening,
 		buildLocalAdvert,
 		lanTcpPort,
-		/** @returns {ReturnType<typeof createLanTcpLinkProvider> | null} 本 registry 持有的 lan_tcp */
+		/**
+		 * @returns {ReturnType<typeof createLanTcpLinkProvider> | null} 本 registry 持有的 lan_tcp provider
+		 */
 		ownedLanTcp: () => ownedLanTcp,
-		/** @returns {ReturnType<typeof createBleGattLinkProvider> | null} 本 registry 持有的 ble_gatt */
+		/**
+		 * @returns {ReturnType<typeof createBleGattLinkProvider> | null} 本 registry 持有的 BLE GATT provider
+		 */
 		ownedBleGatt: () => ownedBleGatt,
+		reloadDiscoveryRelays,
 		shutdown,
 	}
 }

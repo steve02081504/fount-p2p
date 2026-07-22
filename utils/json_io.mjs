@@ -11,9 +11,9 @@ export async function readJsonFile(filePath) {
 		const raw = await fsp.readFile(filePath, 'utf8')
 		return JSON.parse(raw)
 	}
-	catch (err) {
-		if (/** @type {NodeJS.ErrnoException} */ err.code === 'ENOENT') return null
-		throw err
+	catch (error) {
+		if (/** @type {NodeJS.ErrnoException} */ error.code === 'ENOENT') return null
+		throw error
 	}
 }
 
@@ -24,9 +24,9 @@ export async function readJsonFile(filePath) {
  */
 export async function writeJsonFile(filePath, data) {
 	await fsp.mkdir(path.dirname(filePath), { recursive: true })
-	const tmp = `${filePath}.tmp`
-	await fsp.writeFile(tmp, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
-	await fsp.rename(tmp, filePath)
+	const temporaryPath = `${filePath}.tmp`
+	await fsp.writeFile(temporaryPath, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
+	await fsp.rename(temporaryPath, filePath)
 }
 
 /**
@@ -38,9 +38,9 @@ export function readJsonFileSync(filePath) {
 		const raw = fs.readFileSync(filePath, 'utf8')
 		return JSON.parse(raw)
 	}
-	catch (err) {
-		if (/** @type {NodeJS.ErrnoException} */ err.code === 'ENOENT') return null
-		throw err
+	catch (error) {
+		if (/** @type {NodeJS.ErrnoException} */ error.code === 'ENOENT') return null
+		throw error
 	}
 }
 
@@ -51,7 +51,7 @@ export function readJsonFileSync(filePath) {
  */
 export function writeJsonFileSync(filePath, data) {
 	fs.mkdirSync(path.dirname(filePath), { recursive: true })
-	const tmp = `${filePath}.tmp`
-	fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
-	fs.renameSync(tmp, filePath)
+	const temporaryPath = `${filePath}.tmp`
+	fs.writeFileSync(temporaryPath, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
+	fs.renameSync(temporaryPath, filePath)
 }

@@ -39,7 +39,7 @@ import {
 	MAILBOX_REACH_MID_HOP_FACTOR,
 	MAILBOX_RELAY_COST_DIVISOR,
 } from './constants.mjs'
-import { createDiscoveryState, discoveryReach, initObserverDiscovery, recoverDiscoveryFromAnchors } from './discovery.mjs'
+import { createDiscoveryState, coldStartDiscoveryJoin, discoveryReach, initObserverDiscovery, recoverDiscoveryFromAnchors } from './discovery.mjs'
 import { buildRankedNeighborAdj } from './graph_adj.mjs'
 import { blendArchiveQuorumAccuracy, integrityDefendsAgainst, observerHasLocalReplica } from './integrity.mjs'
 import { createPropagationState, tickPropagation } from './propagation.mjs'
@@ -182,12 +182,12 @@ export function buildWorld(scenario, seed, tunables, attackGenome) {
 	const nodes = []
 	/** @type {Array<{ from: string, to: string }>} */
 	const inviteEdges = []
-	let idx = 1
+	let nodeIndex = 1
 	/** @type {SimNode[]} */
 	const honestSoFar = []
 
 	for (let i = 0; i < scenario.honestCount; i++) {
-		const id = fakeNodeHash(idx++)
+		const id = fakeNodeHash(nodeIndex++)
 		const introducer = honestSoFar[randInt(rng, 0, Math.max(1, honestSoFar.length))]?.id
 		const node = {
 			id,
@@ -202,7 +202,7 @@ export function buildWorld(scenario, seed, tunables, attackGenome) {
 	}
 
 	for (let i = 0; i < (scenario.relayCount ?? 0); i++) {
-		const id = fakeNodeHash(idx++)
+		const id = fakeNodeHash(nodeIndex++)
 		const introducer = pickOne(rng, honestSoFar)?.id
 		nodes.push({ id, kind: 'relay', introducerId: introducer })
 		if (introducer)
@@ -210,7 +210,7 @@ export function buildWorld(scenario, seed, tunables, attackGenome) {
 	}
 
 	for (let i = 0; i < (scenario.lurkerCount ?? 0); i++) {
-		const id = fakeNodeHash(idx++)
+		const id = fakeNodeHash(nodeIndex++)
 		const introducer = pickOne(rng, honestSoFar)?.id
 		nodes.push({
 			id,
@@ -253,7 +253,7 @@ export function buildWorld(scenario, seed, tunables, attackGenome) {
 				continue
 			}
 
-			const id = fakeNodeHash(idx++)
+			const id = fakeNodeHash(nodeIndex++)
 			const introducer = chained && clusterLast.has(clusterId)
 				? clusterLast.get(clusterId)
 				: pickOne(rng, nodes.filter(n => n.kind === 'honest' && !n.compromised))?.id || pickOne(rng, nodes)?.id
@@ -283,7 +283,7 @@ export function buildWorld(scenario, seed, tunables, attackGenome) {
 	// 新人节点：诚实、无介绍人、不参与任何回合交互，因此观察者始终对其「没有打过分」，
 	// 用来检验 rosterDefaultScore（名册里对陌生人默认信任）这一旋钮的两面性。
 	for (let i = 0; i < (scenario.newcomerCount ?? 0); i++)
-		nodes.push({ id: fakeNodeHash(idx++), kind: 'honest', behavior: sampleBehavior(rng, behaviorDist), newcomer: true })
+		nodes.push({ id: fakeNodeHash(nodeIndex++), kind: 'honest', behavior: sampleBehavior(rng, behaviorDist), newcomer: true })
 
 	const observers = nodes
 		.filter(n => n.kind === 'honest' && !n.newcomer)
@@ -294,6 +294,18 @@ export function buildWorld(scenario, seed, tunables, attackGenome) {
 			explorePeers: nodes.filter(x => !x.newcomer && x.id !== n.id).slice(0, 8).map(x => x.id),
 			injectedHints: [],
 		}))
+
+	// K=0 冷启动观察者（scenario.coldStartObserver 开启时）：无 trusted，仅靠 explore 槽入网
+	if (scenario.coldStartObserver) 
+		observers.push({
+			id: fakeNodeHash(nodeIndex++),
+			reputation: ensureReputationShape({ byNodeHash: {}, wantUnknownHits: [], relayBumpSeen: [] }),
+			trustedPeers: [],
+			explorePeers: [],
+			injectedHints: [],
+			coldStart: true,
+		})
+	
 
 	// 观察者对自己满信任；直信对端从自己按 introducerSeedEdge 继承初始信誉
 	// （旧实现里 introducer=观察者自身且其分=0，导致 0.8 边权被乘成 0、整段播种是空操作）。
@@ -398,7 +410,7 @@ export function buildWorld(scenario, seed, tunables, attackGenome) {
 	const roster = nodes.filter(n => !n.newcomer).map(n => n.id)
 	for (const obs of observers) {
 		simulationContext.propagationByObserver.set(obs.id, createPropagationState())
-		initObserverDiscovery(simulationContext.discovery, obs.id, obs.trustedPeers, roster, rng)
+		initObserverDiscovery(simulationContext.discovery, obs.id, obs.trustedPeers, roster, rng, 8, !!obs.coldStart)
 		const transport = createTransportState()
 		for (const peerId of obs.trustedPeers)
 			transport.trustedPeers.add(peerId)
@@ -678,6 +690,9 @@ export function runSimulation(scenario, seed, tunables, attackGenome) {
 		for (const obs of observers) {
 			/** @type {number | null} */
 			let discReachCache = null
+
+			if (obs.coldStart)
+				coldStartDiscoveryJoin(simulationContext.discovery, obs.id, onlineFriendlyIds, rng)
 
 			for (const peer of obs.trustedPeers.slice(0, 2))
 				if (!simulationContext.offlineSet.has(peer))

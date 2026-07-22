@@ -42,6 +42,8 @@ async function importExport(subpath) {
 test('package exports resolve to loadable modules', async () => {
 	const samples = [
 		'.',
+		'./infra',
+		'./link',
 		'./crypto',
 		'./crypto/channel',
 		'./discovery',

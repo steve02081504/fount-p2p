@@ -54,7 +54,7 @@ function toRedHarmResults(results) {
  * @param {number} [options.seedBase=42] 搜索种子基
  * @param {import('./metrics.mjs').MetricWeights} [options.weights] 权重
  * @param {number | null} [options.durationMs] 时长上限
- * @param {import('./metrics.mjs').EvalOpts} [options.evalOpts] 评估并行选项
+ * @param {import('./metrics.mjs').EvalOptions} [options.evalOptions] 评估并行选项
  * @param {(info: import('./optimizer.mjs').OptimizerProgress) => void} [options.onProgress] 进度
  * @returns {Promise<object>} 共演进结果
  */
@@ -68,7 +68,7 @@ export async function runCoevolution(options) {
 		seedBase = 42,
 		weights,
 		durationMs = null,
-		evalOpts,
+		evalOptions,
 		onProgress,
 	} = options
 
@@ -79,7 +79,7 @@ export async function runCoevolution(options) {
 	const baselineTunables = loadDefaultTunables()
 	const baselineAttack = normalizeAttackGenome(undefined)
 	const baselineEval = await evaluateTunablesAgainstAttacks(
-		scenarios, seeds, baselineTunables, [baselineAttack], runSimulation, weights, evalOpts,
+		scenarios, seeds, baselineTunables, [baselineAttack], runSimulation, weights, evalOptions,
 	)
 	const baseline = { tunables: baselineTunables, attackGenome: baselineAttack, result: baselineEval, generation: 0 }
 
@@ -103,7 +103,7 @@ export async function runCoevolution(options) {
 
 	if (initBlueCandidates.length) {
 		const initBlueResults = await evaluateManyAgainstAttacks(
-			scenarios, seeds, initBlueCandidates, runSimulation, weights, evalOpts,
+			scenarios, seeds, initBlueCandidates, runSimulation, weights, evalOptions,
 		)
 		for (let i = 0; i < initBlueResults.length; i++) {
 			const rec = {
@@ -124,7 +124,7 @@ export async function runCoevolution(options) {
 		initRedGenomes.push(randomAttackGenome(createRng(seedBase + 500 + i)))
 
 	const initRedResults = toRedHarmResults(await evaluateManyAgainstAttacks(
-		scenarios, seeds, redEvalCandidates(bestBlue.tunables, initRedGenomes), runSimulation, weights, evalOpts,
+		scenarios, seeds, redEvalCandidates(bestBlue.tunables, initRedGenomes), runSimulation, weights, evalOptions,
 	))
 	for (let i = 0; i < initRedResults.length; i++) {
 		const attackGenome = initRedGenomes[i]
@@ -167,7 +167,7 @@ export async function runCoevolution(options) {
 		if (blueMutations.length) {
 			const blueBatch = blueMutations.map(m => ({ tunables: m.tunables, attackPanel }))
 			const blueResults = await evaluateManyAgainstAttacks(
-				scenarios, seeds, blueBatch, runSimulation, weights, evalOpts,
+				scenarios, seeds, blueBatch, runSimulation, weights, evalOptions,
 			)
 			for (let i = 0; i < blueResults.length; i++) {
 				const rec = {
@@ -195,7 +195,7 @@ export async function runCoevolution(options) {
 		}
 		if (redMutations.length) {
 			const redResults = toRedHarmResults(await evaluateManyAgainstAttacks(
-				scenarios, seeds, redEvalCandidates(bestBlue.tunables, redMutations), runSimulation, weights, evalOpts,
+				scenarios, seeds, redEvalCandidates(bestBlue.tunables, redMutations), runSimulation, weights, evalOptions,
 			))
 			for (let i = 0; i < redResults.length; i++) {
 				const attackGenome = redMutations[i]

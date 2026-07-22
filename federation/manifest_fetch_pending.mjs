@@ -3,9 +3,7 @@ import { verifySignedPublicManifest } from '../files/public_manifest.mjs'
 /** @type {Map<string, { expectedKey: string, timer: ReturnType<typeof setTimeout>, resolve: (v: object | null) => void }>} */
 export const pendingManifestFetches = new Map()
 
-/**
- *
- */
+/** 并发 pending manifest fetch 上限。 */
 export const MAX_PENDING_MANIFEST_FETCHES = 512
 
 /**

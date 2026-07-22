@@ -10,17 +10,13 @@ const packageRoot = join(here, '../..')
 const childScript = join(here, '../helpers/scope_authorizer_lazy_child.mjs')
 
 /**
- * @param {string} mode FOUNT_SCOPE_AUTH_LAZY_MODE
+ * @param {string} mode register | flush
  * @returns {Promise<void>}
  */
 async function runChild(mode) {
-	const child = spawn(process.execPath, [childScript], {
+	const child = spawn(process.execPath, [childScript, mode], {
 		cwd: packageRoot,
 		stdio: ['ignore', 'pipe', 'pipe'],
-		env: {
-			...process.env,
-			FOUNT_SCOPE_AUTH_LAZY_MODE: mode,
-		},
 		windowsHide: true,
 	})
 	const result = await new Promise(resolve => {

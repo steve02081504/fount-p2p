@@ -90,8 +90,8 @@ function runJobLocal(job) {
 			snapshot: runSimulation(scenario, job.seed, job.tunables, job.attackGenome),
 		}
 	}
-	catch (err) {
-		return { id: job.id, error: String(err) }
+	catch (error) {
+		return { id: job.id, error: String(error) }
 	}
 }
 
@@ -152,11 +152,11 @@ export async function runSimulationJobs(jobs, options = {}) {
 			}
 
 			/**
-			 * @param {ErrorEvent} err Worker 错误
+			 * @param {ErrorEvent} errorEvent Worker 错误
 			 */
-			function onWorkerError(err) {
+			function onWorkerError(errorEvent) {
 				failed = true
-				reject(err)
+				reject(errorEvent)
 			}
 
 			slot.worker.onmessage = onWorkerMessage

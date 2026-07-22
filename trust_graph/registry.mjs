@@ -9,11 +9,11 @@ export const DEFAULT_TRUST_GRAPH_OWNER = 'default'
 
 /**
  * @param {string} ownerId 注册方（如 chat）
- * @param {import('./registry.mjs').TrustGraphProvider} impl 信任图实现
+ * @param {import('./registry.mjs').TrustGraphProvider} implementation 信任图实现
  * @returns {void}
  */
-export function registerTrustGraphProvider(ownerId, impl) {
-	providersByOwner.set(String(ownerId), impl)
+export function registerTrustGraphProvider(ownerId, implementation) {
+	providersByOwner.set(String(ownerId), implementation)
 }
 
 /** @returns {void} */
@@ -26,10 +26,10 @@ export function clearTrustGraphProvider() {
  * @returns {import('./registry.mjs').TrustGraphProvider} 已注册实现
  */
 export function requireTrustGraphProvider(ownerId = DEFAULT_TRUST_GRAPH_OWNER) {
-	const impl = providersByOwner.get(String(ownerId))
-	if (!impl)
+	const implementation = providersByOwner.get(String(ownerId))
+	if (!implementation)
 		throw new Error(`p2p: registerTrustGraphProvider('${ownerId}') must run before trust graph fanout`)
-	return impl
+	return implementation
 }
 
 /** @returns {import('./registry.mjs').TrustGraphProvider} 默认信任图实现 */

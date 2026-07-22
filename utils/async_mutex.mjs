@@ -34,11 +34,11 @@ function releaseMutex(lockKey, state) {
 
 /**
  * @param {string} key 锁键
- * @param {() => Promise<T>} fn 临界区
- * @returns {Promise<T>} `fn` 的解析结果
+ * @param {() => Promise<T>} criticalSection 临界区
+ * @returns {Promise<T>} `criticalSection` 的解析结果
  * @template T
  */
-export async function withAsyncMutex(key, fn) {
+export async function withAsyncMutex(key, criticalSection) {
 	const lockKey = String(key)
 	const state = mutexState(lockKey)
 	return new Promise((resolve, reject) => {
@@ -47,7 +47,7 @@ export async function withAsyncMutex(key, fn) {
 		 */
 		const run = () => {
 			Promise.resolve()
-				.then(fn)
+				.then(criticalSection)
 				.then(resolve, reject)
 				.finally(() => releaseMutex(lockKey, state))
 		}

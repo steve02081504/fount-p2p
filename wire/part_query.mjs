@@ -9,9 +9,9 @@ import {
 	parsePartQueryReq,
 	parsePartQueryRes,
 } from '../schemas/part_query.mjs'
+import { sendToNodeLink } from '../transport/link_registry.mjs'
 import { buildMergedGraph } from '../trust_graph/build.mjs'
 import { pickTopFromGraph } from '../trust_graph/engine.mjs'
-import { DEFAULT_TRUST_GRAPH_OWNER, requireTrustGraphProvider } from '../trust_graph/registry.mjs'
 import { resolveFederationFanoutTopK } from '../trust_graph/resolve.mjs'
 import trustGraphTunables from '../trust_graph/tunables.json' with { type: 'json' }
 
@@ -210,8 +210,9 @@ async function selectQueryNeighbors(username, exclude, dependencies) {
  * @returns {Promise<boolean>} 是否发出
  */
 async function deliverQuery(username, nodeHash, action, payload, dependencies) {
+	void username
 	if (dependencies.deliver) return Boolean(await dependencies.deliver(nodeHash, action, payload))
-	return requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER).sendToNode(username, nodeHash, action, payload)
+	return sendToNodeLink(nodeHash, { scope: 'node', action, payload })
 }
 
 /**
@@ -326,27 +327,32 @@ async function processIncomingRequest(wireContext, wire, request, peerId, depend
  * @param {{ replicaUsername?: string }} wireContext 入站上下文
  * @param {PartWireAdapter} wire wire
  * @param {PartQueryDependencies} [dependencies] 可注入依赖（含 per-node state）
- * @returns {void}
+ * @returns {() => void} 取消挂载的 dispose
  */
 export function attachPartQueryWire(wireContext, wire, dependencies = {}) {
 	const state = resolveState(dependencies)
-	wire.on('part_query_req', (data, peerId) => {
-		if (!isPlainObject(data)) return
-		const request = parsePartQueryReq(data)
-		if (!request) return
-		if (!state.takeDedupe(request.requestId)) return
-		const source = String(peerId || request.originNodeHash || '').trim().toLowerCase()
-		if (source && !consumeWireRateBucket(`part_query:${source}`, {
-			maxCount: partQueryTunables.ratePerSourcePerMin,
-		})) return
-		void processIncomingRequest(wireContext, wire, request, String(peerId || ''), dependencies)
-	})
-
-	wire.on('part_query_res', (data, peerId) => {
-		const response = parsePartQueryRes(data)
-		if (!response) return
-		handleIncomingPartQueryResponse(response, String(peerId || ''), dependencies)
-	})
+	const offs = [
+		wire.on('part_query_req', (data, peerId) => {
+			if (!isPlainObject(data)) return
+			const request = parsePartQueryReq(data)
+			if (!request) return
+			if (!state.takeDedupe(request.requestId)) return
+			const source = String(peerId || request.originNodeHash || '').trim().toLowerCase()
+			if (source && !consumeWireRateBucket(`part_query:${source}`, {
+				maxCount: partQueryTunables.ratePerSourcePerMin,
+			})) return
+			void processIncomingRequest(wireContext, wire, request, String(peerId || ''), dependencies)
+		}),
+		wire.on('part_query_res', (data, peerId) => {
+			const response = parsePartQueryRes(data)
+			if (!response) return
+			handleIncomingPartQueryResponse(response, String(peerId || ''), dependencies)
+		}),
+	]
+	return () => {
+		for (const off of offs)
+			try { off?.() } catch { /* ignore */ }
+	}
 }
 
 /**

@@ -18,7 +18,7 @@ export const pendingPartInvoke = new Map()
 /**
  * @typedef {{
  *   send: (name: string, payload: unknown, peerId: string | null) => void
- *   on: (name: string, handler: (payload: unknown, peerId: string) => void) => void
+ *   on: (name: string, handler: (payload: unknown, peerId: string) => void) => (() => void) | void
  * }} PartWireAdapter
  */
 
@@ -73,35 +73,39 @@ async function dispatchPartInvoke(wireContext, payload) {
  * @param {PartWireContext} wireContext 入站上下文
  * @param {PartWireAdapter} wire Trystero 适配器
  * @param {{ allowPartInvoke?: (payload: object) => boolean }} [options] 入站过滤
- * @returns {void}
+ * @returns {() => void} 取消挂载的 dispose
  */
 export function attachPartWire(wireContext, wire, options = {}) {
-	wire.on('part_timeline_put', data => {
-		if (!isPlainObject(data)) return
-		const partpath = normalizePartpath(data.partpath)
-		if (!partpath) return
-		const message = parsePartTimelinePut(data, partpath)
-		if (!message) return
-		void dispatchDeliveryInbound({
-			replicaUsername: wireContext.replicaUsername,
-			requesterNodeHash: data.nodeHash ? String(data.nodeHash).trim() : null,
-		}, message)
-	})
-
-	wire.on('part_invoke', (data, peerId) => {
-		if (!isPlainObject(data)) return
-		if (options.allowPartInvoke?.(data) === false) return
-		const payload = { ...data, peerId }
-		if (payload.requestId)
-			void handleIncomingPartInvokeRequest(wireContext, payload, wire, peerId)
-		else
-			void handleIncomingPartInvokeFireAndForget(wireContext, payload, wire, peerId)
-	})
-
-	wire.on('part_invoke_response', (data, peerId) => {
-		if (!isPlainObject(data)) return
-		handleIncomingPartInvokeResponse(data, peerId)
-	})
+	const offs = [
+		wire.on('part_timeline_put', data => {
+			if (!isPlainObject(data)) return
+			const partpath = normalizePartpath(data.partpath)
+			if (!partpath) return
+			const message = parsePartTimelinePut(data, partpath)
+			if (!message) return
+			void dispatchDeliveryInbound({
+				replicaUsername: wireContext.replicaUsername,
+				requesterNodeHash: data.nodeHash ? String(data.nodeHash).trim() : null,
+			}, message)
+		}),
+		wire.on('part_invoke', (data, peerId) => {
+			if (!isPlainObject(data)) return
+			if (options.allowPartInvoke?.(data) === false) return
+			const payload = { ...data, peerId }
+			if (payload.requestId)
+				void handleIncomingPartInvokeRequest(wireContext, payload, wire, peerId)
+			else
+				void handleIncomingPartInvokeFireAndForget(wireContext, payload, wire, peerId)
+		}),
+		wire.on('part_invoke_response', (data, peerId) => {
+			if (!isPlainObject(data)) return
+			handleIncomingPartInvokeResponse(data, peerId)
+		}),
+	]
+	return () => {
+		for (const off of offs)
+			try { off?.() } catch { /* ignore */ }
+	}
 }
 
 /**

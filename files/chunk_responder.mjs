@@ -44,27 +44,36 @@ export async function handleFedManifestDataIngress(data) {
 
 /**
  * node scope user-room wire：注册 fed_chunk_* + fed_manifest_*。
- * @param {string} username 副本用户名 用户名
- * @param {{ on: (name: string, handler: (payload: unknown, peerId: string) => void) => void, send: (name: string, payload: unknown, peerId: string | null) => void }} wire action 表
- * @returns {void}
+ * @param {string | (() => string)} usernameOrGetter 副本用户名或 live getter
+ * @param {{ on: (name: string, handler: (payload: unknown, peerId: string) => void) => (() => void) | void, send: (name: string, payload: unknown, peerId: string | null) => void }} wire action 表
+ * @returns {() => void} 取消挂载的 dispose
  */
-export function attachNodeScopeFedChunkResponder(username, wire) {
-	wire.on('fed_chunk_get', (data, peerId) => {
-		void handleFedChunkGetIngress(username, data, peerId, (resp, pid) => {
-			try { wire.send('fed_chunk_data', resp, pid) }
-			catch { /* disconnected */ }
-		})
-	})
-	wire.on('fed_chunk_data', handleFedChunkDataIngress)
-	wire.on('fed_manifest_get', (data, peerId) => {
-		void handleFedManifestGetIngress(username, data, peerId, (resp, pid) => {
-			try { wire.send('fed_manifest_data', resp, pid) }
-			catch { /* disconnected */ }
-		})
-	})
-	wire.on('fed_manifest_data', data => {
-		void handleFedManifestDataIngress(data)
-	})
+export function attachNodeScopeFedChunkResponder(usernameOrGetter, wire) {
+	const resolveUsername = typeof usernameOrGetter === 'function'
+		? usernameOrGetter
+		: () => usernameOrGetter
+	const offs = [
+		wire.on('fed_chunk_get', (data, peerId) => {
+			void handleFedChunkGetIngress(resolveUsername(), data, peerId, (resp, pid) => {
+				try { wire.send('fed_chunk_data', resp, pid) }
+				catch { /* disconnected */ }
+			})
+		}),
+		wire.on('fed_chunk_data', handleFedChunkDataIngress),
+		wire.on('fed_manifest_get', (data, peerId) => {
+			void handleFedManifestGetIngress(resolveUsername(), data, peerId, (resp, pid) => {
+				try { wire.send('fed_manifest_data', resp, pid) }
+				catch { /* disconnected */ }
+			})
+		}),
+		wire.on('fed_manifest_data', data => {
+			void handleFedManifestDataIngress(data)
+		}),
+	]
+	return () => {
+		for (const off of offs)
+			try { off?.() } catch { /* ignore */ }
+	}
 }
 
 /**

@@ -2,7 +2,7 @@ import process from 'node:process'
 
 import { toBytes } from '../core/bytes_codec.mjs'
 import { getSignalingRuntimeConfig } from '../node/instance.mjs'
-import { wrapRtcPeerConnectionForMdns } from '../transport/rtc_mdns_filter.mjs'
+import { wrapRtcPeerConnectionForIceLocalHostname } from '../transport/rtc_ice_local_hostname.mjs'
 
 /**
  * 注册进程退出时销毁 libdatachannel 全部原生资源（仅一次）。
@@ -20,9 +20,9 @@ process.on('exit', () => {
  */
 export async function loadNodeRtcPolyfill() {
 	const mod = await import('node-datachannel/polyfill')
-	const { mdnsPolicy } = getSignalingRuntimeConfig()
+	const { iceLocalHostnamePolicy } = getSignalingRuntimeConfig()
 	return {
-		RTCPeerConnection: wrapRtcPeerConnectionForMdns(mod.RTCPeerConnection, mod.RTCIceCandidate, mdnsPolicy),
+		RTCPeerConnection: wrapRtcPeerConnectionForIceLocalHostname(mod.RTCPeerConnection, mod.RTCIceCandidate, iceLocalHostnamePolicy),
 		RTCIceCandidate: mod.RTCIceCandidate,
 	}
 }

@@ -6,8 +6,8 @@ import { MAX_SOURCE_SLOT_FRACTION, resolveRtcBudgetLimits } from '../transport/r
 
 import { buildRankedNeighborAdj } from './graph_adj.mjs'
 
-/** 默认注册的信令/发现源（对齐真实 link_registry：mdns + nostr + bt） */
-export const DEFAULT_SIGNALING_SOURCES = Object.freeze(['mdns', 'nostr', 'bt'])
+/** 默认注册的信令/发现源（对齐真实 link_registry：lan + nostr + bt） */
+export const DEFAULT_SIGNALING_SOURCES = Object.freeze(['lan', 'nostr', 'bt'])
 
 /**
  * @returns {object} 传输状态

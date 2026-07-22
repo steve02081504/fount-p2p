@@ -1,6 +1,6 @@
 import { normalizeHex64 } from '../core/hexIds.mjs'
 import { getNodeTransportSettings, getNodeHash } from '../node/identity.mjs'
-import { deliverToUserRoomPeers, ensureUserRoom } from '../transport/user_room.mjs'
+import { activeLinkRoster, deliverToUserRoomPeers } from '../transport/user_room.mjs'
 import { DEFAULT_TRUST_GRAPH_OWNER, requireTrustGraphProvider } from '../trust_graph/registry.mjs'
 
 import { allowMailboxRelayForTier } from './importance.mjs'
@@ -23,9 +23,9 @@ import {
  * @returns {Promise<string | null>} 已验证的 remote nodeHash
  */
 async function resolveRemoteNodeHashForPeer(username, peerId) {
+	void username
 	if (!peerId) return null
-	const slot = await ensureUserRoom({ replicaUsername: username })
-	const entry = slot?.getRoster()?.find(row => row.peerId === peerId)
+	const entry = activeLinkRoster().find(row => row.peerId === peerId)
 	const remote = entry?.remoteNodeHash?.trim().toLowerCase()
 	return remote || null
 }
@@ -51,9 +51,9 @@ async function resolveRelayHopForIngress(record) {
  * @returns {Promise<{ maxHop: number, relayFanoutTrusted: number, relayFanoutNormal: number, wantFanout: number, batterySaver: boolean }>} 按在线 peer 数缩放的路由
  */
 async function resolveRouting(username) {
+	void username
 	const { batterySaver, mailbox } = getNodeTransportSettings()
-	const slot = await ensureUserRoom({ replicaUsername: username })
-	const peerCount = slot?.getRoster()?.length ?? 0
+	const peerCount = activeLinkRoster().length
 	return resolveMailboxRoutingForPeerCount(peerCount, mailbox, batterySaver)
 }
 

@@ -18,10 +18,10 @@ import {
 } from '../reputation/engine.mjs'
 import { pickNodeScoreFromReputation } from '../reputation/pick_score.mjs'
 import reputationTunables from '../reputation/tunables.json' with { type: 'json' }
-import { invalidateTrustGraphCache } from '../trust_graph/cache.mjs'
 import { withAsyncMutex } from '../utils/async_mutex.mjs'
 
 import { getNodeDir, getNodeLogger, isNodeInitialized } from './instance.mjs'
+import { bumpLocalDataRevision } from './local_data_revision.mjs'
 import { readNodeJsonSync, writeNodeJsonSync } from './storage.mjs'
 
 const DATA_NAME = 'reputation'
@@ -88,7 +88,7 @@ export function saveReputation(data) {
 	pruneReputationFile(data)
 	writeNodeJsonSync(DATA_NAME, data)
 	reputationCache = data
-	invalidateTrustGraphCache()
+	bumpLocalDataRevision()
 }
 
 /**
@@ -211,7 +211,7 @@ export async function applyVolatileSlashAlert(alert) {
  * @param {object} [groupSettings] 群设置
  * @returns {object} VOLATILE 载荷
  */
-export function buildAndApplyUnverifiedSlashAlert(senderPubKeyHash, content, groupSettings = {}) {
+export function buildUnverifiedSlashAlert(senderPubKeyHash, content, groupSettings = {}) {
 	const targetPubKeyHash = assertHex64(content.targetPubKeyHash, 'slash target')
 	const claim = Number.isFinite(Number(content.claim)) ? Number(content.claim) : reputationTunables.slashDefaultClaim
 	const sender = assertHex64(senderPubKeyHash, 'slash sender')
@@ -268,7 +268,7 @@ export function applyDecayCollusionAfterSlash(targetPubKeyHash, inviteEdges) {
 	void mutateReputation(data => {
 		const applied = applyDecayCollusionAfterSlashPure(data, targetPubKeyHash, inviteEdges)
 		if (applied.length)
-			getNodeLogger().warn?.('reputation: collusion decay after slash', {
+			getNodeLogger()?.warn?.('reputation: collusion decay after slash', {
 				target: targetPubKeyHash.trim().toLowerCase(),
 				upstreamCount: applied.length,
 				hops: applied.map(row => row.hop),

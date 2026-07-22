@@ -1,38 +1,44 @@
-import { advertiseTopic, subscribeTopic } from '../discovery/index.mjs'
+import { listVisibleNodeHashes, startGroupPresence, watchVerifiedGroupAdverts } from '../discovery/index.mjs'
 import { loadPeerPoolView } from '../node/network.mjs'
 import { loadReputation } from '../node/reputation_store.mjs'
 import { emitSafe } from '../utils/emit_safe.mjs'
 
-import { ingestSignedAdvert } from './advert_ingest.mjs'
+import { applyAdvertPeerHints } from './advert_ingest.mjs'
 import { getLinkRegistry } from './link_registry.mjs'
 import { resolveFederationPoolLimits, selectLinkTargetsFromMembers } from './peer_pool.mjs'
-import {
-	encryptSignalPacket,
-	groupRendezvousTopic,
-} from './signal_crypto.mjs'
+import { loadTransportTunables } from './tunables.mjs'
 
 /**
- * 创建基于 link registry 的群组联邦房间。
+ * 创建基于 link registry 的群组联邦房间（唯一内核；scoped_link 为其薄预设）。
  * @param {object} options 选项
- * @param {string} options.groupId 群组 id
- * @param {string} options.roomSecret 房间密钥（用于 rendezvous topic）
- * @param {string[]} options.members 初始成员 nodeHash 列表
- * @param {object} [options.groupSettings] 群设置（连接预算：trustedPeerSlots/explorePeerSlots/maxPeers 等）
- * @returns {{ groupId: string, scope: string, start: () => Promise<void>, leave: () => Promise<void>, getRoster: () => Array<{ peerId: string, remoteNodeHash: string }>, getPeerIdByNodeHash: (nodeHash: string) => string | null, sendToPeer: (peerId: string, actionName: string, payload: unknown) => Promise<boolean>, send: (actionName: string, payload: unknown, peerId?: string | null) => Promise<number>, onEnvelope: (callback: (senderNodeHash: string, envelope: object) => void) => () => void, onPeerJoin: (callback: (peerId: string) => void) => () => void, onPeerLeave: (callback: (peerId: string) => void) => () => void, getPeers: () => Record<string, true>, makeAction: (name: string) => [(payload: unknown, peerId?: string | string[] | null) => Promise<void>, (handler: (payload: unknown, peerId: string) => void) => void], registerCleanup: (cleanup: () => void) => void, isActive: () => boolean }} 群组 link set 接口
+ * @param {string} options.groupId 群 ID
+ * @param {string} [options.scope] scope 前缀（默认 `group:${groupId}`）
+ * @param {string} [options.roomSecret] 群 discovery / advert 密钥
+ * @param {string[]} [options.members] 初始成员 nodeHash
+ * @param {(nodeHash: string) => boolean} [options.allowNode] 入站成员过滤
+ * @param {boolean} [options.dialAll=false] true 时拨号全部成员，否则按 mesh 策略
+ * @param {boolean} [options.autoconnect=true] start 时是否自动拨号
+ * @param {object} [options.groupSettings] 群设置透传
+ * @param {object} [options.registry] link registry（默认进程单例）
+ * @returns {object} 群组 link set 接口
  */
 export function createGroupLinkSet(options) {
 	const registry = options.registry ?? getLinkRegistry()
-	const autoconnect = options.autoconnect !== false
+	let autoconnectEnabled = false
+	const startWithAutoconnect = options.autoconnect !== false
+	const dialAll = options.dialAll === true
+	const allowNode = options.allowNode ?? (() => true)
 	const { groupId } = options
-	const scope = `group:${groupId}`
-	const topic = groupRendezvousTopic(options.roomSecret)
+	const scope = options.scope ?? `group:${groupId}`
+	const roomSecret = options.roomSecret
 	const members = new Set(options.members || [])
 	const selfNodeHash = registry.localIdentity.nodeHash
 	const groupSettings = options.groupSettings ?? {}
-	// 初始成员是调用方明确知道的引导集合（如 introducer/creator/seed），作为必连锚点保证引导期连通。
 	const initialAnchors = new Set(members)
 	/** @type {ReturnType<typeof setTimeout> | null} */
 	let dialTimer = null
+	/** @type {ReturnType<typeof setInterval> | null} */
+	let scanTimer = null
 	/** @type {Set<Function>} */
 	const cleanups = new Set()
 	/** @type {Set<Function>} */
@@ -46,9 +52,9 @@ export function createGroupLinkSet(options) {
 	/** @type {Map<string, { handler: ((payload: unknown, peerId: string) => void) | null, backlog: Array<{ payload: unknown, peerId: string }> }>} */
 	const actionEntries = new Map()
 	let active = true
+	let started = false
 
 	/**
-	 * 注册 leave 时执行的清理回调。
 	 * @param {() => void} cleanup 清理函数
 	 * @returns {void}
 	 */
@@ -58,19 +64,17 @@ export function createGroupLinkSet(options) {
 	}
 
 	/**
-	 * 记录 peer 加入并通知监听器。
-	 * @param {string} peerId 加入的 peer id
+	 * @param {string} peerId peer id
 	 * @returns {void}
 	 */
 	function notePeerJoin(peerId) {
-		if (!peerId || announcedPeers.has(peerId)) return
+		if (!peerId || !allowNode(peerId) || announcedPeers.has(peerId)) return
 		announcedPeers.add(peerId)
 		emitSafe(peerJoinListeners, peerId)
 	}
 
 	/**
-	 * 记录 peer 离开并通知监听器。
-	 * @param {string} peerId 离开的 peer id
+	 * @param {string} peerId peer id
 	 * @returns {void}
 	 */
 	function notePeerLeave(peerId) {
@@ -80,53 +84,62 @@ export function createGroupLinkSet(options) {
 	}
 
 	/**
-	 * 将新发现的 nodeHash 加入成员集合并更新 scope 兴趣。
-	 * @param {string} nodeHash 候选节点 64 hex
+	 * @param {string} nodeHash 候选节点
 	 * @returns {void}
 	 */
 	function notePeerCandidate(nodeHash) {
-		if (!nodeHash || nodeHash === selfNodeHash || members.has(nodeHash)) return
+		if (!nodeHash || nodeHash === selfNodeHash || !allowNode(nodeHash)) return
+		if (members.has(nodeHash)) {
+			if (registry.getLink(nodeHash)) notePeerJoin(nodeHash)
+			return
+		}
 		members.add(nodeHash)
 		registry.registerScopeInterest(scope, [...members])
-		// 若链路先于"得知其群成员身份"建立（如 warmup/连节点先连上，之后才收到其群 advert/envelope），
-		// onLinkUp 当时因 !members.has 被跳过，这里补发 peer-join，触发 bootstrap flush（member_join 自证推送）。
 		if (registry.getLink(nodeHash)) notePeerJoin(nodeHash)
 		scheduleDial()
 	}
 
 	/**
-	 * 依信任稀疏池从当前成员选出建链目标（top-K 信任 + 随机 explore + 初始锚点必连），拨号未连接者。
-	 * 不主动断连（超预算由 registry 全局 trimToBudget 兜底）。
 	 * @returns {void}
 	 */
 	function selectAndDial() {
-		if (!autoconnect || !active) return
-		const targets = selectLinkTargetsFromMembers({
-			members,
-			selfNodeHash,
-			rep: loadReputation(),
-			peers: loadPeerPoolView(groupId),
-			limits: resolveFederationPoolLimits(groupSettings),
-			anchors: initialAnchors,
-		})
+		if (!autoconnectEnabled || !active) return
+		const targets = dialAll
+			? [...members].filter(nodeHash => nodeHash !== selfNodeHash && allowNode(nodeHash))
+			: selectLinkTargetsFromMembers({
+				members,
+				selfNodeHash,
+				rep: loadReputation(),
+				peers: loadPeerPoolView(groupId),
+				limits: resolveFederationPoolLimits(groupSettings),
+				anchors: initialAnchors,
+			}).filter(allowNode)
 		for (const nodeHash of targets)
 			if (nodeHash !== selfNodeHash && !registry.getLink(nodeHash))
 				void registry.ensureLinkToNode(nodeHash).catch(() => null)
 	}
 
 	/**
-	 * 去抖触发一次建链目标重算（成员变化时调用，避免频繁重算）。
 	 * @returns {void}
 	 */
 	function scheduleDial() {
-		if (!autoconnect || !active || dialTimer) return
+		if (!autoconnectEnabled || !active || dialTimer) return
 		dialTimer = setTimeout(() => { dialTimer = null; selectAndDial() }, 200)
 	}
 
 	/**
-	 * 获取或创建指定 action 的 handler/backlog 条目。
-	 * @param {string} name action 名称
-	 * @returns {{ handler: ((payload: unknown, peerId: string) => void) | null, backlog: Array<{ payload: unknown, peerId: string }> }} action 条目
+	 * @returns {Promise<void>}
+	 */
+	async function scanVisibleMembers() {
+		const tunables = loadTransportTunables()
+		const limit = Math.max(8, Number(tunables.groupMemberScanLimit ?? tunables.meshScanLimit) || 64)
+		for (const hash of await listVisibleNodeHashes({ roomSecret, limit }))
+			notePeerCandidate(hash)
+	}
+
+	/**
+	 * @param {string} name action 名
+	 * @returns {object} action 表项
 	 */
 	function getActionEntry(name) {
 		if (!actionEntries.has(name))
@@ -135,26 +148,45 @@ export function createGroupLinkSet(options) {
 	}
 
 	/**
-	 * 返回当前已连接且非自身的成员 roster。
-	 * @returns {Array<{ peerId: string, remoteNodeHash: string }>} 在线成员列表
+	 * @returns {Array<{ peerId: string, remoteNodeHash: string }>} 当前在线 roster
 	 */
 	function activeRoster() {
 		return [...members]
-			.filter(nodeHash => nodeHash !== selfNodeHash && registry.getLink(nodeHash))
+			.filter(nodeHash => nodeHash !== selfNodeHash && allowNode(nodeHash) && registry.getLink(nodeHash))
 			.map(nodeHash => ({ peerId: nodeHash, remoteNodeHash: nodeHash }))
 	}
 
 	/**
-	 * 启动 discovery、scope 订阅与成员自动连接。
+	 *
+	 */
+	function startAutoconnect() {
+		autoconnectEnabled = true
+		selectAndDial()
+	}
+
+	/**
+	 *
+	 */
+	function stopAutoconnect() {
+		autoconnectEnabled = false
+		if (dialTimer) { clearTimeout(dialTimer); dialTimer = null }
+	}
+
+	/**
 	 * @returns {Promise<void>}
 	 */
 	async function start() {
-		// 房间就绪本身就意味着本节点应当可被发现；不能等到首次外拨 ensureLinkToNode 才懒启动 runtime，
-		// 否则“只有自己一个成员”的创建者房间会永远不监听 node topic，后来的 joiner 也就永远拨不进来。
+		if (started) {
+			if (startWithAutoconnect) startAutoconnect()
+			return
+		}
+		started = true
+		active = true
 		if (typeof registry.ensureRuntime === 'function')
 			await registry.ensureRuntime()
 		registry.registerScopeInterest(scope, [...members])
 		registerCleanup(registry.subscribeScope(scope, (senderNodeHash, envelope) => {
+			if (!allowNode(senderNodeHash)) return
 			notePeerCandidate(senderNodeHash)
 			const entry = actionEntries.get(envelope.action)
 			if (entry)
@@ -165,24 +197,34 @@ export function createGroupLinkSet(options) {
 				listener(senderNodeHash, envelope)
 		}))
 		registerCleanup(registry.onLinkUp(nodeHash => {
-			if (!members.has(nodeHash) || nodeHash === selfNodeHash) return
+			if (!members.has(nodeHash) || nodeHash === selfNodeHash || !allowNode(nodeHash)) return
 			notePeerJoin(nodeHash)
 		}))
 		registerCleanup(registry.onLinkDown(nodeHash => {
 			if (!members.has(nodeHash) || nodeHash === selfNodeHash) return
 			notePeerLeave(nodeHash)
 		}))
-		registerCleanup(await subscribeTopic(topic, async (bytes, meta) => {
-			const ingested = await ingestSignedAdvert(topic, bytes, meta)
-			if (!ingested || ingested.verifiedNodeHash === selfNodeHash) return
-			// 发现新成员：并入成员集并去抖重算稀疏建链目标（notePeerCandidate 内部会 scheduleDial）。
-			notePeerCandidate(ingested.verifiedNodeHash)
+
+		registerCleanup(await watchVerifiedGroupAdverts(roomSecret, async (verifiedNodeHash, body, meta) => {
+			if (verifiedNodeHash === selfNodeHash) return
+			if (!allowNode(verifiedNodeHash)) return
+			applyAdvertPeerHints(verifiedNodeHash, body, meta)
+			notePeerCandidate(verifiedNodeHash)
 		}))
-		registerCleanup(await advertiseTopic(topic, encryptSignalPacket(topic, {
-			type: 'advert',
-			body: await registry.buildLocalAdvert(topic),
+
+		registerCleanup(await startGroupPresence(roomSecret, async () => ({
+			nodeHash: selfNodeHash,
+			advertBody: await registry.buildLocalAdvert({ roomSecret }),
 		})))
-		if (autoconnect) selectAndDial()
+
+		await scanVisibleMembers()
+		const scanMs = Math.max(5_000, Number(loadTransportTunables().groupMemberScanIntervalMs) || 30_000)
+		scanTimer = setInterval(() => { void scanVisibleMembers().catch(() => { }) }, scanMs)
+		registerCleanup(() => {
+			if (scanTimer) { clearInterval(scanTimer); scanTimer = null }
+		})
+
+		if (startWithAutoconnect) startAutoconnect()
 		for (const { peerId } of activeRoster())
 			notePeerJoin(peerId)
 	}
@@ -191,14 +233,16 @@ export function createGroupLinkSet(options) {
 		groupId,
 		scope,
 		start,
+		startAutoconnect,
+		stopAutoconnect,
 		/**
-		 * 停止房间并执行所有已注册清理。
 		 * @returns {Promise<void>}
 		 */
 		async leave() {
-			if (!active) return
+			if (!active && !started) return
 			active = false
-			if (dialTimer) { clearTimeout(dialTimer); dialTimer = null }
+			started = false
+			stopAutoconnect()
 			registry.releaseScopeInterest(scope)
 			for (const cleanup of cleanups)
 				try { cleanup() } catch { /* ignore */ }
@@ -206,29 +250,41 @@ export function createGroupLinkSet(options) {
 		},
 		getRoster: activeRoster,
 		/**
-		 * 按 nodeHash 查找已连接 peer id。
-		 * @param {string} nodeHash 目标节点 64 hex
-		 * @returns {string | null} 对端 id；无链路时为 null
+		 * @param {string} nodeHash 远端节点 hash
+		 * @returns {string | null} 已建链时返回 peerId，否则 null
 		 */
 		getPeerIdByNodeHash(nodeHash) {
 			return registry.getLink(nodeHash) ? nodeHash : null
 		},
 		/**
-		 * 向单个 peer 发送 scope action。
-		 * @param {string} peerId 目标 peer id
-		 * @param {string} actionName action 名称
+		 * @param {string} peerId 目标 peer
+		 * @param {string} actionName scope action 名
 		 * @param {unknown} payload 载荷
-		 * @returns {Promise<boolean>} 是否发送成功
+		 * @returns {Promise<boolean>} 发送是否成功
 		 */
 		async sendToPeer(peerId, actionName, payload) {
+			if (!allowNode(peerId)) return false
 			return await registry.sendToNodeLink(peerId, { scope, action: actionName, payload })
 		},
 		/**
-		 * 向单个或全部在线成员发送 action。
-		 * @param {string} actionName action 名称
+		 * @param {string} actionName action 名
+		 * @param {(payload: unknown, peerId: string) => void} handler 回调
+		 * @returns {() => void} 取消订阅
+		 */
+		onAction(actionName, handler) {
+			const entry = getActionEntry(actionName)
+			entry.handler = handler
+			for (const pending of entry.backlog.splice(0))
+				handler(pending.payload, pending.peerId)
+			return () => {
+				if (entry.handler === handler) entry.handler = null
+			}
+		},
+		/**
+		 * @param {string} actionName action 名
 		 * @param {unknown} payload 载荷
-		 * @param {string | null} [peerId] 目标 peer；null 时广播
-		 * @returns {Promise<number>} 成功发送的 peer 数
+		 * @param {string | null} [peerId] 单播目标；省略则广播 roster
+		 * @returns {Promise<number>} 成功发送数
 		 */
 		async send(actionName, payload, peerId = null) {
 			if (peerId) return await this.sendToPeer(peerId, actionName, payload) ? 1 : 0
@@ -238,47 +294,42 @@ export function createGroupLinkSet(options) {
 			return sent
 		},
 		/**
-		 * 订阅入站 envelope。
-		 * @param {(senderNodeHash: string, envelope: object) => void} callback 回调
-		 * @returns {() => void} 取消订阅函数
+		 * @param {(senderNodeHash: string, envelope: object) => void} listener scope envelope 回调
+		 * @returns {() => void} 取消订阅
 		 */
-		onEnvelope(callback) {
-			envelopeListeners.add(callback)
-			return () => envelopeListeners.delete(callback)
+		onEnvelope(listener) {
+			envelopeListeners.add(listener)
+			return () => envelopeListeners.delete(listener)
 		},
 		/**
-		 * 订阅 peer 加入事件（含当前已在线 peer 的即时回调）。
-		 * @param {(peerId: string) => void} callback 回调
-		 * @returns {() => void} 取消订阅函数
+		 * @param {(peerId: string) => void} listener peer 加入回调
+		 * @returns {() => void} 取消订阅
 		 */
-		onPeerJoin(callback) {
-			peerJoinListeners.add(callback)
+		onPeerJoin(listener) {
+			peerJoinListeners.add(listener)
 			for (const { peerId } of activeRoster())
 				if (peerId) announcedPeers.add(peerId)
 			for (const peerId of announcedPeers)
-				try { callback(peerId) } catch { /* ignore */ }
-			return () => peerJoinListeners.delete(callback)
+				try { listener(peerId) } catch { /* ignore */ }
+			return () => peerJoinListeners.delete(listener)
 		},
 		/**
-		 * 订阅 peer 离开事件。
-		 * @param {(peerId: string) => void} callback 回调
-		 * @returns {() => void} 取消订阅函数
+		 * @param {(peerId: string) => void} listener peer 离开回调
+		 * @returns {() => void} 取消订阅
 		 */
-		onPeerLeave(callback) {
-			peerLeaveListeners.add(callback)
-			return () => peerLeaveListeners.delete(callback)
+		onPeerLeave(listener) {
+			peerLeaveListeners.add(listener)
+			return () => peerLeaveListeners.delete(listener)
 		},
 		/**
-		 * 返回当前在线 peer 的 Record 映射。
-		 * @returns {Record<string, true>} peerId → true
+		 * @returns {Record<string, true>} 当前在线 peer 表
 		 */
 		getPeers() {
 			return Object.fromEntries(activeRoster().map(({ peerId }) => [peerId, true]))
 		},
 		/**
-		 * 创建兼容 room.makeAction 的 [send, on] 函数对。
-		 * @param {string} name action 名称
-		 * @returns {[(payload: unknown, peerId?: string | string[] | null) => Promise<void>, (handler: (payload: unknown, peerId: string) => void) => void]} send 与 on 函数对
+		 * @param {string} name action 名
+		 * @returns {[Function, Function]} [send, onHandler] 元组：发送函数与注册 handler 函数
 		 */
 		makeAction(name) {
 			return [
@@ -299,8 +350,7 @@ export function createGroupLinkSet(options) {
 		},
 		registerCleanup,
 		/**
-		 * 房间是否仍处于活跃状态。
-		 * @returns {boolean} 是否活跃
+		 * @returns {boolean} 群 link set 是否仍活跃
 		 */
 		isActive() { return active },
 	}

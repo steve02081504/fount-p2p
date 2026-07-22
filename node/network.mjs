@@ -1,9 +1,9 @@
 import { isEntityHash128 } from '../core/entity_id.mjs'
 import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
-import { invalidateTrustGraphCache } from '../trust_graph/cache.mjs'
 
 import { loadDenylist } from './denylist.mjs'
 import { getNodeDir, isNodeInitialized } from './instance.mjs'
+import { bumpLocalDataRevision } from './local_data_revision.mjs'
 import { readNodeJsonSync, writeNodeJsonSync } from './storage.mjs'
 
 
@@ -28,6 +28,7 @@ import { readNodeJsonSync, writeNodeJsonSync } from './storage.mjs'
 
 const DATA_NAME = 'network'
 const MAX_EXPLORE = 500
+const MAX_TRUSTED = 64
 const MAX_HINTS = 256
 const MAX_HINTS_PER_SOURCE = 12
 const DEFAULT_EXPLORE_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -97,10 +98,10 @@ export function capHintsBySource(hints, maxPerSource = MAX_HINTS_PER_SOURCE) {
 	const counts = new Map()
 	const out = []
 	for (const hint of [...hints].reverse()) {
-		const src = String(hint.source || 'unknown')
-		const n = counts.get(src) ?? 0
+		const source = String(hint.source || 'unknown')
+		const n = counts.get(source) ?? 0
 		if (n >= maxPerSource) continue
-		counts.set(src, n + 1)
+		counts.set(source, n + 1)
 		out.unshift(hint)
 	}
 	return out
@@ -115,10 +116,11 @@ export function saveNetwork(data) {
 	const now = Date.now()
 	clean.hints = capHintsBySource(clean.hints.filter(h => !h.expiresAt || h.expiresAt > now)).slice(-MAX_HINTS)
 	clean.explorePeers = clean.explorePeers.slice(-MAX_EXPLORE)
+	clean.trustedPeers = clean.trustedPeers.slice(-MAX_TRUSTED)
 	writeNodeJsonSync(DATA_NAME, clean)
 	networkCache = clean
 	networkCacheNodeDir = isNodeInitialized() ? getNodeDir() : ''
-	invalidateTrustGraphCache()
+	bumpLocalDataRevision()
 }
 
 /**
@@ -192,6 +194,36 @@ export function mergeNetworkPeerPools(patch = {}) {
 		const id = normalizeHex64(raw)
 		if (isHex64(id) && !net.explorePeers.includes(id)) net.explorePeers.push(id)
 	}
+	net.lastRosterAt = Date.now()
+	saveNetwork(net)
+}
+
+/**
+ * 稳定探索对端升入熟人池（从 explore 移除并追加 trusted）。
+ * @param {string} nodeHash 对端 nodeHash
+ * @returns {void}
+ */
+export function promoteExplorePeer(nodeHash) {
+	const net = loadNetwork()
+	const id = normalizeHex64(nodeHash)
+	if (!isHex64(id)) return
+	net.explorePeers = net.explorePeers.filter(peer => peer !== id)
+	if (!net.trustedPeers.includes(id)) net.trustedPeers.push(id)
+	net.lastRosterAt = Date.now()
+	saveNetwork(net)
+}
+
+/**
+ * 整表替换 trusted/explore 池（可缩池）。
+ * @param {{ trustedPeers?: string[], explorePeers?: string[] }} pools - 要替换的 peer 池
+ * @returns {void}
+ */
+export function replaceNetworkPeerPools(pools = {}) {
+	const net = loadNetwork()
+	if (Array.isArray(pools.trustedPeers))
+		net.trustedPeers = pools.trustedPeers.map(id => normalizeHex64(id)).filter(id => isHex64(id))
+	if (Array.isArray(pools.explorePeers))
+		net.explorePeers = pools.explorePeers.map(id => normalizeHex64(id)).filter(id => isHex64(id))
 	net.lastRosterAt = Date.now()
 	saveNetwork(net)
 }

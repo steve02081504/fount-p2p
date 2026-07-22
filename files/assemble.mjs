@@ -147,18 +147,18 @@ export async function encryptPlaintextToMultiPartsAsync(plaintext, ceMode = 'con
 }
 
 /**
- * @param {object} params 参数
- * @param {string} params.ownerEntityHash 128 hex
- * @param {string} params.logicalPath EVFS 路径
- * @param {Buffer | Uint8Array} params.plaintext 明文
- * @param {string} [params.name] 文件名
- * @param {string} [params.mimeType] MIME
- * @param {CeMode} [params.ceMode] 加密模式
- * @param {import('./manifest.mjs').TransferKeyDescriptor} [params.transferKeyDescriptor] 传递密钥
- * @param {object} [params.meta] 元数据
+ * @param {object} parameters 参数
+ * @param {string} parameters.ownerEntityHash 128 hex
+ * @param {string} parameters.logicalPath EVFS 路径
+ * @param {Buffer | Uint8Array} parameters.plaintext 明文
+ * @param {string} [parameters.name] 文件名
+ * @param {string} [parameters.mimeType] MIME
+ * @param {CeMode} [parameters.ceMode] 加密模式
+ * @param {import('./manifest.mjs').TransferKeyDescriptor} [parameters.transferKeyDescriptor] 传递密钥
+ * @param {object} [parameters.meta] 元数据
  * @returns {FileManifest} manifest（未写盘）
  */
-export function buildFileManifest(params) {
+export function buildFileManifest(parameters) {
 	const {
 		ownerEntityHash,
 		logicalPath,
@@ -168,7 +168,7 @@ export function buildFileManifest(params) {
 		ceMode = 'convergent',
 		transferKeyDescriptor,
 		meta,
-	} = params
+	} = parameters
 	const enc = encryptPlaintextToParts(plaintext, ceMode)
 	const manifest = normalizeFileManifest({
 		ownerEntityHash: ownerEntityHash.toLowerCase(),
@@ -188,11 +188,11 @@ export function buildFileManifest(params) {
 
 /**
  * 由已加密分块构建 manifest（vault / file-master-key-wrap 等需自定义 transferKeyDescriptor）。
- * @param {object} params 与 buildFileManifest 相同字段（不含 plaintext 重加密）
+ * @param {object} parameters 与 buildFileManifest 相同字段（不含 plaintext 重加密）
  * @param {{ contentHash: string, parts: Array<{ hash: string, size: number, raw?: Buffer, contentHash?: string }> }} enc 加密结果
  * @returns {FileManifest} manifest
  */
-export function buildFileManifestFromEnc(params, enc) {
+export function buildFileManifestFromEnc(parameters, enc) {
 	const {
 		ownerEntityHash,
 		logicalPath,
@@ -202,7 +202,7 @@ export function buildFileManifestFromEnc(params, enc) {
 		ceMode = 'convergent',
 		transferKeyDescriptor,
 		meta,
-	} = params
+	} = parameters
 	const manifest = normalizeFileManifest({
 		ownerEntityHash: ownerEntityHash.toLowerCase(),
 		logicalPath: logicalPath.replace(/^\/+/, ''),

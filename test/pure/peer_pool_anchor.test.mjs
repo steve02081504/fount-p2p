@@ -36,8 +36,8 @@ test('selectExploreWithSourceQuota caps single source', () => {
 	const picked = selectExploreWithSourceQuota([A, B, C, D, E], sources, 4, EXPLORE_MAX_PER_SOURCE)
 	const bySrc = new Map()
 	for (const id of picked) {
-		const src = sources.get(id)
-		bySrc.set(src, (bySrc.get(src) ?? 0) + 1)
+		const source = sources.get(id)
+		bySrc.set(source, (bySrc.get(source) ?? 0) + 1)
 	}
 	assertEquals((bySrc.get('attacker') ?? 0) <= EXPLORE_MAX_PER_SOURCE, true)
 	assertEquals(picked.length, 4)

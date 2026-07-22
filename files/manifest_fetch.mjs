@@ -16,8 +16,9 @@ import { normalizeFileManifest } from './manifest.mjs'
 import { shouldPreferIncomingPublicManifest } from './public_manifest.mjs'
 
 /**
- * @param {{ username: string, ownerEntityHash: string, logicalPath: string }} context 上下文
- * @returns {Promise<import('./manifest.mjs').FileManifest | null>} 验签后的公开清单
+ * 拉取公开 manifest；默认不写盘。`cache: true` 或 `cachePublicManifest` 才缓存。
+ * @param {{ username: string, ownerEntityHash: string, logicalPath: string, cache?: boolean }} context - 拉取上下文
+ * @returns {Promise<import('./manifest.mjs').FileManifest | null>} 验签后的 manifest，失败为 null
  */
 export async function fetchPublicManifest(context) {
 	const ownerEntityHash = String(context.ownerEntityHash || '').trim().toLowerCase()
@@ -48,8 +49,20 @@ export async function fetchPublicManifest(context) {
 	const result = await done
 	if (!result) return null
 
-	await maybeCacheIncomingPublicManifest(ownerEntityHash, logicalPath, result)
+	if (context.cache === true)
+		await cachePublicManifest(ownerEntityHash, logicalPath, result)
 	return result
+}
+
+/**
+ * 将已验签公开 manifest 写入本地缓存（显式 apply；`fetchPublicManifest` 默认不调用）。
+ * @param {string} ownerEntityHash owner
+ * @param {string} logicalPath 路径
+ * @param {import('./manifest.mjs').FileManifest} incoming 已验签入站清单
+ * @returns {Promise<void>}
+ */
+export async function cachePublicManifest(ownerEntityHash, logicalPath, incoming) {
+	await maybeCacheIncomingPublicManifest(ownerEntityHash, logicalPath, incoming)
 }
 
 /**

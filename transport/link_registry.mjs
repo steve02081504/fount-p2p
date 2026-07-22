@@ -2,18 +2,21 @@ import { Buffer } from 'node:buffer'
 
 import { compareHex64Asc, normalizeHex64 } from '../core/hexIds.mjs'
 import { keyPairFromSeed } from '../crypto/crypto.mjs'
-import { subscribeTopic } from '../discovery/index.mjs'
+import { watchVerifiedNodeAdvert, setDiscoveryLinkDialer, prepareConnectToNode } from '../discovery/index.mjs'
 import { listLinkProviders } from '../link/providers/index.mjs'
 import { ensureNodeSeed, getNodeHash } from '../node/identity.mjs'
+import { nodeDebug, shortHash } from '../node/log.mjs'
+import { loadPeerPoolView } from '../node/network.mjs'
 import { createOverlayRouter } from '../overlay/index.mjs'
 import { emitSafe } from '../utils/emit_safe.mjs'
 import { createLruMap } from '../utils/lru.mjs'
 
-import { ingestSignedAdvert } from './advert_ingest.mjs'
+import { applyAdvertPeerHints } from './advert_ingest.mjs'
 import { DEFAULT_ICE_SERVERS } from './ice_servers.mjs'
+import { createMeshKeepalive } from './mesh_keepalive.mjs'
 import { createOfferAnswerDial } from './offer_answer.mjs'
+import { pickMeshEvictionVictim } from './peer_pool.mjs'
 import { createRuntimeBootstrap } from './runtime_bootstrap.mjs'
-import { nodeRendezvousTopic } from './signal_crypto.mjs'
 
 /**
  * 解析或从节点种子推导本地身份。
@@ -60,15 +63,23 @@ function subscribeBucket(buckets, key, listener) {
  * @param {{ nodeHash?: string, nodePubKey?: string, secretKey?: Uint8Array }} [options.localIdentity] 本地身份
  * @param {RTCConfiguration['iceServers']} [options.iceServers] ICE 服务器列表（包内 webrtc provider 使用）
  * @param {number} [options.maxActive] 最大并发活跃链路数
+ * @param {boolean} [options.meshKeepalive=true] 是否启用 mesh 保活（N/K 扫描拨号）
  * @param {boolean} [options.autoRegisterDiscoveryProviders] 是否自动注册 discovery provider
  * @param {boolean} [options.autoRegisterLinkProviders] 是否自动注册内置 link provider
  * @returns {object} link registry 接口（对上层即 fount 网络：ensure/send/subscribe，无传输类型）
  */
 export function createLinkRegistry(options = {}) {
 	const localIdentity = resolveLocalIdentity(options.localIdentity)
-	const iceServers = options.iceServers?.length ? options.iceServers : DEFAULT_ICE_SERVERS
-	const maxActive = Math.max(4, Number(options.maxActive) || 32)
-	const selfTopic = nodeRendezvousTopic(localIdentity.nodeHash)
+	let iceServers = options.iceServers?.length ? options.iceServers : DEFAULT_ICE_SERVERS
+	let maxActive = Math.max(4, Number(options.maxActive) || 32)
+	const savedMaxActive = maxActive
+	const meshKeepaliveEnabled = options.meshKeepalive !== false
+	/** @type {((nodeHash: string) => number) | null} */
+	let priorityWeightFunction = null
+	/** @type {Set<string>} */
+	let exploreLinkHashes = new Set()
+	/** @type {ReturnType<typeof createMeshKeepalive> | null} */
+	let meshKeepalive = null
 	/** @type {Map<string, object>} */
 	const links = new Map()
 	/** @type {Map<string, Promise<object | null>>} */
@@ -168,13 +179,12 @@ export function createLinkRegistry(options = {}) {
 
 	const bootstrap = createRuntimeBootstrap({
 		localIdentity,
-		selfTopic,
 		autoRegisterDiscoveryProviders: options.autoRegisterDiscoveryProviders !== false,
 		autoRegisterLinkProviders: options.autoRegisterLinkProviders !== false,
 		onInboundLink,
 		/**
-		 * @param {Uint8Array} bytes 入站信令字节
-		 * @returns {void}
+		 * @param {Uint8Array} bytes 入站加密信令
+		 * @returns {Promise<void>}
 		 */
 		handleIncomingSignal: bytes => handleIncomingSignal(bytes),
 	})
@@ -185,47 +195,41 @@ export function createLinkRegistry(options = {}) {
 	 * @returns {number} 权重值
 	 */
 	function scopeWeight(remoteNodeHash) {
-		let weight = 0
+		let weight = priorityWeightFunction?.(remoteNodeHash) ?? 0
 		for (const hashes of scopeInterests.values())
 			if (hashes.has(remoteNodeHash)) weight++
 		return weight
 	}
 
 	/**
-	 * 超出 maxActive 时驱逐权重最低的链路。
+	 * 超出 maxActive 时驱逐：探索链优先于熟人/scope 权重。
 	 * @returns {Promise<void>}
 	 */
 	async function trimToBudget() {
 		if (links.size < maxActive) return
-		let victimHash = null
-		let victimLink = null
-		let victimWeight = Infinity
-		for (const [nodeHash, link] of links) {
-			const weight = scopeWeight(nodeHash)
-			if (
-				victimHash == null
-				|| weight < victimWeight
-				|| (weight === victimWeight && compareHex64Asc(nodeHash, victimHash) < 0)
-			) {
-				victimHash = nodeHash
-				victimLink = link
-				victimWeight = weight
-			}
-		}
+		const peers = loadPeerPoolView()
+		const victimHash = pickMeshEvictionVictim(
+			[...links.keys()],
+			exploreLinkHashes,
+			peers.trustedPeers,
+			scopeWeight,
+		)
+		const victimLink = victimHash ? links.get(victimHash) : null
 		if (victimLink) await victimLink.close('budget-evict')
 	}
 
 	; ({ handleIncomingSignal, dialOfferAnswer } = createOfferAnswerDial({
 		localIdentity,
-		iceServers,
-		selfTopic,
+		/**
+		 * @returns {RTCConfiguration['iceServers']} 当前 ICE 服务器列表
+		 */
+		get iceServers() { return iceServers },
 		signalSessions,
 		registerResolvedLink,
 		trimToBudget,
 		/**
-		 * 读取当前规范链。
-		 * @param {string} remoteNodeHash 远端节点 64 hex
-		 * @returns {object | null | undefined} 规范链实例
+		 * @param {string} remoteNodeHash 远端 nodeHash
+		 * @returns {object | null} 已有规范链路
 		 */
 		getCanonicalLink: remoteNodeHash => links.get(normalizeHex64(remoteNodeHash)),
 	}))
@@ -262,31 +266,98 @@ export function createLinkRegistry(options = {}) {
 		if (links.has(normalized)) return links.get(normalized)
 		if (inflights.has(normalized)) return await inflights.get(normalized)
 		const task = (async () => {
+			nodeDebug('p2p:dial start', { peer: shortHash(normalized) })
+			await prepareConnectToNode(normalized)
 			const providers = listLinkProviders()
 			for (const provider of providers)
 				try {
 					if (typeof provider.canReach === 'function') {
 						const reachable = await Promise.resolve(provider.canReach({ nodeHash: normalized }))
-						if (!reachable) continue
+						if (!reachable) {
+							nodeDebug('p2p:dial skip', { peer: shortHash(normalized), provider: provider.id, reason: 'canReach=false' })
+							continue
+						}
 					}
 					if (typeof provider.isAvailable === 'function') {
 						const available = await Promise.resolve(provider.isAvailable())
-						if (!available) continue
+						if (!available) {
+							nodeDebug('p2p:dial skip', { peer: shortHash(normalized), provider: provider.id, reason: 'isAvailable=false' })
+							continue
+						}
 					}
+					nodeDebug('p2p:dial try', { peer: shortHash(normalized), provider: provider.id })
 					if (provider.caps?.needsOfferAnswer) {
 						const link = await dialOfferAnswer(provider, normalized)
-						if (link) return link
+						if (link) {
+							nodeDebug('p2p:dial ok', { peer: shortHash(normalized), provider: provider.id })
+							return link
+						}
+						nodeDebug('p2p:dial miss', { peer: shortHash(normalized), provider: provider.id })
 						continue
 					}
 					const link = await dialProvider(provider, normalized)
-					if (link) return link
+					if (link) {
+						nodeDebug('p2p:dial ok', { peer: shortHash(normalized), provider: provider.id })
+						return link
+					}
+					nodeDebug('p2p:dial miss', { peer: shortHash(normalized), provider: provider.id })
 				}
-				catch { /* dial failed — try next provider */ }
+				catch (error) {
+					nodeDebug('p2p:dial fail', {
+						peer: shortHash(normalized),
+						provider: provider.id,
+						err: String(error?.message || error),
+					})
+				}
 
+			nodeDebug('p2p:dial exhausted', { peer: shortHash(normalized) })
 			return null
 		})().finally(() => inflights.delete(normalized))
 		inflights.set(normalized, task)
 		return await task
+	}
+
+	meshKeepalive = createMeshKeepalive({
+		registry: {
+			localIdentity,
+			/**
+			 * @returns {Array<{ nodeHash: string, link: object }>} 当前链路列表
+			 */
+			listLinks: () => [...links.entries()].map(([nodeHash, link]) => ({ nodeHash, link })),
+			/**
+			 * @param {string} nodeHash 目标 nodeHash
+			 * @returns {object | null} 已有链路或 null
+			 */
+			getLink: nodeHash => links.get(normalizeHex64(nodeHash)) || null,
+			ensureLinkToNode: ensureDirectLinkToNode,
+			/**
+			 * @param {(nodeHash: string) => void} listener link up 回调
+			 * @returns {() => void} 取消订阅
+			 */
+			onLinkUp: listener => {
+				linkUpListeners.add(listener)
+				return () => linkUpListeners.delete(listener)
+			},
+			/**
+			 * @param {(nodeHash: string, reason: string) => void} listener link down 回调
+			 * @returns {() => void} 取消订阅
+			 */
+			onLinkDown: listener => {
+				linkDownListeners.add(listener)
+				return () => linkDownListeners.delete(listener)
+			},
+		},
+		enabled: meshKeepaliveEnabled,
+	})
+	exploreLinkHashes = meshKeepalive.exploreLinkHashes
+	setDiscoveryLinkDialer(ensureDirectLinkToNode)
+
+	/**
+	 *
+	 */
+	const ensureRuntimeWithMesh = async () => {
+		await bootstrap.ensureRuntime()
+		meshKeepalive?.start()
 	}
 
 	/**
@@ -327,6 +398,13 @@ export function createLinkRegistry(options = {}) {
 			void dispatchEnvelope(meta.path[0], body, null).catch(() => { })
 		})
 		return overlayRouter
+	}
+
+	/**
+	 * @returns {import('../overlay/index.mjs').OverlayRouter} overlay 路由器单例
+	 */
+	function ensureOverlayRouter() {
+		return getOverlayRouter()
 	}
 
 	/**
@@ -416,8 +494,55 @@ export function createLinkRegistry(options = {}) {
 		buildLocalAdvert: bootstrap.buildLocalAdvert,
 		lanTcpPort: bootstrap.lanTcpPort,
 		whenListening: bootstrap.whenListening,
-		ensureRuntime: bootstrap.ensureRuntime,
+		ensureRuntime: ensureRuntimeWithMesh,
+		reloadDiscoveryRelays: bootstrap.reloadDiscoveryRelays,
+		ensureOverlayRouter,
+		getOverlayRouter,
 		ensureLinkToNode: ensureDirectLinkToNode,
+		/**
+		 * 设置最大并发活跃链路数。
+		 * @param {number} value 最大并发活跃链路数
+		 * @returns {Promise<void>}
+		 */
+		async setMaxActive(value) {
+			maxActive = Math.max(4, Math.min(128, Math.floor(Number(value) || savedMaxActive)))
+			await trimToBudget()
+		},
+		/**
+		 * @returns {number} 当前 maxActive
+		 */
+		getMaxActive() {
+			return maxActive
+		},
+		/**
+		 * 设置 ICE 服务器列表。
+		 * @param {RTCConfiguration['iceServers']} servers ICE 列表
+		 * @returns {void}
+		 */
+		setIceServers(servers) {
+			iceServers = servers?.length ? servers : DEFAULT_ICE_SERVERS
+		},
+		/**
+		 * @returns {RTCConfiguration['iceServers']} 当前 ICE 服务器列表
+		 */
+		getIceServers() {
+			return iceServers
+		},
+		/**
+		 * infra/trim：额外优先级权重；null 清除。
+		 * @param {((nodeHash: string) => number) | null} weightFunction 额外 trim 权重；null 清除
+		 * @returns {void}
+		 */
+		setPriorityWeightFunction(weightFunction) {
+			priorityWeightFunction = typeof weightFunction === 'function' ? weightFunction : null
+		},
+		/**
+		 * @param {string} nodeHash - 节点 64-hex hash
+		 * @returns {number} 额外路由 trim 权重
+		 */
+		getPriorityWeight(nodeHash) {
+			return priorityWeightFunction?.(nodeHash) ?? 0
+		},
 		/**
 		 * 获取到指定节点的活跃链路。
 		 * @param {string} nodeHash 节点 64 hex
@@ -484,18 +609,17 @@ export function createLinkRegistry(options = {}) {
 		registerScopeAuthorizer,
 		subscribeScope,
 		/**
-		 * 订阅指定节点的 advert 广播。
+		 * 监听指定节点的 advert（per-hash，无 topic）。
 		 * @param {string} nodeHash 目标节点 64 hex
 		 * @param {(verifiedNodeHash: string, body: object) => void | Promise<void>} onAdvert advert 回调
-		 * @returns {Promise<() => void>} 取消订阅函数
+		 * @returns {Promise<() => void>} 取消函数
 		 */
-		async subscribeNodeAdvert(nodeHash, onAdvert) {
-			const topic = nodeRendezvousTopic(nodeHash)
-			return await subscribeTopic(topic, async (bytes, meta) => {
-				const ingested = await ingestSignedAdvert(topic, bytes, meta)
-				if (!ingested) return
-				recentAdverts.touch(ingested.verifiedNodeHash, Date.now())
-				await Promise.resolve(onAdvert(ingested.verifiedNodeHash, ingested.body))
+		async watchNodeAdvert(nodeHash, onAdvert) {
+			const hash = normalizeHex64(nodeHash)
+			return await watchVerifiedNodeAdvert(hash, async (verifiedNodeHash, body, meta) => {
+				applyAdvertPeerHints(verifiedNodeHash, body, meta)
+				recentAdverts.touch(verifiedNodeHash, Date.now())
+				await Promise.resolve(onAdvert(verifiedNodeHash, body))
 			})
 		},
 		recentAdverts,
@@ -505,6 +629,8 @@ export function createLinkRegistry(options = {}) {
 		 * @returns {Promise<void>}
 		 */
 		async shutdown() {
+			await meshKeepalive?.stop()
+			setDiscoveryLinkDialer(null)
 			await bootstrap.shutdown()
 			overlayRouter?.close()
 			overlayRouter = null
@@ -519,6 +645,26 @@ export function createLinkRegistry(options = {}) {
 }
 
 let defaultRegistry = null
+/** @type {object | null} */
+let pendingRegistryOptions = null
+
+/**
+ * 在首次 getLinkRegistry 前配置默认 registry 选项。
+ * @param {object} options createLinkRegistry 选项
+ * @returns {void}
+ */
+export function configureLinkRegistry(options = {}) {
+	if (defaultRegistry) throw new Error('p2p: configureLinkRegistry must run before getLinkRegistry')
+	pendingRegistryOptions = { ...pendingRegistryOptions, ...options }
+}
+
+/**
+ * @returns {void}
+ */
+export function resetLinkRegistryForTests() {
+	defaultRegistry = null
+	pendingRegistryOptions = null
+}
 
 /**
  * 默认 registry 尚未创建时暂存的 scope authorizer 条目。
@@ -533,7 +679,8 @@ const pendingScopeAuthorizers = []
  */
 export function getLinkRegistry() {
 	if (defaultRegistry) return defaultRegistry
-	defaultRegistry = createLinkRegistry()
+	defaultRegistry = createLinkRegistry(pendingRegistryOptions || {})
+	pendingRegistryOptions = null
 	for (const entry of pendingScopeAuthorizers)
 		entry.unregister = defaultRegistry.registerScopeAuthorizer(entry.prefix, entry.authorizer)
 	pendingScopeAuthorizers.length = 0
@@ -543,31 +690,35 @@ export function getLinkRegistry() {
 /**
  * 默认 registry 方法代理。
  * @param {string} name registry 方法名
- * @returns {(...args: unknown[]) => unknown} 绑定到 getLinkRegistry()[name] 的函数
+ * @returns {(...methodArguments: unknown[]) => unknown} 绑定到 getLinkRegistry()[name] 的函数
  */
-const bindRegistryMethod = name => (...args) => getLinkRegistry()[name](...args)
+const bindRegistryMethod = name => (...methodArguments) => getLinkRegistry()[name](...methodArguments)
 
-/** @type {(...args: unknown[]) => unknown} */
+/** 确保 overlay 路由器已创建。 @type {(...methodArguments: unknown[]) => unknown} */
+export const ensureOverlayRouter = bindRegistryMethod('ensureOverlayRouter')
+/** 热重载 discovery relay 配置。 @type {(...methodArguments: unknown[]) => unknown} */
+export const reloadDiscoveryRelays = bindRegistryMethod('reloadDiscoveryRelays')
+/** 确保到 nodeHash 的活跃链路。 @type {(...methodArguments: unknown[]) => unknown} */
 export const ensureLinkToNode = bindRegistryMethod('ensureLinkToNode')
-/** @type {(...args: unknown[]) => unknown} */
+/** @type {(...methodArguments: unknown[]) => unknown} */
 export const getLink = bindRegistryMethod('getLink')
-/** @type {(...args: unknown[]) => unknown} */
+/** @type {(...methodArguments: unknown[]) => unknown} */
 export const listLinks = bindRegistryMethod('listLinks')
-/** @type {(...args: unknown[]) => unknown} */
+/** @type {(...methodArguments: unknown[]) => unknown} */
 export const closeLink = bindRegistryMethod('closeLink')
-/** @type {(...args: unknown[]) => unknown} */
+/** 经活跃链路向节点发送 envelope。 @type {(...methodArguments: unknown[]) => unknown} */
 export const sendToNodeLink = bindRegistryMethod('sendToNodeLink')
-/** @type {(...args: unknown[]) => unknown} */
+/** @type {(...methodArguments: unknown[]) => unknown} */
 export const relayEnvelopeToNode = bindRegistryMethod('relayEnvelopeToNode')
-/** @type {(...args: unknown[]) => unknown} */
+/** @type {(...methodArguments: unknown[]) => unknown} */
 export const onLinkUp = bindRegistryMethod('onLinkUp')
-/** @type {(...args: unknown[]) => unknown} */
+/** @type {(...methodArguments: unknown[]) => unknown} */
 export const onLinkDown = bindRegistryMethod('onLinkDown')
-/** @type {(...args: unknown[]) => unknown} */
+/** @type {(...methodArguments: unknown[]) => unknown} */
 export const registerScopeInterest = bindRegistryMethod('registerScopeInterest')
-/** @type {(...args: unknown[]) => unknown} */
+/** @type {(...methodArguments: unknown[]) => unknown} */
 export const releaseScopeInterest = bindRegistryMethod('releaseScopeInterest')
-/** @type {(...args: unknown[]) => unknown} */
+/** @type {(...methodArguments: unknown[]) => unknown} */
 export const subscribeScope = bindRegistryMethod('subscribeScope')
 
 /**

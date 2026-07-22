@@ -1,18 +1,25 @@
 import { test } from 'node:test'
 
-import { createBluetoothDiscoveryProvider } from '../../discovery/bt/index.mjs'
+import {
+	buildSignedAdvertForScope,
+	encryptAdvertForScope,
+} from '../../discovery/adverts.mjs'
+import {
+	acceptBtScannedPresence,
+	clearBtVisibleNodes,
+	createBluetoothDiscoveryProvider,
+	listBtVisibleNodeHashes,
+} from '../../discovery/bt/index.mjs'
 import {
 	BT_PEER_HINT_TTL_MS,
 	clearBtPeerHints,
 	getBtPeerHint,
 	noteBtPeerHint,
 } from '../../discovery/bt/peer_hints.mjs'
-import {
-	registerDiscoveryProvider,
-	sendSignal,
-} from '../../discovery/index.mjs'
+import { encryptSignalPacket, networkRendezvousKey } from '../../discovery/internal/signal_crypto.mjs'
 import { createBleGattLinkProvider } from '../../link/providers/ble_gatt.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
+import { identity } from '../helpers/identity.mjs'
 
 test('bt peer hints store and expire by TTL', () => {
 	clearBtPeerHints()
@@ -38,31 +45,44 @@ test('ble_gatt canReach follows bt peer hint', () => {
 	assertEquals(provider.canReach({ nodeHash }), false)
 })
 
-test('bt sendSignal returns false without hint; fan-out still delivers via other provider', async () => {
+test('bt connectToNode returns false without peer hint', async () => {
 	clearBtPeerHints()
 	const nodeHash = 'ab'.repeat(32)
 	const bt = createBluetoothDiscoveryProvider()
-	assertEquals(await bt.sendSignal('topic', nodeHash, new Uint8Array([1])), false)
+	assertEquals(await bt.connectToNode(nodeHash), false)
+})
 
-	let delivered = 0
-	const fallback = {
-		id: 'test-signal-fallback',
-		priority: 0,
-		caps: { canSignal: true },
-		/**
-		 *
-		 */
-		sendSignal() { delivered++ },
-	}
-	const stopBt = registerDiscoveryProvider(bt)
-	const stopFallback = registerDiscoveryProvider(fallback)
-	try {
-		await sendSignal('topic', nodeHash, new Uint8Array([1]))
-		assertEquals(delivered, 1)
-	}
-	finally {
-		stopBt()
-		stopFallback()
-		clearBtPeerHints()
-	}
+test('acceptBtScannedPresence verifies advert and records peripheral hint', async () => {
+	clearBtPeerHints()
+	clearBtVisibleNodes()
+	const local = identity(7)
+	const body = await buildSignedAdvertForScope('network', local)
+	const bytes = encryptAdvertForScope('network', local, body)
+	const peripheralId = 'scan-peripheral-01'
+	const ingested = await acceptBtScannedPresence(bytes, { peripheralId })
+	assertEquals(ingested?.verifiedNodeHash, local.nodeHash)
+	assertEquals(getBtPeerHint(local.nodeHash)?.peripheralId, peripheralId)
+	assertEquals(listBtVisibleNodeHashes().includes(local.nodeHash), true)
+	clearBtPeerHints()
+	clearBtVisibleNodes()
+})
+
+test('acceptBtScannedPresence rejects forged nodeHash without valid signature', async () => {
+	clearBtPeerHints()
+	clearBtVisibleNodes()
+	const fakeHash = 'cd'.repeat(32)
+	const bytes = encryptSignalPacket(networkRendezvousKey(), {
+		type: 'advert',
+		body: {
+			nodeHash: fakeHash,
+			nodePubKey: 'ab'.repeat(32),
+			ts: Date.now(),
+			sig: '00'.repeat(64),
+		},
+	})
+	assertEquals(await acceptBtScannedPresence(bytes, { peripheralId: 'x' }), null)
+	assertEquals(getBtPeerHint(fakeHash), null)
+	assertEquals(listBtVisibleNodeHashes().includes(fakeHash), false)
+	clearBtPeerHints()
+	clearBtVisibleNodes()
 })

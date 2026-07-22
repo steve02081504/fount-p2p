@@ -15,15 +15,17 @@ In-process co-evolution of **tunables** (`*.tunables.json`) against an **attack 
   - Trust graph: `pickTop` (`trust_graph/engine.mjs`)
   - Tunables resolve: `resolveMailboxRelayFanout` / `resolveMailboxWantFanout` / `resolveArchiveQuorumPeerMin` / `resolveArchiveQuorumPeerStrictMin` (`trust_graph/resolve.mjs`)
   - Admission PoW: `expectedJoinPowHashes` / `powVoluntaryBonus` (`governance/join_pow.mjs`)
-- **Tunables source:** `tunables_bundle.mjs` loads in-package `*.tunables.json` plus `sim/reputation_social.tunables.json`. Writing social tunables back to the shell: `--social-tunables PATH` on `cli.mjs mine` (see `apply.mjs`).
+- **Tunables source:** `tunables_bundle.mjs` loads in-package `*.tunables.json` plus `sim/reputation_social.tunables.json`. Write social tunables back with `--social-tunables PATH` on `cli.mjs mine` (see `apply.mjs`).
 - **`PARAM_SPACE` ↔ defaults:** every `PARAM_SPACE` key must exist in `loadDefaultTunables()`; clear both sides when deleting a key.
 - **`socialRepHideThreshold`:** hide when `score < threshold`. Default `0` (suppress negatives only). Raise the threshold to raise `falsePositiveRate` — never use a negative threshold for "stricter".
 - **Heuristic proxy** (not the real path): `model.mjs`, `discovery.mjs`, `transport.mjs`, `integrity.mjs` — analytical "params → defense" only.
+- **Mesh-first:** production keeps ≥N links (K acquaintances + N−K discovery); K=0 still joins via discovery ([docs/mesh.md](../docs/mesh.md)). Sim discovery must not treat "no social edge" as isolation; explore slots and cold-start join are mandatory; fanout/trust stay separate from link presence.
 
 ## Anti-drift
 
 - Do not hand-copy runtime constants. RTC budget from `transport/rtc_connection_budget.mjs` (`resolveRtcBudgetLimits()` + `MAX_SOURCE_SLOT_FRACTION`). `EXPLORE_MAX_PER_SOURCE` mirrors `peer_pool.mjs` but stays local (importing `peer_pool` pulls fs into the hot path) — `test/fidelity.test.mjs` asserts equality.
-- Signaling source names (`DEFAULT_SIGNALING_SOURCES`) must be real provider ids (`mdns` / `nostr` / `bt`). No `tracker` provider.
+- Signaling source names (`DEFAULT_SIGNALING_SOURCES`) must be real provider ids (`lan` / `nostr` / `bt`). No `tracker` provider.
+- K=0 cold-start: `scenario.coldStartObserver: true` → observer with `trustedPeers=[]`; `initObserverDiscovery(..., coldBootstrap=true)` starts empty; each round `coldStartDiscoveryJoin` simulates mesh scan. Scenario `cold_start` + `sim/test/cold_start.test.mjs`.
 - New sim constants that shadow real ones need a matching assertion in `fidelity.test.mjs`.
 
 ## Determinism

@@ -75,14 +75,14 @@ function parseJobsLimit(raw) {
 }
 
 /**
- * @param {Record<string, string | boolean> & { _: string[] }} args 已解析 CLI 参数
- * @returns {import('./metrics.mjs').EvalOpts} 评估并行选项（默认自动占满 CPU）
+ * @param {Record<string, string | boolean> & { _: string[] }} cliArguments 已解析 CLI 参数
+ * @returns {import('./metrics.mjs').EvalOptions} 评估并行选项（默认自动占满 CPU）
  */
-function buildEvalOpts(args) {
-	if (args.serial || args.jobs === '1' || args.jobs === 1)
+function buildEvalOptions(cliArguments) {
+	if (cliArguments.serial || cliArguments.jobs === '1' || cliArguments.jobs === 1)
 		return { serial: true }
-	if (args.jobs != null && args.jobs !== true)
-		return { concurrency: parseJobsLimit(String(args.jobs)) }
+	if (cliArguments.jobs != null && cliArguments.jobs !== true)
+		return { concurrency: parseJobsLimit(String(cliArguments.jobs)) }
 	return {}
 }
 
@@ -114,12 +114,12 @@ function createProgressPrinter(durationMs, generations) {
 }
 
 /**
- * @param {Record<string, string | boolean> & { _: string[] }} args 已解析参数
+ * @param {Record<string, string | boolean> & { _: string[] }} cliArguments 已解析参数
  * @returns {Promise<void>}
  */
-async function cmdSim(args) {
-	const scenarioId = String(args.scenario || args.scenarios || 'balanced')
-	const seeds = parseSeeds(args.seeds)
+async function cmdSim(cliArguments) {
+	const scenarioId = String(cliArguments.scenario || cliArguments.scenarios || 'balanced')
+	const seeds = parseSeeds(cliArguments.seeds)
 	const tunables = loadDefaultTunables()
 	const scenarios = resolveScenarios(scenarioId)
 
@@ -131,26 +131,26 @@ async function cmdSim(args) {
 }
 
 /**
- * @param {Record<string, string | boolean> & { _: string[] }} args 已解析参数
+ * @param {Record<string, string | boolean> & { _: string[] }} cliArguments 已解析参数
  * @returns {Promise<void>}
  */
-async function cmdMine(args) {
-	const scenarioId = String(args.scenarios || args.scenario || 'all')
-	const generations = num(args.generations, 20)
-	const population = num(args.population, 12)
-	const seeds = parseSeeds(args.seeds)
-	const seedBase = num(args.seedBase, 42)
-	const durationMs = parseDurationMs(args.duration)
-	const doApply = !(args['no-apply'] || args['dry-run'])
-	const skipFullEval = Boolean(args['skip-full-eval'])
+async function cmdMine(cliArguments) {
+	const scenarioId = String(cliArguments.scenarios || cliArguments.scenario || 'all')
+	const generations = num(cliArguments.generations, 20)
+	const population = num(cliArguments.population, 12)
+	const seeds = parseSeeds(cliArguments.seeds)
+	const seedBase = num(cliArguments.seedBase, 42)
+	const durationMs = parseDurationMs(cliArguments.duration)
+	const doApply = !(cliArguments['no-apply'] || cliArguments['dry-run'])
+	const skipFullEval = Boolean(cliArguments['skip-full-eval'])
 	const scenarios = resolveScenarios(scenarioId)
-	const evalOpts = buildEvalOpts(args)
-	const jobCount = evalOpts.serial ? 1 : evalOpts.concurrency ?? defaultConcurrency()
+	const evalOptions = buildEvalOptions(cliArguments)
+	const jobCount = evalOptions.serial ? 1 : evalOptions.concurrency ?? defaultConcurrency()
 
-	if (durationMs == null && args.duration != null && args.duration !== true)
-		console.warn(`warning: invalid --duration ${JSON.stringify(args.duration)}, using --generations instead`)
+	if (durationMs == null && cliArguments.duration != null && cliArguments.duration !== true)
+		console.warn(`warning: invalid --duration ${JSON.stringify(cliArguments.duration)}, using --generations instead`)
 
-	console.log(`parallel: ${evalOpts.serial ? 'off (serial)' : `${jobCount} workers (auto CPU)`}`)
+	console.log(`parallel: ${evalOptions.serial ? 'off (serial)' : `${jobCount} workers (auto CPU)`}`)
 
 	const onProgress = createProgressPrinter(durationMs, generations)
 
@@ -162,7 +162,7 @@ async function cmdMine(args) {
 		seedBase,
 		weights: DEFAULT_WEIGHTS,
 		durationMs,
-		evalOpts,
+		evalOptions,
 		onProgress,
 	})
 
@@ -187,10 +187,10 @@ async function cmdMine(args) {
 		// 写回前一律在**全场景**上复评（含红队名人堂面板），避免单场景过拟合后污染全局默认值。
 		const allScenarios = resolveScenarios('all')
 		baselineFull = await evaluateTunablesAgainstAttacks(
-			allScenarios, seeds, baseline.tunables, attackPanel, runSimulation, DEFAULT_WEIGHTS, evalOpts,
+			allScenarios, seeds, baseline.tunables, attackPanel, runSimulation, DEFAULT_WEIGHTS, evalOptions,
 		)
 		bestFull = await evaluateTunablesAgainstAttacks(
-			allScenarios, seeds, best.tunables, attackPanel, runSimulation, DEFAULT_WEIGHTS, evalOpts,
+			allScenarios, seeds, best.tunables, attackPanel, runSimulation, DEFAULT_WEIGHTS, evalOptions,
 		)
 		vulnerability = analyzeVulnerabilities(allScenarios, bestFull)
 		gate = shouldApplyResult(baselineFull, bestFull)
@@ -203,7 +203,7 @@ async function cmdMine(args) {
 		full: { baseline: baselineFull.fitness, best: bestFull.fitness },
 	}
 	if (doApply && gate.ok) {
-		const socialTunablesPath = args['social-tunables']
+		const socialTunablesPath = cliArguments['social-tunables']
 		if (typeof socialTunablesPath !== 'string' || !socialTunablesPath.trim())
 			throw new Error('mine apply requires --social-tunables PATH (shell reputation_social.tunables.json)')
 		const written = await applyTunablesBundle(best.tunables, { socialTunablesPath })
@@ -264,13 +264,13 @@ function printHelp() {
 快速迭代：--seeds 1 --population 8 --skip-full-eval`)
 }
 
-const args = parseArgs(Deno.args)
-const cmd = args._[0] || 'mine'
+const cliArguments = parseArgs(Deno.args)
+const cmd = cliArguments._[0] || 'mine'
 
 try {
-	if (args.help || args.h) printHelp()
-	else if (cmd === 'sim') await cmdSim(args)
-	else if (cmd === 'mine') await cmdMine(args)
+	if (cliArguments.help || cliArguments.h) printHelp()
+	else if (cmd === 'sim') await cmdSim(cliArguments)
+	else if (cmd === 'mine') await cmdMine(cliArguments)
 	else {
 		console.error(`unknown command: ${cmd}`)
 		printHelp()

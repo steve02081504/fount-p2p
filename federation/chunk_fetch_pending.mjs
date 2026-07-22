@@ -4,9 +4,7 @@ import { verifiedChunkBytes } from '../files/chunk_fetch_verify.mjs'
 /** @type {Map<string, { expectedHash: string, timer: ReturnType<typeof setTimeout>, resolve: (v: Uint8Array | null) => void, reject?: (e: Error) => void }>} */
 export const pendingChunkFetches = new Map()
 
-/**
- *
- */
+/** 并发 pending chunk fetch 上限。 */
 export const MAX_PENDING_CHUNK_FETCHES = 2048
 
 /**
@@ -20,10 +18,11 @@ export const MAX_PENDING_CHUNK_FETCHES = 2048
 export function registerChunkFetchWait(key, expectedHash, timeoutMs, options = {}) {
 	if (!key || pendingChunkFetches.size >= MAX_PENDING_CHUNK_FETCHES)
 		return {
-			done: Promise.resolve(null), /**
-		 *
-		 */
-			cancel: () => { }
+			done: Promise.resolve(null),
+			/**
+			 *
+			 */
+			cancel: () => { },
 		}
 
 	/** @type {(value: Uint8Array | null | Error) => void} */
@@ -58,11 +57,11 @@ export function registerChunkFetchWait(key, expectedHash, timeoutMs, options = {
 	}
 
 	/**
-	 * @param {Error | unknown} err 拒绝原因
+	 * @param {Error | unknown} error 拒绝原因
 	 * @returns {void}
 	 */
-	function rejectWait(err) {
-		finish(err instanceof Error ? err : new Error(String(err)))
+	function rejectWait(error) {
+		finish(error instanceof Error ? error : new Error(String(error)))
 	}
 
 	pendingChunkFetches.set(key, {
@@ -74,9 +73,7 @@ export function registerChunkFetchWait(key, expectedHash, timeoutMs, options = {
 
 	return {
 		done,
-		/**
-		 *
-		 */
+		/** 取消等待并以 null settle。 */
 		cancel: () => {
 			clearTimeout(timer)
 			pendingChunkFetches.delete(key)

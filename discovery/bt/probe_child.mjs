@@ -1,12 +1,13 @@
 /**
  * 子进程 BT 可用性探测：load → poweredOn → stop → exit。
  * 由 `canUseBluetoothRuntime` spawn；勿在父进程直接跑 waitPoweredOn（会拖住事件循环）。
+ * argv[2]：waitPoweredOn 超时毫秒（默认 3000）。
  */
 import process from 'node:process'
 
 import { loadNoble, waitPoweredOn } from './runtime.mjs'
 
-const timeoutMs = Number(process.env.FOUNT_BT_PROBE_MS || 3000)
+const timeoutMs = Number(process.argv[2] || 3000)
 
 try {
 	const noble = await loadNoble()

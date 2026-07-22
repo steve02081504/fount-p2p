@@ -18,15 +18,43 @@ Requires **Node.js ≥ 20** (ESM + `import ... with { type: 'json' }`).
 ## Quick start
 
 ```javascript
-import { startNode, createScopedLinkRoom, ensureUserRoom } from '@steve02081504/fount-p2p'
+import {
+ startNode,
+ ensureUserRoom,
+ attachUserRoomDefaultWires,
+ createScopedLinkRoom,
+} from '@steve02081504/fount-p2p'
 
 await startNode({ nodeDir: '/path/to/p2p/node' })
-await ensureUserRoom()
+await ensureUserRoom() // slot + runtime only
+attachUserRoomDefaultWires({ replicaUsername: 'alice' }) // full business wires
 ```
 
-Shells talk to the **fount network** (`ensureLinkToNode` / `sendToNodeLink` / rooms). Do not import `link/` or choose WebRTC / BLE / LAN yourself.
+Shells talk to the **fount network** (`ensureLinkToNode` / `sendToNodeLink` / rooms). Do not import `link/providers/*` or choose WebRTC / BLE / LAN yourself. Provider registration: `registerLinkProvider` from `@steve02081504/fount-p2p/link` or the facade.
 
-Subpath exports mirror source directories, e.g. `@steve02081504/fount-p2p/dag`, `@steve02081504/fount-p2p/transport/link_registry`, `@steve02081504/fount-p2p/transport/signal_crypto`, `@steve02081504/fount-p2p/registries/event_type`.
+Public transport subpaths: `link_registry`, `user_room`, `group_link_set`, `node_scope`, `room_scopes`, `remote_user_room`. Other `transport/*` modules are internal.
+
+## Infra relay (optional)
+
+Public-good overlay + mailbox only — does **not** attach `rep_sync` or full user-room wires:
+
+```bash
+npx @steve02081504/fount-p2p
+```
+
+Default `nodeDir`: Windows `%LOCALAPPDATA%/fount-p2p/node`; elsewhere `~/.local/share/fount-p2p/node`.
+
+```javascript
+import { initNode, startNode, startInfra, stopInfra, setInfraPriority } from '@steve02081504/fount-p2p'
+
+initNode({ nodeDir })
+await startNode()
+await startInfra({ maxActive: 64 }) // logger defaults to console; pass null to silence
+setInfraPriority({ useLocalReputation: true }) // optional; reads local reputation.json only
+await stopInfra()
+```
+
+Reputation pull/apply is separate: `pullReputationFromNode` → JSON; `setReputationTable` writes. See [docs/infra.md](./docs/infra.md).
 
 ## Layout
 
@@ -35,22 +63,22 @@ Subpath exports mirror source directories, e.g. `@steve02081504/fount-p2p/dag`, 
 | L0 | `core/` | Pure primitives: `hexIds`, `entity_id*`, `canonical_json` |
 | L1 | `crypto/`, `wire/`, `schemas/` | Cryptography, wire protocol, canonical validation |
 | L2 | `node/` | Node runtime: `identity`, `entity_store`, `denylist`, `reputation_store` |
-| L3 | `discovery/`, `link/`, `transport/`, `rooms/` | Discovery + fount-network registry/rooms (`link/providers` are package-private) |
+| L3 | `discovery/`, `link/`, `transport/`, `rooms/` | Discovery + fount-network registry/rooms (`./link` = provider registration only) |
 | L4 | `trust_graph/`, `mailbox/`, `dag/`, `federation/`, `files/`, `governance/`, `reputation/` | Federation, store-and-forward, DAG, EVFS, tunables |
+| — | `infra/` | Optional public-good relay (`startInfra` / CLI) |
 | — | `registries/` | Pluggable registries (event type, part path, room provider, …) |
 
 Facade entry: `index.mjs` (`startNode`, `createGroupLinkSet`, `registerDiscoveryProvider`, …).
 
-**Transport modules** (exported under `./transport/*`):
+**Public transport modules:**
 
 | Module | Role |
 |---|---|
 | `link_registry.mjs` | fount-network facade: dial fallback, scope/overlay |
-| `runtime_bootstrap.mjs` | Progressive `ensureRuntime` (register + background listen / discovery / BT) |
-| `offer_answer.mjs` | Discovery-signal glare for offer/answer providers |
-| `signal_crypto.mjs` | Rendezvous topics + AES-GCM signal packets |
+| `user_room.mjs` / `group_link_set.mjs` / `node_scope.mjs` | rooms + composable node-scope wires |
+| `room_scopes.mjs` / `remote_user_room.mjs` | scope constants / remote user slot |
 
-`ensureRuntime` returns after registration and scheduling warm-up; it does not await lan_tcp listen, public relays, or Bluetooth. See [docs/runtime.md](./docs/runtime.md) and [docs/transports.md](./docs/transports.md).
+`runtime_bootstrap`, `offer_answer`, `advert_ingest` are **internal** (transport). Signal crypto / rendezvous live under `discovery/internal/signal_crypto.mjs` (used by `nostr.mjs` / `adverts.mjs`; not a package export). `ensureRuntime` returns after registration and scheduling warm-up; it does not await lan_tcp listen, public relays, or Bluetooth. `setSignalingRuntimeConfig` → `reloadDiscoveryRelays`. See [docs/runtime.md](./docs/runtime.md) and [docs/transports.md](./docs/transports.md).
 
 Root contains only the facade and package metadata; all modules live in layered subdirectories.
 
@@ -77,5 +105,8 @@ Group chunk remote storage (S3, etc.) is implemented by the shell as `GroupStora
 
 ## Docs
 
+- Mesh keep-alive / bootstrap (N/K, mesh-first): [`docs/mesh.md`](./docs/mesh.md)
 - Transports and provider fallback: [`docs/transports.md`](./docs/transports.md)
 - Signaling and WebRTC glare: [`docs/signaling.md`](./docs/signaling.md)
+- Runtime bootstrap / BT probe: [`docs/runtime.md`](./docs/runtime.md)
+- Infra relay / node-scope attaches: [`docs/infra.md`](./docs/infra.md)

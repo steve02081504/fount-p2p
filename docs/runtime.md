@@ -1,18 +1,18 @@
 # Runtime bootstrap & lifecycle
 
-Details for `ensureRuntime`, startup/shutdown budgets, and Bluetooth hardware probe. Day-to-day shell rules live in [AGENTS.md](../AGENTS.md); transport provider notes in [transports.md](transports.md).
+`ensureRuntime`, startup/shutdown budgets, and Bluetooth hardware probe. Day-to-day shell rules: [AGENTS.md](../AGENTS.md). Providers: [transports.md](transports.md). Mesh N/K: [mesh.md](mesh.md).
 
 ## `ensureRuntime` contract
 
-Returns after registering mdns/nostr and scheduling background warm — does **not** await lan_tcp listen, mDNS bind, Nostr relays, or BT.
+Returns after registering lan / nostr / bt discovery providers and scheduling background warm — does **not** await lan_tcp listen, Nostr relays, or BT.
 
 | Who waits | For what |
 |---|---|
 | Shells (`startNode` / `ensureUserRoom`) | Nothing beyond `ensureRuntime` itself — never read `lanTcpPort` or await public-signaling warm-up |
 | `buildLocalAdvert` / `whenListening` | Local lan_tcp listen only |
-| `ensureLinkToNode` | `whenSignalListening` (self-topic `listenSignals` attached) before dial, so offer/answer does not drop the first signal |
+| `ensureLinkToNode` | `whenSignalListening` (Nostr `listenNodeSignals` attached) before dial, so offer/answer does not drop the first signal |
 
-Nostr/mDNS hooks are progressive. BT discovery / `ble_gatt` always warm in the background.
+Nostr / LAN / BT hooks are progressive. BT discovery / `ble_gatt` always warm in the background.
 
 ### Fast-listen & dial path
 
@@ -28,7 +28,7 @@ Nostr/mDNS hooks are progressive. BT discovery / `ble_gatt` always warm in the b
 | init → shutdown → natural exit | ≤10s | `test/pure/shutdown_exit.test.mjs` |
 | 10s warm → shutdown → exit | ≤2s | same |
 
-Shutdown-exit tests use the production path (default public Nostr + mdns). Do not use `relayOverride` / dead-relay crutches there.
+Shutdown-exit tests use the production path (default public Nostr + lan). Do not use `relayOverride` / dead-relay crutches there.
 
 ## Nostr cleanup
 

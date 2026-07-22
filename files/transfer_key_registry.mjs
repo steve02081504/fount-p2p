@@ -90,8 +90,8 @@ export async function readDagManifestPlaintext(replicaUsername, manifest) {
 		const reader = dagPlaintextReadersByOwner.get(ownerId)
 		if (reader)
 			try {
-				const buf = await reader(replicaUsername, manifest)
-				if (buf?.length) return buf
+				const buffer = await reader(replicaUsername, manifest)
+				if (buffer?.length) return buffer
 			}
 			catch { /* fall through */ }
 		return null

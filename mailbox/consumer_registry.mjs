@@ -54,8 +54,8 @@ export async function dispatchMailboxRecordsToConsumers(username, records) {
 			const ids = await handler(username, scoped)
 			for (const id of ids || []) delivered.add(String(id))
 		}
-		catch (err) {
-			console.error('mailbox: consumer batch failed, retry per record', err)
+		catch (error) {
+			console.error('mailbox: consumer batch failed, retry per record', error)
 			for (const row of scoped)
 				try {
 					const ids = await handler(username, [row])

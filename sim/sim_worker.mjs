@@ -25,7 +25,7 @@ self.addEventListener('message', (/** @type {MessageEvent<SimWorkerJob>} */ even
 		const snapshot = runSimulation(scenario, job.seed, job.tunables, job.attackGenome)
 		self.postMessage({ id: job.id, snapshot })
 	}
-	catch (err) {
-		self.postMessage({ id: job.id, error: String(err) })
+	catch (error) {
+		self.postMessage({ id: job.id, error: String(error) })
 	}
 })

@@ -13,8 +13,8 @@ import { defaultConcurrency, shutdownSimPool } from '../sim_pool.mjs'
 import { createTransportState, DEFAULT_SIGNALING_SOURCES } from '../transport.mjs'
 import { loadDefaultTunables } from '../tunables_bundle.mjs'
 
-// 真实网络层里注册的发现/信令 provider id（link_registry：mdns + nostr + bt）
-const REAL_SIGNALING_PROVIDER_IDS = new Set(['mdns', 'nostr', 'bt'])
+// 真实网络层里注册的发现/信令 provider id（link_registry：lan + nostr + bt）
+const REAL_SIGNALING_PROVIDER_IDS = new Set(['lan', 'nostr', 'bt'])
 
 test('sim RTC budget constants track rtc_connection_budget defaults', () => {
 	const limits = resolveRtcBudgetLimits()
@@ -36,8 +36,8 @@ test('sim explore source quota tracks peer_pool', () => {
 test('sim signaling sources are real provider ids (no stale tracker)', () => {
 	assert(DEFAULT_SIGNALING_SOURCES.length)
 	assert(!DEFAULT_SIGNALING_SOURCES.includes('tracker'), 'tracker 已不是真实 provider')
-	for (const src of DEFAULT_SIGNALING_SOURCES)
-		assert(REAL_SIGNALING_PROVIDER_IDS.has(src), `未知信令源 ${src}`)
+	for (const source of DEFAULT_SIGNALING_SOURCES)
+		assert(REAL_SIGNALING_PROVIDER_IDS.has(source), `未知信令源 ${source}`)
 })
 
 const CASES = [
