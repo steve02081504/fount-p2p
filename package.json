@@ -1,6 +1,6 @@
 {
 	"name": "@steve02081504/fount-p2p",
-	"version": "0.0.14",
+	"version": "0.0.15",
 	"description": "fount federation P2P layer — link, trust graph, mailbox, DAG, EVFS.",
 	"keywords": [
 		"network",

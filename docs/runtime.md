@@ -32,7 +32,26 @@ Shutdown-exit tests use the production path (default public Nostr + lan). Do not
 
 ## Nostr cleanup
 
-Use the `ws` package (not global `WebSocket`). On shutdown: `close()`, then `terminate()` after `NOSTR_CLOSE_GRACE_MS` (1s) if the socket is not yet `CLOSED`.
+Use the `ws` package (not global `WebSocket`). Subscriptions share one WebSocket per relay URL (signal / network advert / per-node advert / group advert multiplex `REQ`s). Active subscriptions reconnect after drop (`NOSTR_RECONNECT_DELAY_MS`) and re-send `REQ`s. On intentional shutdown: `close()`, then `terminate()` after `NOSTR_CLOSE_GRACE_MS` (1s) if the socket is not yet `CLOSED`. Presence publish still uses short-lived sockets.
+
+Self presence echo from relays is filtered (`skipNodeHash`, same idea as LAN) and omitted from `listVisibleNodeHashes`. First-seen peer clues notify the link registry (`noteDiscoveryPeerClue`) so dial cooldown unlocks when a peer reappears.
+
+## Deno vs Node native addons
+
+| Surface | Node | Deno |
+|---|---|---|
+| Package tests / production CLI | `node` / `npx @steve02081504/fount-p2p` | Not primary |
+| fount bridge (`npm run test:fount`) | — | `deno.json` keeps `"nodeModulesDir": "none"` |
+| WebRTC (`node-datachannel`) | works after npm install | needs local `node_modules` + scripts for **only** that package |
+| BLE (`noble` / `bleno`) | optionalDependencies; lazy-loaded | do **not** blanket `--allow-scripts` (optional native builds can abort the whole run) |
+
+Recommended Deno one-shot for the published CLI when you want WebRTC:
+
+```bash
+deno run -A --minimum-dependency-age=0 --node-modules-dir=auto --allow-scripts=npm:node-datachannel npm:@steve02081504/fount-p2p
+```
+
+`deno.json` lists `"allowScripts": ["npm:node-datachannel"]` so project-local `deno install` does not try to compile noble/bleno. Blanket `--allow-scripts` is wrong here: optional BT deps may fail install scripts and Deno then aborts the entire command.
 
 ## Bluetooth probe
 

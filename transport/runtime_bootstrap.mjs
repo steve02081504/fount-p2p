@@ -116,7 +116,9 @@ export function createRuntimeBootstrap(deps) {
 	function registerDiscoveryDefaults() {
 		const providerIds = new Set(listDiscoveryProviders().map(provider => provider.id))
 		if (!providerIds.has('lan'))
-			registerDiscoveryProvider(createLanDiscoveryProvider())
+			registerDiscoveryProvider(createLanDiscoveryProvider({
+				localNodeHash: localIdentity.nodeHash,
+			}))
 		if (!providerIds.has('nostr'))
 			registerNostrProvider()
 	}
@@ -128,6 +130,7 @@ export function createRuntimeBootstrap(deps) {
 		unregisterDiscoveryProvider('nostr')
 		registerDiscoveryProvider(createNostrDiscoveryProvider({
 			getRelayUrls: resolveNostrRelayUrls,
+			localNodeHash: localIdentity.nodeHash,
 		}))
 	}
 

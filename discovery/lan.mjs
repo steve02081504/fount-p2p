@@ -9,6 +9,7 @@ import { noteAdvertPeerHints } from './advert_peer_hints.mjs'
 import { ingestNetworkAdvert } from './adverts.mjs'
 import { listMulticastIpv4Addresses } from './lan_interfaces.mjs'
 import { getLanPeerHint } from './lan_peer_hints.mjs'
+import { noteDiscoveryPeerClue } from './peer_clue.mjs'
 
 const DEFAULT_PORT = 53531
 const DEFAULT_GROUP = '239.255.42.99'
@@ -66,6 +67,7 @@ export async function acceptLanPresenceAdvert(advertBytes, meta = {}) {
 	noteLanVisibleNode(ingested.verifiedNodeHash)
 	noteAdvertPeerHints(ingested.verifiedNodeHash, ingested.body, meta)
 	if (firstSeen) {
+		noteDiscoveryPeerClue(ingested.verifiedNodeHash)
 		const host = String(meta.address || '').trim()
 		nodeDebug('p2p:lan peer visible', {
 			peer: shortHash(ingested.verifiedNodeHash),
@@ -78,7 +80,7 @@ export async function acceptLanPresenceAdvert(advertBytes, meta = {}) {
 
 /**
  * LAN UDP presence：段内 beacon，非 topic 订阅模型。
- * @param {{ port?: number, group?: string }} [options] 配置
+ * @param {{ port?: number, group?: string, localNodeHash?: string }} [options] 配置
  * @returns {import('./index.mjs').DiscoveryProvider} LAN 发现提供者
  */
 export function createLanDiscoveryProvider(options = {}) {
@@ -91,12 +93,14 @@ export function createLanDiscoveryProvider(options = {}) {
 	let refs = 0
 	/** @type {ReturnType<typeof setInterval> | null} */
 	let beaconTimer = null
+	const seededSelf = normalizeHex64(options.localNodeHash)
 	/** @type {string | null} */
-	let selfNodeHash = null
+	let selfNodeHash = isHex64(seededSelf) ? seededSelf : null
 	/** @type {Set<string>} */
 	const joinedAddresses = new Set()
 
 	/**
+	 * 在每个本机 IPv4 接口上加入组播组；全部失败则回退到默认接口。
 	 * @param {import('node:dgram').Socket} sock UDP socket
 	 * @returns {void}
 	 */
@@ -112,6 +116,11 @@ export function createLanDiscoveryProvider(options = {}) {
 		if (!joinedAddresses.size)
 			try { sock.addMembership(group) } catch { /* ignore */ }
 	}
+
+	/**
+	 * 懒创建复用的 udp4 socket（reuseAddr，便于同机多实例绑同一 port）。
+	 * @returns {import('node:dgram').Socket} 组播 presence socket
+	 */
 	function getSocket() {
 		return socket ||= dgram.createSocket({ type: 'udp4', reuseAddr: true })
 	}
@@ -190,7 +199,7 @@ export function createLanDiscoveryProvider(options = {}) {
 		let sent = 0
 		/** @type {unknown} */
 		let lastError = null
-		for (const addr of addrs) {
+		for (const addr of addrs)
 			try {
 				await sendOnce(addr)
 				sent++
@@ -198,7 +207,6 @@ export function createLanDiscoveryProvider(options = {}) {
 			catch (error) {
 				lastError = error
 			}
-		}
 		if (!sent) throw lastError || new Error('p2p: lan multicast send failed')
 	}
 

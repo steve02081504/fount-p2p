@@ -64,6 +64,8 @@ Constants: `link/providers/levels.mjs`. Discovery uses ascending **`priority`**.
 
 `caps.needsOfferAnswer` providers use the shared discovery-signal glare path (`dial`/`accept` + signal session) — not hard-coded to `id === 'webrtc'`.
 
+Dial miss / exhausted peers get exponential cooldown (30s → 10m) so mesh ticks do not busy-loop on stale acquaintances with no path. First-seen discovery peer clues (and `watchNodeAdvert` ingest) clear that peer's cooldown so a peer that reappears can be dialed immediately.
+
 ## Providers (internal)
 
 ### `lan_tcp` (80)

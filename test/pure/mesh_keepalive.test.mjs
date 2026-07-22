@@ -134,7 +134,7 @@ test('mesh keepalive: rebalance tick evicts explore then dials trusted', async (
 		'e7'.repeat(32),
 		'e8'.repeat(32),
 	]
-	for (const hash of exploreHashes) 
+	for (const hash of exploreHashes)
 		links.set(hash, {
 			nodeHash: hash,
 			/**
@@ -147,7 +147,6 @@ test('mesh keepalive: rebalance tick evicts explore then dials trusted', async (
 				for (const listener of downListeners) listener(hash, reason)
 			},
 		})
-	
 
 	const registry = {
 		localIdentity: SELF,

@@ -1,14 +1,14 @@
-#!/usr/bin/env -S deno run --allow-scripts --allow-all
+#!/usr/bin/env -S deno run --allow-scripts=npm:node-datachannel --allow-all
 /* global Deno */
 /**
  * P2P 参数模拟器 + 挖矿器 CLI。
  *
- * 用法:
- *   deno run --allow-scripts --allow-all src/scripts/p2p/sim/cli.mjs sim --scenario balanced
- *   deno run --allow-scripts --allow-all src/scripts/p2p/sim/cli.mjs mine --generations 20
- *   deno run --allow-scripts --allow-all src/scripts/p2p/sim/cli.mjs mine --duration 5m
- *   deno run --allow-scripts --allow-all src/scripts/p2p/sim/cli.mjs mine --duration 5m --no-apply
- *   deno run --allow-scripts --allow-all sim/cli.mjs mine --social-tunables ../shells/social/src/federation/reputation_social.tunables.json
+ * 用法（勿用 blanket --allow-scripts：optional BLE 原生编译失败会整命令 abort，见 docs/runtime.md）:
+ *   deno run --allow-scripts=npm:node-datachannel --allow-all sim/cli.mjs sim --scenario balanced
+ *   deno run --allow-scripts=npm:node-datachannel --allow-all sim/cli.mjs mine --generations 20
+ *   deno run --allow-scripts=npm:node-datachannel --allow-all sim/cli.mjs mine --duration 5m
+ *   deno run --allow-scripts=npm:node-datachannel --allow-all sim/cli.mjs mine --duration 5m --no-apply
+ *   deno run --allow-scripts=npm:node-datachannel --allow-all sim/cli.mjs mine --social-tunables ../shells/social/src/federation/reputation_social.tunables.json
  */
 import { applyTunablesBundle } from './apply.mjs'
 import { normalizeAttackGenome } from './attack_space.mjs'

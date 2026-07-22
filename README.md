@@ -44,6 +44,14 @@ npx @steve02081504/fount-p2p
 
 Default `nodeDir`: Windows `%LOCALAPPDATA%/fount-p2p/node`; elsewhere `~/.local/share/fount-p2p/node`.
 
+Deno (optional; WebRTC needs explicit native scripts — **not** blanket `--allow-scripts`):
+
+```bash
+deno run -A --minimum-dependency-age=0 --node-modules-dir=auto --allow-scripts=npm:node-datachannel npm:@steve02081504/fount-p2p
+```
+
+See [docs/runtime.md](./docs/runtime.md).
+
 ```javascript
 import { initNode, startNode, startInfra, stopInfra, setInfraPriority } from '@steve02081504/fount-p2p'
 

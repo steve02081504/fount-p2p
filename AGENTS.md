@@ -31,7 +31,7 @@
 - Assertions: `test/helpers/assert.mjs` (`assert` / `assertEquals` / `assertThrows`) — use in `test/` and `sim/test/`
 - Fixed-seed identity: `test/helpers/identity.mjs` (re-exported by `test/live/helpers.mjs`)
 - Mock discovery (list+connect API): `test/helpers/mock_discovery.mjs` — register in live/integration tests; supports `publishAdvert` / `watchGroupAdverts`
-- fount bridge: `test/fount/` + `test/helpers/fount_paths.mjs` (`fountBridgeSkipReason`: skip if not Deno / no fount / missing target; hard-fail on import failure). `deno.json` must set `nodeModulesDir: "none"`.
+- fount bridge: `test/fount/` + `test/helpers/fount_paths.mjs` (`fountBridgeSkipReason`: skip if not Deno / no fount / missing target; hard-fail on import failure). `deno.json` must set `nodeModulesDir: "none"`; `allowScripts` only `npm:node-datachannel` (never blanket `--allow-scripts` — optional noble/bleno install scripts can abort Deno). Deno CLI + WebRTC: see [docs/runtime.md](docs/runtime.md).
 
 ## Trust boundaries
 

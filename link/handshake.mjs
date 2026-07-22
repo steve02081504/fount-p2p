@@ -2,9 +2,9 @@ import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 
 import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
-import { normalizeLanHosts } from '../discovery/lan_interfaces.mjs'
 import { normalizeTcpPort } from '../core/tcp_port.mjs'
 import { keyPairFromSeed, pubKeyHash, sign, verify } from '../crypto/crypto.mjs'
+import { normalizeLanHosts } from '../discovery/lan_interfaces.mjs'
 import { ensureNodeSeed, getNodeHash } from '../node/identity.mjs'
 
 import { normalizeDtlsFingerprint } from './sdp_fingerprint.mjs'
@@ -153,10 +153,10 @@ export function buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort = null, 
 }
 
 /**
- * 构造带签名的 discovery advert。
+ * 构造带签名的 discovery advert（tcpPort / lanHosts 一并签入消息）。
  * @param {string} rendezvousKey discovery 内部汇合键
  * @param {number} [ts=Date.now()] 时间戳（毫秒）
- * @param {{ secretKey?: Uint8Array, nodeHash?: string, nodePubKey?: string, tcpPort?: number, lanHosts?: unknown }} | null} [options] 签名身份与可选 tcpPort / lanHosts
+ * @param {{ secretKey?: Uint8Array, nodeHash?: string, nodePubKey?: string, tcpPort?: number, lanHosts?: unknown } | null} [options] 签名身份；可选 LAN 监听端口与本机 IPv4 列表
  * @returns {Promise<{ nodeHash: string, nodePubKey: string, ts: number, sig: string, tcpPort?: number, lanHosts?: string[] }>} 签名 advert
  */
 export async function buildSignedAdvert(rendezvousKey, ts = Date.now(), options = null) {

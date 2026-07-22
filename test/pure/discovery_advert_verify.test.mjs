@@ -9,13 +9,13 @@ import {
 	groupRendezvousKey,
 	networkRendezvousKey,
 } from '../../discovery/internal/signal_crypto.mjs'
+import { clearLanPeerHints, getLanPeerHint, listLanPeerHints } from '../../discovery/lan_peer_hints.mjs'
 import {
 	acceptNostrAdvert,
 	clearNostrVisibleNodes,
 	listNostrGroupVisibleNodeHashes,
 	listNostrVisibleNodeHashes,
 } from '../../discovery/nostr.mjs'
-import { clearLanPeerHints, getLanPeerHint, listLanPeerHints } from '../../discovery/lan_peer_hints.mjs'
 import { buildSignedAdvert } from '../../link/handshake.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'
@@ -55,6 +55,25 @@ test('acceptNostrAdvert rejects forged network advert', async () => {
 	assertEquals(await acceptNostrAdvert(networkRendezvousKey(), bytes), null)
 	assertEquals(listNostrVisibleNodeHashes().includes(fakeHash), false)
 	clearNostrVisibleNodes()
+})
+
+test('acceptNostrAdvert skips self echo into visible pool', async () => {
+	clearNostrVisibleNodes()
+	clearLanPeerHints()
+	const local = identity(14)
+	const body = await buildSignedAdvert(networkRendezvousKey(), Date.now(), {
+		...local,
+		tcpPort: 19093,
+	})
+	const bytes = encryptAdvertForScope('network', local, body)
+	assertEquals(
+		await acceptNostrAdvert(networkRendezvousKey(), bytes, { skipNodeHash: local.nodeHash }),
+		local.nodeHash,
+	)
+	assertEquals(listNostrVisibleNodeHashes().includes(local.nodeHash), false)
+	assertEquals(getLanPeerHint(local.nodeHash), null)
+	clearNostrVisibleNodes()
+	clearLanPeerHints()
 })
 
 test('acceptNostrAdvert verifies group advert into group pool only', async () => {

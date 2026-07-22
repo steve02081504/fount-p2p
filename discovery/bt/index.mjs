@@ -4,6 +4,7 @@ import { isHex64, normalizeHex64 } from '../../core/hexIds.mjs'
 import { nodeDebug, shortHash } from '../../node/log.mjs'
 import { noteAdvertPeerHints } from '../advert_peer_hints.mjs'
 import { ingestNetworkAdvert } from '../adverts.mjs'
+import { noteDiscoveryPeerClue } from '../peer_clue.mjs'
 
 import { getBtPeerHint } from './peer_hints.mjs'
 import { canUseBluetoothRuntime, loadBleno, loadNoble, resolveBtRole, waitPoweredOn } from './runtime.mjs'
@@ -106,11 +107,13 @@ export async function acceptBtScannedPresence(bytes, meta) {
 	const firstSeen = !visibleByHash.has(ingested.verifiedNodeHash)
 	noteBtVisibleNode(ingested.verifiedNodeHash)
 	noteAdvertPeerHints(ingested.verifiedNodeHash, ingested.body, meta)
-	if (firstSeen)
+	if (firstSeen) {
+		noteDiscoveryPeerClue(ingested.verifiedNodeHash)
 		nodeDebug('p2p:bt peer visible', {
 			peer: shortHash(ingested.verifiedNodeHash),
 			peripheralId,
 		})
+	}
 	return ingested
 }
 

@@ -1,4 +1,7 @@
 {
 	"nodeModulesDir": "none",
-	"lock": false
+	"lock": false,
+	"allowScripts": [
+		"npm:node-datachannel"
+	]
 }

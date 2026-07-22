@@ -8,14 +8,15 @@ import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
 import { sha256Hex } from '../crypto/crypto.mjs'
 import { nodeDebug, shortHash } from '../node/log.mjs'
 
-import { ingestEncryptedAdvert } from './adverts.mjs'
 import { noteAdvertPeerHints } from './advert_peer_hints.mjs'
+import { ingestEncryptedAdvert } from './adverts.mjs'
 import {
 	encryptSignalPacket,
 	groupRendezvousKey,
 	networkRendezvousKey,
 	nodeRendezvousKey,
 } from './internal/signal_crypto.mjs'
+import { noteDiscoveryPeerClue } from './peer_clue.mjs'
 
 /** 默认 Nostr 中继 URL 列表。 */
 export const DEFAULT_RELAY_URLS = [
@@ -31,6 +32,8 @@ export const NOSTR_CLOSE_GRACE_MS = 1_000
 
 /** 单 relay 等待 EVENT OK 回执超时。 */
 export const NOSTR_PUBLISH_OK_TIMEOUT_MS = 3_000
+/** 共享 relay 会话断线后重连间隔。 */
+export const NOSTR_RECONNECT_DELAY_MS = 500
 
 /** Nostr network advert 事件 kind（addressable，可存储）。 */
 export const NOSTR_ADVERT_KIND = 30787
@@ -56,7 +59,6 @@ function listPoolHashes(pool, now, ttlMs) {
 	for (const [hash, seenAt] of pool)
 		if (now - seenAt <= ttlMs) out.push(hash)
 		else pool.delete(hash)
-
 	return out
 }
 
@@ -119,13 +121,15 @@ export function listNostrGroupVisibleNodeHashes(roomSecret, now = Date.now(), tt
  * 解密并验签后写入 Nostr 可见池；伪造 body.nodeHash 无效。
  * @param {string} rendezvousKey rendezvous 键
  * @param {Uint8Array} bytes 加密 advert
- * @param {{ roomSecret?: string }} [options] 带 roomSecret 时写入群池
+ * @param {{ roomSecret?: string, skipNodeHash?: string, meta?: object }} [options] 群池 / 本机回环过滤 / meta
  * @returns {Promise<string | null>} 验签通过的 nodeHash
  */
 export async function acceptNostrAdvert(rendezvousKey, bytes, options = {}) {
 	const ingested = await ingestEncryptedAdvert(rendezvousKey, bytes)
 	if (!ingested) return null
 	const hash = ingested.verifiedNodeHash
+	const skipHash = options.skipNodeHash ? normalizeHex64(options.skipNodeHash) : null
+	if (skipHash && hash === skipHash) return hash
 	const roomSecret = options.roomSecret
 	let firstSeen = true
 	if (roomSecret) {
@@ -137,8 +141,10 @@ export async function acceptNostrAdvert(rendezvousKey, bytes, options = {}) {
 		firstSeen = !visibleByHash.has(hash)
 		noteNostrVisibleNode(hash)
 	}
-	if (firstSeen)
+	if (firstSeen) {
+		noteDiscoveryPeerClue(hash)
 		nodeDebug('p2p:nostr peer visible', { peer: shortHash(hash), group: !!roomSecret })
+	}
 	noteAdvertPeerHints(hash, ingested.body, options.meta || {})
 	return hash
 }
@@ -351,69 +357,210 @@ async function publishEvent(relayUrls, event, signal) {
 }
 
 /**
- * @param {string[]} relayUrls 中继列表
- * @param {(ws: import('ws').WebSocket, relayUrl: string) => void} onOpen 连上回调
- * @param {AbortSignal} signal 取消信号
- * @param {import('ws').WebSocket[]} sockets 已打开 socket 收集
+ * 共享 relay 会话：多 SUB 复用同一 URL 的 WebSocket，避免 signal/presence/advert 各建一池。
+ * 仍有活跃 sub 时断线会自动重连并重发 REQ。
+ * @typedef {{
+ *   ws: import('ws').WebSocket | null,
+ *   connecting: boolean,
+ *   reconnectTimer: ReturnType<typeof setTimeout> | null,
+ *   subs: Map<string, { filter: object, onEvent: (event: object, relayUrl: string) => void }>,
+ * }} SharedRelaySession
+ */
+
+/** @type {Map<string, SharedRelaySession>} */
+const sharedRelaySessions = new Map()
+
+/**
+ * @param {string} relayUrl 中继 URL
+ * @param {SharedRelaySession} session 会话
+ * @returns {boolean} session 是否仍是该 URL 的活动会话
+ */
+function isLiveSharedSession(relayUrl, session) {
+	return sharedRelaySessions.get(relayUrl) === session
+}
+
+/**
+ * @param {SharedRelaySession} session 会话
  * @returns {void}
  */
-function connectRelaysProgressive(relayUrls, onOpen, signal, sockets) {
-	for (const relayUrl of relayUrls)
-		void connectRelay(relayUrl, NOSTR_CONNECT_TIMEOUT_MS, signal).then(ws => {
-			if (signal.aborted) {
+function clearSharedRelayReconnect(session) {
+	if (!session.reconnectTimer) return
+	clearTimeout(session.reconnectTimer)
+	session.reconnectTimer = null
+}
+
+/**
+ * @param {string} relayUrl 中继 URL
+ * @param {SharedRelaySession} session 会话
+ * @param {import('ws').WebSocket} ws 已打开连接
+ * @returns {void}
+ */
+function attachSharedRelaySocket(relayUrl, session, ws) {
+	session.ws = ws
+	nodeDebug('p2p:nostr relay up', { url: relayUrl })
+	ws.on('message', data => {
+		let parsed
+		try { parsed = JSON.parse(String(data)) } catch { return }
+		if (parsed?.[0] !== 'EVENT') return
+		const subId = String(parsed[1] || '')
+		const nostrEvent = parsed[2]
+		const sub = session.subs.get(subId)
+		if (!sub || !nostrEvent) return
+		try { sub.onEvent(nostrEvent, relayUrl) } catch { /* ignore */ }
+	})
+	ws.once('close', () => {
+		if (!isLiveSharedSession(relayUrl, session)) return
+		session.ws = null
+		if (!session.subs.size) {
+			sharedRelaySessions.delete(relayUrl)
+			return
+		}
+		scheduleSharedRelayConnect(relayUrl, session, NOSTR_RECONNECT_DELAY_MS)
+	})
+	for (const [subId, sub] of session.subs)
+		try { ws.send(JSON.stringify(['REQ', subId, sub.filter])) } catch { /* ignore */ }
+}
+
+/**
+ * @param {string} relayUrl 中继 URL
+ * @param {SharedRelaySession} session 会话
+ * @param {number} [delayMs=0] 延迟毫秒（断线重连用）
+ * @returns {void}
+ */
+function scheduleSharedRelayConnect(relayUrl, session, delayMs = 0) {
+	if (!isLiveSharedSession(relayUrl, session) || session.connecting || session.ws) return
+	clearSharedRelayReconnect(session)
+	/**
+	 * @returns {void}
+	 */
+	const start = () => {
+		session.reconnectTimer = null
+		if (!isLiveSharedSession(relayUrl, session) || session.connecting || session.ws) return
+		if (!session.subs.size) {
+			sharedRelaySessions.delete(relayUrl)
+			return
+		}
+		session.connecting = true
+		void connectRelay(relayUrl, NOSTR_CONNECT_TIMEOUT_MS).then(ws => {
+			session.connecting = false
+			if (!isLiveSharedSession(relayUrl, session) || !session.subs.size) {
+				if (!session.subs.size && isLiveSharedSession(relayUrl, session))
+					sharedRelaySessions.delete(relayUrl)
 				dropWebSocket(ws)
 				return
 			}
-			sockets.push(ws)
-			nodeDebug('p2p:nostr relay up', { url: relayUrl })
-			onOpen(ws, relayUrl)
+			attachSharedRelaySocket(relayUrl, session, ws)
 		}).catch(error => {
+			session.connecting = false
+			if (!isLiveSharedSession(relayUrl, session)) return
 			nodeDebug('p2p:nostr relay fail', {
 				url: relayUrl,
 				err: String(error?.message || error),
 			})
+			if (!session.subs.size) {
+				sharedRelaySessions.delete(relayUrl)
+				return
+			}
+			scheduleSharedRelayConnect(relayUrl, session, NOSTR_RECONNECT_DELAY_MS)
 		})
+	}
+	if (delayMs <= 0) {
+		// 让同一 tick 内的 registerSharedRelaySub 先写入 subs，再决定是否连接。
+		queueMicrotask(start)
+		return
+	}
+	nodeDebug('p2p:nostr relay reconnect', { url: relayUrl, delayMs })
+	session.reconnectTimer = setTimeout(start, delayMs)
+	session.reconnectTimer.unref?.()
 }
 
 /**
- * 内部：按 rendezvous 键订阅 Nostr kind（topic 不导出）。
+ * @param {string} relayUrl 中继 URL
+ * @returns {SharedRelaySession} 共享会话
+ */
+function acquireSharedRelay(relayUrl) {
+	const existing = sharedRelaySessions.get(relayUrl)
+	if (existing) return existing
+	/** @type {SharedRelaySession} */
+	const session = {
+		ws: null,
+		connecting: false,
+		reconnectTimer: null,
+		subs: new Map(),
+	}
+	sharedRelaySessions.set(relayUrl, session)
+	scheduleSharedRelayConnect(relayUrl, session)
+	return session
+}
+
+/**
+ * @param {string} relayUrl 中继 URL
+ * @param {string} subscriptionId 订阅 id
+ * @returns {void}
+ */
+function releaseSharedRelaySub(relayUrl, subscriptionId) {
+	const session = sharedRelaySessions.get(relayUrl)
+	if (!session) return
+	session.subs.delete(subscriptionId)
+	const ws = session.ws
+	if (ws?.readyState === WebSocket.OPEN)
+		try { ws.send(JSON.stringify(['CLOSE', subscriptionId])) } catch { /* ignore */ }
+	if (session.subs.size) return
+	sharedRelaySessions.delete(relayUrl)
+	clearSharedRelayReconnect(session)
+	if (ws) dropWebSocket(ws)
+}
+
+/**
+ * 在已打开的共享连接上登记 REQ；连接中则等 attach 时统一重放。
+ * @param {SharedRelaySession} session 会话
+ * @param {string} subscriptionId 订阅 id
+ * @param {object} filter Nostr filter
+ * @param {(event: object, relayUrl: string) => void} onEvent 事件回调
+ * @returns {void}
+ */
+function registerSharedRelaySub(session, subscriptionId, filter, onEvent) {
+	session.subs.set(subscriptionId, { filter, onEvent })
+	const ws = session.ws
+	if (ws?.readyState !== WebSocket.OPEN) return
+	try { ws.send(JSON.stringify(['REQ', subscriptionId, filter])) } catch { /* ignore */ }
+}
+
+/**
+ * 内部：按 rendezvous 键订阅 Nostr kind（topic 不导出）。多订阅共享每 URL 一条连接。
  * @param {string[]} relayUrls 中继 URL 列表
- * @param {{ kind: number, rendezvousKey: string, tagX: string, onPayload: (bytes: Uint8Array, meta: { relayUrl: string, event: object }) => void | Promise<void> }} options 订阅选项
+ * @param {{ kind: number, rendezvousKey: string, tagX: string, onPayload: (bytes: Uint8Array, meta: { relayUrl: string, event: object }) => void | Promise<void>, addressable?: boolean }} options 订阅选项
  * @returns {() => void} 取消订阅
  */
 function subscribeNostrKind(relayUrls, options) {
 	const { kind, rendezvousKey, tagX, onPayload, addressable = false } = options
-	const abortController = new AbortController()
-	/** @type {import('ws').WebSocket[]} */
-	const sockets = []
 	const subscriptionId = randomBytes(8).toString('hex')
-	connectRelaysProgressive(relayUrls, (ws, relayUrl) => {
-		ws.on('message', data => {
-			if (abortController.signal.aborted) return
-			let parsed
-			try { parsed = JSON.parse(String(data)) } catch { return }
-			if (parsed?.[0] !== 'EVENT') return
-			const nostrEvent = parsed[2]
-			if (nostrEvent?.kind !== kind) return
-			try {
-				const result = onPayload(base64ToBytes(nostrEvent.content), { relayUrl, event: nostrEvent })
-				if (result?.then) void result.catch(() => { })
-			}
-			catch { /* ignore */ }
-		})
-		const filter = { kinds: [kind], '#t': [rendezvousKey], '#x': [tagX] }
-		if (addressable) filter['#d'] = [rendezvousKey]
-		ws.send(JSON.stringify(['REQ', subscriptionId, filter]))
-	}, abortController.signal, sockets)
+	const filter = { kinds: [kind], '#t': [rendezvousKey], '#x': [tagX] }
+	if (addressable) filter['#d'] = [rendezvousKey]
+	/**
+	 * @param {object} nostrEvent Nostr EVENT
+	 * @param {string} relayUrl 来源中继
+	 * @returns {void}
+	 */
+	const onEvent = (nostrEvent, relayUrl) => {
+		if (nostrEvent?.kind !== kind) return
+		try {
+			const result = onPayload(base64ToBytes(nostrEvent.content), { relayUrl, event: nostrEvent })
+			if (result?.then) void result.catch(() => { })
+		}
+		catch { /* ignore */ }
+	}
+	const urls = dedupeRelayUrls(relayUrls)
+	for (const relayUrl of urls)
+		registerSharedRelaySub(acquireSharedRelay(relayUrl), subscriptionId, filter, onEvent)
 	return () => {
-		abortController.abort()
-		for (const ws of sockets) dropWebSocket(ws)
+		for (const relayUrl of urls) releaseSharedRelaySub(relayUrl, subscriptionId)
 	}
 }
 
 /**
  * 创建 Nostr discovery provider（list+connect；topic 仅内部）。
- * @param {{ relayUrls?: string[] | null, getRelayUrls?: () => string[] | null | undefined }} [options] 中继配置
+ * @param {{ relayUrls?: string[] | null, getRelayUrls?: () => string[] | null | undefined, localNodeHash?: string }} [options] 中继配置与本机 hash
  * @returns {import('./index.mjs').DiscoveryProvider} Nostr discovery provider
  */
 export function createNostrDiscoveryProvider(options = {}) {
@@ -430,57 +577,124 @@ export function createNostrDiscoveryProvider(options = {}) {
 		return dedupeRelayUrls(options.relayUrls)
 	}
 	const secretKey = randomBytes(32)
-	/** @type {(() => void) | null} */
-	let stopNetworkAdvertSub = null
-	/** @type {Map<string, () => void>} */
-	const groupSubs = new Map()
-	/** @type {Map<string, () => void>} */
-	const nodeAdvertSubs = new Map()
+	const seededSelf = normalizeHex64(options.localNodeHash)
+	/** @type {string | null} */
+	let selfNodeHash = isHex64(seededSelf) ? seededSelf : null
+	const NETWORK_SUB_KEY = 'network'
+	/**
+	 * @typedef {{ stop: () => void, held: boolean, listeners: Set<(bytes: Uint8Array, meta: object) => void> }} AdvertSubEntry
+	 */
+	/** @type {Map<string, AdvertSubEntry>} */
+	const advertSubs = new Map()
 	/** @type {Map<string, () => void>} */
 	const nodeSignalSubs = new Map()
 
 	/**
+	 * @param {string | undefined | null} nodeHash 本机 hash
 	 * @returns {void}
 	 */
+	function noteSelfNodeHash(nodeHash) {
+		const hash = normalizeHex64(nodeHash)
+		if (isHex64(hash)) selfNodeHash = hash
+	}
+
+	/**
+	 * @param {string} key 订阅键
+	 * @param {AdvertSubEntry} entry 条目
+	 * @returns {void}
+	 */
+	function releaseAdvertEntryIfIdle(key, entry) {
+		if (entry.held || entry.listeners.size) return
+		try { entry.stop() } catch { /* ignore */ }
+		advertSubs.delete(key)
+	}
+
+	/**
+	 * pool/connect 永久 hold；watch listener 归零且无 hold 时拆 REQ。
+	 * @param {string} key 订阅键
+	 * @param {{ rendezvousKey: string, roomSecret?: string }} bind advert 绑定
+	 * @param {(bytes: Uint8Array, meta: object) => void} [listener] 额外监听
+	 * @returns {() => void} 取消 listener；无 listener 时 no-op（hold 至 dispose）
+	 */
+	function ensureAdvertSubscription(key, bind, listener) {
+		if (!key) return () => { }
+		let entry = advertSubs.get(key)
+		if (!entry) {
+			/** @type {AdvertSubEntry} */
+			const created = {
+				/**
+				 * @returns {void}
+				 */
+				stop: () => { }, held: false, listeners: new Set()
+			}
+			created.stop = subscribeNostrKind(resolveRelayUrls(), {
+				kind: NOSTR_ADVERT_KIND,
+				rendezvousKey: bind.rendezvousKey,
+				tagX: 'advert',
+				addressable: true,
+				/**
+				 * @param {Uint8Array} bytes 加密 advert 载荷
+				 * @param {object} meta relay 元数据
+				 * @returns {Promise<void>}
+				 */
+				async onPayload(bytes, meta) {
+					await acceptNostrAdvert(bind.rendezvousKey, bytes, {
+						roomSecret: bind.roomSecret,
+						skipNodeHash: selfNodeHash || undefined,
+						meta,
+					})
+					for (const fn of created.listeners)
+						try { fn(bytes, meta) } catch { /* ignore */ }
+				},
+			})
+			entry = created
+			advertSubs.set(key, entry)
+		}
+		if (!listener) {
+			entry.held = true
+			return () => { }
+		}
+		entry.listeners.add(listener)
+		return () => {
+			entry.listeners.delete(listener)
+			releaseAdvertEntryIfIdle(key, entry)
+		}
+	}
+
+	/**
+	 * @returns {() => void} no-op（network hold 至 dispose）
+	 */
 	function ensureNetworkAdvertSubscription() {
-		if (stopNetworkAdvertSub) return
-		const rendezvousKey = networkRendezvousKey()
-		stopNetworkAdvertSub = subscribeNostrKind(resolveRelayUrls(), {
-			kind: NOSTR_ADVERT_KIND,
-			rendezvousKey,
-			tagX: 'advert',
-			addressable: true,
-			/**
-			 * @param {Uint8Array} bytes 加密 advert 载荷
-			 * @returns {Promise<void>}
-			 */
-			async onPayload(bytes) {
-				await acceptNostrAdvert(rendezvousKey, bytes)
-			},
+		return ensureAdvertSubscription(NETWORK_SUB_KEY, {
+			rendezvousKey: networkRendezvousKey(),
 		})
 	}
 
 	/**
 	 * @param {string} roomSecret 房间密钥
-	 * @returns {void}
+	 * @param {(bytes: Uint8Array, meta: object) => void} [listener] 额外 advert 监听
+	 * @returns {() => void} 取消 listener
 	 */
-	function ensureGroupSubscription(roomSecret) {
+	function ensureGroupSubscription(roomSecret, listener) {
 		const key = String(roomSecret || '')
-		if (!key || groupSubs.has(key)) return
-		const rendezvousKey = groupRendezvousKey(key)
-		groupSubs.set(key, subscribeNostrKind(resolveRelayUrls(), {
-			kind: NOSTR_ADVERT_KIND,
-			rendezvousKey,
-			tagX: 'advert',
-			addressable: true,
-			/**
-			 * @param {Uint8Array} bytes 加密 advert 载荷
-			 * @returns {Promise<void>}
-			 */
-			async onPayload(bytes) {
-				await acceptNostrAdvert(rendezvousKey, bytes, { roomSecret: key })
-			},
-		}))
+		if (!key) return () => { }
+		return ensureAdvertSubscription('group:' + key, {
+			rendezvousKey: groupRendezvousKey(key),
+			roomSecret: key,
+		}, listener)
+	}
+
+	/**
+	 * @param {string} nodeHash 目标
+	 * @param {(bytes: Uint8Array, meta: object) => void} [listener] 额外 advert 监听
+	 * @returns {() => void} 取消 listener
+	 */
+	function ensureNodeAdvertSubscription(nodeHash, listener) {
+		const hash = normalizeHex64(nodeHash)
+		if (!isHex64(hash)) return () => { }
+		return ensureAdvertSubscription('node:' + hash, {
+			rendezvousKey: nodeRendezvousKey(hash),
+		}, listener)
 	}
 
 	return {
@@ -495,10 +709,14 @@ export function createNostrDiscoveryProvider(options = {}) {
 			const limit = Math.max(1, Number(options.limit) || 64)
 			if (options.roomSecret) {
 				ensureGroupSubscription(options.roomSecret)
-				return listNostrGroupVisibleNodeHashes(options.roomSecret).slice(0, limit)
+				return listNostrGroupVisibleNodeHashes(options.roomSecret)
+					.filter(hash => hash !== selfNodeHash)
+					.slice(0, limit)
 			}
 			ensureNetworkAdvertSubscription()
-			return listNostrVisibleNodeHashes().slice(0, limit)
+			return listNostrVisibleNodeHashes()
+				.filter(hash => hash !== selfNodeHash)
+				.slice(0, limit)
 		},
 		/**
 		 * 挂上对该节点的内部 advert 订阅（建链由 registry dialer / ensureLinkToNode 完成）。
@@ -508,22 +726,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 		async connectToNode(nodeHash) {
 			const hash = normalizeHex64(nodeHash)
 			if (!isHex64(hash)) return false
-			if (!nodeAdvertSubs.has(hash)) {
-				const rendezvousKey = nodeRendezvousKey(hash)
-				nodeAdvertSubs.set(hash, subscribeNostrKind(resolveRelayUrls(), {
-					kind: NOSTR_ADVERT_KIND,
-					rendezvousKey,
-					tagX: 'advert',
-					addressable: true,
-					/**
-					 * @param {Uint8Array} bytes 加密 advert 载荷
-					 * @returns {Promise<void>}
-					 */
-					async onPayload(bytes) {
-						await acceptNostrAdvert(rendezvousKey, bytes)
-					},
-				}))
-			}
+			ensureNodeAdvertSubscription(hash)
 			return true
 		},
 		/**
@@ -541,6 +744,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 				if (abortController.signal.aborted) return
 				const beacon = await getBeacon?.()
 				if (!beacon?.nodeHash) return
+				noteSelfNodeHash(beacon.nodeHash)
 				const advertBody = beacon.advertBody || beacon.body || beacon
 				const bytes = encryptSignalPacket(rendezvousKey, { type: 'advert', body: advertBody })
 				const event = await signNostrEvent(
@@ -591,6 +795,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 		async listenNodeSignals(localNodeHash, onSignal) {
 			const hash = normalizeHex64(localNodeHash)
 			if (!isHex64(hash)) throw new Error('nostr: invalid nodeHash')
+			noteSelfNodeHash(hash)
 			const rendezvousKey = nodeRendezvousKey(hash)
 			const existing = nodeSignalSubs.get(hash)
 			if (existing) existing()
@@ -615,20 +820,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 		async watchNodeAdvert(nodeHash, onAdvert) {
 			const hash = normalizeHex64(nodeHash)
 			if (!isHex64(hash)) throw new Error('nostr: invalid nodeHash')
-			const rendezvousKey = nodeRendezvousKey(hash)
-			const stop = subscribeNostrKind(resolveRelayUrls(), {
-				kind: NOSTR_ADVERT_KIND,
-				rendezvousKey,
-				tagX: 'advert',
-				addressable: true,
-				/**
-				 * @param {Uint8Array} bytes 加密 advert 载荷
-				 * @param {object} meta relay 元数据
-				 * @returns {void}
-				 */
-				onPayload: (bytes, meta) => onAdvert(bytes, meta),
-			})
-			return stop
+			return ensureNodeAdvertSubscription(hash, onAdvert)
 		},
 		/**
 		 * @param {string} roomSecret 房间密钥
@@ -647,6 +839,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 				if (abortController.signal.aborted) return
 				const beacon = await getBeacon?.()
 				if (!beacon?.nodeHash) return
+				noteSelfNodeHash(beacon.nodeHash)
 				const advertBody = beacon.advertBody || beacon.body || beacon
 				const bytes = encryptSignalPacket(rendezvousKey, { type: 'advert', body: advertBody })
 				const event = await signNostrEvent(
@@ -671,21 +864,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 		 * @returns {Promise<() => void>} 取消群 advert 监听
 		 */
 		async watchGroupAdverts(roomSecret, onAdvert) {
-			const key = String(roomSecret || '')
-			const rendezvousKey = groupRendezvousKey(key)
-			ensureGroupSubscription(key)
-			return subscribeNostrKind(resolveRelayUrls(), {
-				kind: NOSTR_ADVERT_KIND,
-				rendezvousKey,
-				tagX: 'advert',
-				addressable: true,
-				/**
-				 * @param {Uint8Array} bytes 加密 advert 载荷
-				 * @param {object} meta relay 元数据
-				 * @returns {void}
-				 */
-				onPayload: (bytes, meta) => onAdvert(bytes, meta),
-			})
+			return ensureGroupSubscription(roomSecret, onAdvert)
 		},
 		/**
 		 * 供 advert 解析路径写入可见 hash。
@@ -702,14 +881,9 @@ export function createNostrDiscoveryProvider(options = {}) {
 		 * @returns {void}
 		 */
 		dispose() {
-			stopNetworkAdvertSub?.()
-			stopNetworkAdvertSub = null
-			for (const stop of groupSubs.values())
-				try { stop() } catch { /* ignore */ }
-			groupSubs.clear()
-			for (const stop of nodeAdvertSubs.values())
-				try { stop() } catch { /* ignore */ }
-			nodeAdvertSubs.clear()
+			for (const entry of advertSubs.values())
+				try { entry.stop() } catch { /* ignore */ }
+			advertSubs.clear()
 			for (const stop of nodeSignalSubs.values())
 				try { stop() } catch { /* ignore */ }
 			nodeSignalSubs.clear()

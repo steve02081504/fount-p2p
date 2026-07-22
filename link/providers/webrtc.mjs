@@ -35,6 +35,13 @@ function formatErrorReason(error) {
 let cachedAvailable = null
 
 /**
+ * @returns {boolean} 是否跑在 Deno
+ */
+function isDenoRuntime() {
+	return typeof globalThis.Deno !== 'undefined'
+}
+
+/**
  * 探测 WebRTC（node-datachannel）是否可用。
  * @returns {Promise<boolean>} 可用为 true
  */
@@ -46,7 +53,12 @@ export async function canUseWebRtcLink() {
 	}
 	catch (error) {
 		cachedAvailable = false
-		nodeDebug('p2p:webrtc unavailable', { err: formatErrorReason(error) })
+		const reason = formatErrorReason(error)
+		nodeDebug('p2p:webrtc unavailable', {
+			err: isDenoRuntime()
+				? `${reason} | deno: see docs/runtime.md (node-datachannel scripts only)`
+				: reason,
+		})
 	}
 	return cachedAvailable
 }

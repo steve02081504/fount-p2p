@@ -337,3 +337,85 @@ test('inbound higher level replaces lower canonical link', async () => {
 		clearLinkProviders()
 	}
 })
+
+test('ensureLinkToNode cools down after dial exhausted', async () => {
+	clearLinkProviders()
+	let dials = 0
+	registerLinkProvider({
+		id: 'always-miss',
+		level: 50,
+		caps: { needsOfferAnswer: false },
+		/** @returns {boolean} 可用 */
+		isAvailable: () => true,
+		/** @returns {boolean} 可到达 */
+		canReach: () => true,
+		/**
+		 * @returns {Promise<null>} 软失败
+		 */
+		async dial() {
+			dials++
+			return null
+		},
+	})
+	const alice = identity(61)
+	const bob = identity(62)
+	const registry = createLinkRegistry({
+		localIdentity: alice,
+		autoRegisterDiscoveryProviders: false,
+		autoRegisterLinkProviders: false,
+		meshKeepalive: false,
+	})
+	try {
+		await registry.ensureRuntime()
+		assertEquals(await registry.ensureLinkToNode(bob.nodeHash), null)
+		assertEquals(dials, 1)
+		assertEquals(await registry.ensureLinkToNode(bob.nodeHash), null)
+		assertEquals(dials, 1)
+	}
+	finally {
+		await registry.shutdown()
+		clearLinkProviders()
+	}
+})
+
+test('ensureLinkToNode clears cooldown on discovery peer clue', async () => {
+	const { noteDiscoveryPeerClue } = await import('../../discovery/peer_clue.mjs')
+	clearLinkProviders()
+	let dials = 0
+	registerLinkProvider({
+		id: 'always-miss',
+		level: 50,
+		caps: { needsOfferAnswer: false },
+		/** @returns {boolean} 可用 */
+		isAvailable: () => true,
+		/** @returns {boolean} 可到达 */
+		canReach: () => true,
+		/**
+		 * @returns {Promise<null>} 软失败
+		 */
+		async dial() {
+			dials++
+			return null
+		},
+	})
+	const alice = identity(63)
+	const bob = identity(64)
+	const registry = createLinkRegistry({
+		localIdentity: alice,
+		autoRegisterDiscoveryProviders: false,
+		autoRegisterLinkProviders: false,
+		meshKeepalive: false,
+	})
+	try {
+		await registry.ensureRuntime()
+		assertEquals(await registry.ensureLinkToNode(bob.nodeHash), null)
+		assertEquals(dials, 1)
+		noteDiscoveryPeerClue(bob.nodeHash)
+		assertEquals(await registry.ensureLinkToNode(bob.nodeHash), null)
+		assertEquals(dials, 2)
+	}
+	finally {
+		await registry.shutdown()
+		clearLinkProviders()
+	}
+})

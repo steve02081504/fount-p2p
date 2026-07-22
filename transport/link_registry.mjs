@@ -3,11 +3,13 @@ import { Buffer } from 'node:buffer'
 import { compareHex64Asc, normalizeHex64 } from '../core/hexIds.mjs'
 import { keyPairFromSeed } from '../crypto/crypto.mjs'
 import { watchVerifiedNodeAdvert, setDiscoveryLinkDialer, prepareConnectToNode } from '../discovery/index.mjs'
+import { setDiscoveryPeerClueListener } from '../discovery/peer_clue.mjs'
 import { listLinkProviders } from '../link/providers/index.mjs'
 import { ensureNodeSeed, getNodeHash } from '../node/identity.mjs'
 import { nodeDebug, shortHash } from '../node/log.mjs'
 import { loadPeerPoolView } from '../node/network.mjs'
 import { createOverlayRouter } from '../overlay/index.mjs'
+import { ms } from '../utils/duration.mjs'
 import { emitSafe } from '../utils/emit_safe.mjs'
 import { createLruMap } from '../utils/lru.mjs'
 
@@ -17,6 +19,11 @@ import { createMeshKeepalive } from './mesh_keepalive.mjs'
 import { createOfferAnswerDial } from './offer_answer.mjs'
 import { pickMeshEvictionVictim } from './peer_pool.mjs'
 import { createRuntimeBootstrap } from './runtime_bootstrap.mjs'
+
+/** dial exhausted 后的初始冷却。 */
+const DIAL_COOLDOWN_BASE_MS = ms('30s')
+/** dial 冷却上限。 */
+const DIAL_COOLDOWN_MAX_MS = ms('10m')
 
 /**
  * 解析或从节点种子推导本地身份。
@@ -84,6 +91,8 @@ export function createLinkRegistry(options = {}) {
 	const links = new Map()
 	/** @type {Map<string, Promise<object | null>>} */
 	const inflights = new Map()
+	/** @type {Map<string, { until: number, failures: number }> & { touch: (key: string, value: { until: number, failures: number }) => void }} */
+	const dialCooldown = createLruMap(1024)
 	/** @type {Map<string, ReturnType<typeof import('./offer_answer.mjs').createBufferedSignalSession>>} */
 	const signalSessions = new Map()
 	/** @type {Map<string, Set<string>>} */
@@ -265,6 +274,19 @@ export function createLinkRegistry(options = {}) {
 		if (!normalized || normalized === localIdentity.nodeHash) return null
 		if (links.has(normalized)) return links.get(normalized)
 		if (inflights.has(normalized)) return await inflights.get(normalized)
+		const cool = dialCooldown.get(normalized)
+		const now = Date.now()
+		if (cool) {
+			if (now < cool.until) {
+				nodeDebug('p2p:dial cooldown', {
+					peer: shortHash(normalized),
+					failures: cool.failures,
+					retryInMs: cool.until - now,
+				})
+				return null
+			}
+			dialCooldown.delete(normalized)
+		}
 		const task = (async () => {
 			nodeDebug('p2p:dial start', { peer: shortHash(normalized) })
 			await prepareConnectToNode(normalized)
@@ -289,6 +311,7 @@ export function createLinkRegistry(options = {}) {
 					if (provider.caps?.needsOfferAnswer) {
 						const link = await dialOfferAnswer(provider, normalized)
 						if (link) {
+							dialCooldown.delete(normalized)
 							nodeDebug('p2p:dial ok', { peer: shortHash(normalized), provider: provider.id })
 							return link
 						}
@@ -297,6 +320,7 @@ export function createLinkRegistry(options = {}) {
 					}
 					const link = await dialProvider(provider, normalized)
 					if (link) {
+						dialCooldown.delete(normalized)
 						nodeDebug('p2p:dial ok', { peer: shortHash(normalized), provider: provider.id })
 						return link
 					}
@@ -310,7 +334,10 @@ export function createLinkRegistry(options = {}) {
 					})
 				}
 
-			nodeDebug('p2p:dial exhausted', { peer: shortHash(normalized) })
+			const failures = (cool?.failures || 0) + 1
+			const delay = Math.min(DIAL_COOLDOWN_MAX_MS, DIAL_COOLDOWN_BASE_MS * (2 ** Math.min(failures - 1, 5)))
+			dialCooldown.touch(normalized, { until: Date.now() + delay, failures })
+			nodeDebug('p2p:dial exhausted', { peer: shortHash(normalized), cooldownMs: delay, failures })
 			return null
 		})().finally(() => inflights.delete(normalized))
 		inflights.set(normalized, task)
@@ -351,6 +378,12 @@ export function createLinkRegistry(options = {}) {
 	})
 	exploreLinkHashes = meshKeepalive.exploreLinkHashes
 	setDiscoveryLinkDialer(ensureDirectLinkToNode)
+	setDiscoveryPeerClueListener(nodeHash => {
+		const hash = normalizeHex64(nodeHash)
+		if (!hash) return
+		dialCooldown.delete(hash)
+		recentAdverts.touch(hash, Date.now())
+	})
 
 	/**
 	 *
@@ -619,6 +652,7 @@ export function createLinkRegistry(options = {}) {
 			return await watchVerifiedNodeAdvert(hash, async (verifiedNodeHash, body, meta) => {
 				applyAdvertPeerHints(verifiedNodeHash, body, meta)
 				recentAdverts.touch(verifiedNodeHash, Date.now())
+				dialCooldown.delete(verifiedNodeHash)
 				await Promise.resolve(onAdvert(verifiedNodeHash, body))
 			})
 		},
@@ -631,6 +665,7 @@ export function createLinkRegistry(options = {}) {
 		async shutdown() {
 			await meshKeepalive?.stop()
 			setDiscoveryLinkDialer(null)
+			setDiscoveryPeerClueListener(null)
 			await bootstrap.shutdown()
 			overlayRouter?.close()
 			overlayRouter = null
@@ -638,6 +673,7 @@ export function createLinkRegistry(options = {}) {
 				await link.close('registry-shutdown')
 			links.clear()
 			inflights.clear()
+			dialCooldown.clear()
 			for (const session of signalSessions.values()) session.clear()
 			signalSessions.clear()
 		},

@@ -1,8 +1,6 @@
 import { normalizeHex64 } from '../core/hexIds.mjs'
 import { buildSignedAdvert, verifySignedAdvert } from '../link/handshake.mjs'
 
-import { listMulticastIpv4Addresses } from './lan_interfaces.mjs'
-
 import {
 	decryptSignalPacket,
 	encryptSignalPacket,
@@ -10,6 +8,7 @@ import {
 	networkRendezvousKey,
 	nodeRendezvousKey,
 } from './internal/signal_crypto.mjs'
+import { listMulticastIpv4Addresses } from './lan_interfaces.mjs'
 
 /** @typedef {'node' | 'network' | { roomSecret: string }} AdvertScope */
 

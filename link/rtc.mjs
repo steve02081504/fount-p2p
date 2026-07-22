@@ -4,15 +4,23 @@ import { toBytes } from '../core/bytes_codec.mjs'
 import { getSignalingRuntimeConfig } from '../node/instance.mjs'
 import { wrapRtcPeerConnectionForIceLocalHostname } from '../transport/rtc_ice_local_hostname.mjs'
 
+/** @type {boolean} */
+let exitCleanupHooked = false
+
 /**
- * 注册进程退出时销毁 libdatachannel 全部原生资源（仅一次）。
+ * 注册进程退出时销毁 libdatachannel 原生资源（首次成功加载后挂一次）。
  * libdatachannel 的原生线程在 pc.close() 后仍需时间回收；进程退出时若原生资源未同步销毁，
  * Windows 上会触发堆损坏（退出码 0xC0000374）。
+ * @returns {Promise<void>}
  */
-const { cleanup = undefined } = await import('node-datachannel').catch(() => ({}))
-process.on('exit', () => {
-	try { cleanup?.() } catch { /* already torn down */ }
-})
+async function ensureNodeDatachannelExitCleanup() {
+	if (exitCleanupHooked) return
+	exitCleanupHooked = true
+	const { cleanup = undefined } = await import('node-datachannel').catch(() => ({}))
+	process.on('exit', () => {
+		try { cleanup?.() } catch { /* already torn down */ }
+	})
+}
 
 /**
  * 加载 node-datachannel polyfill，并按配置包装 RTCPeerConnection。
@@ -20,6 +28,7 @@ process.on('exit', () => {
  */
 export async function loadNodeRtcPolyfill() {
 	const mod = await import('node-datachannel/polyfill')
+	await ensureNodeDatachannelExitCleanup()
 	const { iceLocalHostnamePolicy } = getSignalingRuntimeConfig()
 	return {
 		RTCPeerConnection: wrapRtcPeerConnectionForIceLocalHostname(mod.RTCPeerConnection, mod.RTCIceCandidate, iceLocalHostnamePolicy),
