@@ -85,4 +85,5 @@ export {
 	LINK_LEVEL_LAN_TCP,
 	LINK_LEVEL_WEBRTC,
 	LINK_LEVEL_BLE_GATT,
+	LINK_LEVEL_NOSTR,
 } from './levels.mjs'

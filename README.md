@@ -30,7 +30,9 @@ await ensureUserRoom() // slot + runtime only
 attachUserRoomDefaultWires({ replicaUsername: 'alice' }) // full business wires
 ```
 
-Shells talk to the **fount network** (`ensureLinkToNode` / `sendToNodeLink` / rooms). Do not import `link/providers/*` or choose WebRTC / BLE / LAN yourself. Provider registration: `registerLinkProvider` from `@steve02081504/fount-p2p/link` or the facade.
+Shells talk to the **fount network** (`ensureLinkToNode` / `sendToNodeLink` / rooms). Do not import `link/providers/*` or choose WebRTC / BLE / LAN / Nostr yourself. Provider registration: `registerLinkProvider` from `@steve02081504/fount-p2p/link` or the facade.
+
+Dial order is descending link **`level`**: `lan_tcp` → `webrtc` → `ble_gatt` → `nostr` (−∞ last resort). Discovery **`priority`** only orders handshake / presence media. Details: [docs/transports.md](./docs/transports.md).
 
 Public transport subpaths: `link_registry`, `user_room`, `group_link_set`, `node_scope`, `room_scopes`, `remote_user_room`. Other `transport/*` modules are internal.
 
@@ -86,7 +88,7 @@ Facade entry: `index.mjs` (`startNode`, `createGroupLinkSet`, `registerDiscovery
 | `user_room.mjs` / `group_link_set.mjs` / `node_scope.mjs` | rooms + composable node-scope wires |
 | `room_scopes.mjs` / `remote_user_room.mjs` | scope constants / remote user slot |
 
-`runtime_bootstrap`, `offer_answer`, `advert_ingest` are **internal** (transport). Signal crypto / rendezvous live under `discovery/internal/signal_crypto.mjs` (used by `nostr.mjs` / `adverts.mjs`; not a package export). `ensureRuntime` returns after registration and scheduling warm-up; it does not await lan_tcp listen, public relays, or Bluetooth. `setSignalingRuntimeConfig` → `reloadDiscoveryRelays`. See [docs/runtime.md](./docs/runtime.md) and [docs/transports.md](./docs/transports.md).
+`runtime_bootstrap`, `offer_answer`, `advert_ingest` are **internal** (transport). Signal crypto / rendezvous live under `discovery/internal/signal_crypto.mjs` (used by discovery `nostr.mjs` / `adverts.mjs`; not a package export). The Nostr **link** provider (`link/providers/nostr.mjs`) reuses the same discovery signal path (`type: 'link'`) as a last-resort duplex pipe. `ensureRuntime` returns after registration and scheduling warm-up; it does not await lan_tcp listen, public relays, or Bluetooth. `setSignalingRuntimeConfig` → `reloadDiscoveryRelays`. See [docs/runtime.md](./docs/runtime.md) and [docs/transports.md](./docs/transports.md).
 
 Root contains only the facade and package metadata; all modules live in layered subdirectories.
 
@@ -99,7 +101,7 @@ npm run test:live     # link / LAN / glare smoke
 npm run test:sim      # tunables co-evolution sim (dev only, not published; --social-tunables to write back)
 ```
 
-During development: `node scripts/check-imports.mjs` validates relative imports. After a layout migration, `node scripts/cleanup-root-duplicates.mjs` removes stale root-level stubs.
+During development: `node scripts/check-imports.mjs` validates relative imports; `node scripts/find-unused-exports.mjs` scans dead exports (`--fount <path>` optional).
 
 Maintainer notes for agents / contributors: [AGENTS.md](./AGENTS.md). Sim harness fidelity: [sim/AGENTS.md](./sim/AGENTS.md).
 
@@ -107,7 +109,7 @@ Maintainer notes for agents / contributors: [AGENTS.md](./AGENTS.md). Sim harnes
 
 - `@stoprocent/noble` / `@stoprocent/bleno` — Bluetooth (optionalDependencies). Hardware probe is subprocess-only; see [docs/runtime.md](./docs/runtime.md).
 - `node-datachannel` — WebRTC DataChannels (dependency).
-- `ws` — Nostr discovery/signaling WebSockets (dependency).
+- `ws` — Nostr discovery / signaling / last-resort link WebSockets (dependency).
 
 Group chunk remote storage (S3, etc.) is implemented by the shell as `GroupStoragePlugin` and injected; see `node/storage_plugins.mjs` for the local reference implementation.
 

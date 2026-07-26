@@ -19,13 +19,13 @@ In-process co-evolution of **tunables** (`*.tunables.json`) against an **attack 
 - **`PARAM_SPACE` ↔ defaults:** every `PARAM_SPACE` key must exist in `loadDefaultTunables()`; clear both sides when deleting a key.
 - **`socialRepHideThreshold`:** hide when `score < threshold`. Default `0` (suppress negatives only). Raise the threshold to raise `falsePositiveRate` — never use a negative threshold for "stricter".
 - **Heuristic proxy** (not the real path): `model.mjs`, `discovery.mjs`, `transport.mjs`, `integrity.mjs` — analytical "params → defense" only.
-- **Mesh-first:** production keeps ≥N links (K acquaintances + N−K discovery); K=0 still joins via discovery ([docs/mesh.md](../docs/mesh.md)). Sim discovery must not treat "no social edge" as isolation; explore slots and cold-start join are mandatory; fanout/trust stay separate from link presence.
+- **Mesh-first:** production keeps ≥N links (K acquaintances + N−K discovery); K=0 still joins via discovery ([docs/mesh.md](../docs/mesh.md)). Sim must not treat "no social edge" as isolation — explore slots and cold-start join are mandatory; fanout/trust stay separate from link presence.
 
 ## Anti-drift
 
 - Do not hand-copy runtime constants. RTC budget from `transport/rtc_connection_budget.mjs` (`resolveRtcBudgetLimits()` + `MAX_SOURCE_SLOT_FRACTION`). `EXPLORE_MAX_PER_SOURCE` mirrors `peer_pool.mjs` but stays local (importing `peer_pool` pulls fs into the hot path) — `test/fidelity.test.mjs` asserts equality.
 - Signaling source names (`DEFAULT_SIGNALING_SOURCES`) must be real provider ids (`lan` / `nostr` / `bt`). No `tracker` provider.
-- K=0 cold-start: `scenario.coldStartObserver: true` → observer with `trustedPeers=[]`; `initObserverDiscovery(..., coldBootstrap=true)` starts empty; each round `coldStartDiscoveryJoin` simulates mesh scan. Scenario `cold_start` + `sim/test/cold_start.test.mjs`.
+- K=0 cold-start: `scenario.coldStartObserver: true` → observer with `trustedPeers=[]`; `initObserverDiscovery(..., coldBootstrap=true)` starts empty; each round `coldStartDiscoveryJoin` simulates mesh scan (`cold_start` scenario + `sim/test/cold_start.test.mjs`).
 - New sim constants that shadow real ones need a matching assertion in `fidelity.test.mjs`.
 
 ## Determinism

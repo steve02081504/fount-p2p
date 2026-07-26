@@ -18,6 +18,7 @@ import {
 	unregisterLinkProvider,
 } from '../link/providers/index.mjs'
 import { createLanTcpLinkProvider } from '../link/providers/lan_tcp.mjs'
+import { createNostrLinkProvider } from '../link/providers/nostr.mjs'
 import { createWebRtcLinkProvider } from '../link/providers/webrtc.mjs'
 import { getNodeTransportSettings } from '../node/identity.mjs'
 import { getSignalingRuntimeConfig, onNodeChange } from '../node/instance.mjs'
@@ -157,6 +158,8 @@ export function createRuntimeBootstrap(deps) {
 		const ids = new Set(listLinkProviders().map(provider => provider.id))
 		if (!ids.has('webrtc'))
 			registerLinkProvider(createWebRtcLinkProvider())
+		if (!ids.has('nostr'))
+			registerLinkProvider(createNostrLinkProvider({ getRelayUrls: resolveNostrRelayUrls }))
 	}
 
 	/**

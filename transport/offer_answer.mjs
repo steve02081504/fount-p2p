@@ -150,11 +150,10 @@ export function createOfferAnswerDial(deps) {
 	}
 
 	/**
-	 * @param {Uint8Array} bytes 加密信令
+	 * @param {object} packet 已解密的 signal 包
 	 * @returns {Promise<void>}
 	 */
-	async function handleIncomingSignal(bytes) {
-		const packet = decryptNodeSignalPacket(localIdentity.nodeHash, bytes)
+	async function handleSignalPacket(packet) {
 		if (packet?.type !== 'signal') return
 		const remoteNodeHash = normalizeHex64(packet.from)
 		const connId = String(packet.connId || '')
@@ -176,6 +175,21 @@ export function createOfferAnswerDial(deps) {
 	}
 
 	/**
+	 * @param {Uint8Array} bytes 加密信令
+	 * @returns {Promise<void>}
+	 */
+	async function handleIncomingSignal(bytes) {
+		const packet = decryptNodeSignalPacket(localIdentity.nodeHash, bytes)
+		if (!packet) return
+		if (packet.type === 'link') {
+			const provider = listLinkProviders().find(entry => entry.id === 'nostr')
+			provider?.deliverPacket?.(packet)
+			return
+		}
+		await handleSignalPacket(packet)
+	}
+
+	/**
 	 * @param {import('../link/providers/index.mjs').LinkProvider} provider 链路提供者
 	 * @param {string} remoteNodeHash 远端 nodeHash
 	 * @returns {Promise<object | null>} 建链成功返回规范链路，否则 null
@@ -187,5 +201,5 @@ export function createOfferAnswerDial(deps) {
 		return await buildConnLink({ provider, remoteNodeHash, connId, session, initiator: true })
 	}
 
-	return { handleIncomingSignal, dialOfferAnswer }
+	return { handleIncomingSignal, handleSignalPacket, dialOfferAnswer }
 }

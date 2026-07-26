@@ -43,7 +43,7 @@ Provider optional hooks (package-internal): `ensureListening` (inbound accept), 
 
 Each registry only calls `ensureListening` on **its own** `lan_tcp` / `ble_gatt` instances (unique registry ids like `lan_tcp:ab12cd34`). Never fan out listening to other registries' sockets — that would overwrite `localIdentity` / `onInbound`.
 
-Chain `providerId` on the LinkHandle stays the short name (`lan_tcp` / `ble_gatt` / `webrtc`) for scheduling/stats.
+Chain `providerId` on the LinkHandle stays the short name (`lan_tcp` / `ble_gatt` / `webrtc` / `nostr`) for scheduling/stats.
 
 ## Level table
 
@@ -52,8 +52,9 @@ Chain `providerId` on the LinkHandle stays the short name (`lan_tcp` / `ble_gatt
 | `lan_tcp` | 80 |
 | `webrtc` | 70 |
 | `ble_gatt` | 40 |
+| `nostr` | −∞ |
 
-Constants: `link/providers/levels.mjs`. Discovery uses ascending **`priority`**. Link selection uses descending **`level`**.
+Constants: `link/providers/levels.mjs`. Discovery uses ascending **`priority`** (handshake / presence / signal media order — Nostr stays last at `100`). Link selection uses descending **`level`** (data transport); Nostr is −∞ so it is dialed only after LAN / WebRTC / BLE fail.
 
 ## Fallback
 
@@ -81,6 +82,10 @@ Discovery signal + dual DataChannel; DTLS fingerprint as handshake binding; `nee
 GATT write/notify; binding = shared `linkId`; needs BT peer hint (`peripheralId` in discovery meta); optional noble/bleno. Per-registry instance like `lan_tcp`; `isAvailable` / `canReach` gate dial. On Win32, scan-only stacks cannot accept inbound BLE links. One BLE adapter cannot host two independent peripherals in-process — production is one node per process.
 
 `@stoprocent/bleno` characteristic callbacks take a leading `connection` argument (`onWriteRequest(connection, data, offset, withoutResponse, callback)`). Hardware probe / Windows caveats: [runtime.md](runtime.md).
+
+### `nostr` (−∞)
+
+Last-resort duplex pipe over discovery signal packets (`type: 'link'`), demuxed from WebRTC `type: 'signal'`. Same node rendezvous encryption as signaling; not a second relay subscription. Longer handshake / heartbeat / idle than LAN. Discovery **`priority`** is unchanged (still handshake-last); only link **`level`** is −∞.
 
 ### Bluetooth discovery signal
 

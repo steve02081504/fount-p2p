@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { test } from 'node:test'
 
 import {
-	CKG_SCHEME,
+	CHANNEL_KEY_SCHEME,
 	decryptWithChannelKey,
 	encryptWithChannelKey,
 	generateChannelKey,
@@ -22,13 +22,15 @@ test('channel key HPKE wrap roundtrip', () => {
 	assertEquals(unwrapped, kch)
 })
 
-test('ckg message encrypt decrypt', () => {
+test('channel-key message encrypt decrypt', () => {
 	const kch = generateChannelKey()
 	const channelId = 'general'
 	const gen = 2
 	const plain = JSON.stringify({ type: 'text', content: 'hello' })
 	const envelope = encryptWithChannelKey(plain, kch, channelId, gen)
-	assertEquals(envelope.scheme, CKG_SCHEME)
+	assertEquals(envelope.scheme, CHANNEL_KEY_SCHEME)
+	assertEquals(CHANNEL_KEY_SCHEME, 'channel-key')
+
 	assertEquals(typeof envelope.payload, 'string')
 	assertEquals(envelope.payload.split('.').length, 3)
 	const out = decryptWithChannelKey(envelope, kch, channelId)

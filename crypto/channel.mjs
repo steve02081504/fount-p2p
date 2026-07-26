@@ -1,5 +1,5 @@
 /**
- * Domain-key 信封：X25519 ECIES 包装与 AES-GCM 消息载荷（wire scheme 由消费方定义，如 ckg）。
+ * Domain-key 信封：X25519 ECIES 包装与 AES-GCM 消息载荷（wire scheme：channel-key）。
  * 解密 payload 不可脱离外层 DAG Ed25519 签名上下文单独传递或信任。
  */
 import { Buffer } from 'node:buffer'
@@ -7,8 +7,8 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:cr
 
 import { unwrapKeyEcies, wrapKeyEcies } from './key.mjs'
 
-/** @type {'ckg'} 频道消息 content 加密 scheme */
-export const CKG_SCHEME = 'ckg'
+/** @type {'channel-key'} 频道消息 content 加密 scheme */
+export const CHANNEL_KEY_SCHEME = 'channel-key'
 
 /** @typedef {{ ephemPub: string, iv: string, ciphertext: string, authTag: string }} EciesWrapBlob */
 
@@ -49,7 +49,7 @@ function messageAesKey(channelKeyHex, channelId, generation) {
 	return Buffer.from(hkdfSync(
 		'sha256',
 		Buffer.from(channelKeyHex, 'hex'),
-		`ckg:${String(channelId)}:${String(generation)}`,
+		`${CHANNEL_KEY_SCHEME}:${String(channelId)}:${String(generation)}`,
 		'',
 		32,
 	))
@@ -60,7 +60,7 @@ function messageAesKey(channelKeyHex, channelId, generation) {
  * @param {string} channelKeyHex K_ch
  * @param {string} channelId 频道 ID
  * @param {number} generation 密钥代际
- * @returns {{ scheme: typeof CKG_SCHEME, channelId: string, generation: number, payload: string }} 频道密钥信封
+ * @returns {{ scheme: typeof CHANNEL_KEY_SCHEME, channelId: string, generation: number, payload: string }} 频道密钥信封
  */
 export function encryptWithChannelKey(plaintext, channelKeyHex, channelId, generation) {
 	const key = messageAesKey(channelKeyHex, channelId, generation)
@@ -70,7 +70,7 @@ export function encryptWithChannelKey(plaintext, channelKeyHex, channelId, gener
 	const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()])
 	const authTag = cipher.getAuthTag()
 	return {
-		scheme: CKG_SCHEME,
+		scheme: CHANNEL_KEY_SCHEME,
 		channelId: String(channelId),
 		generation: Number(generation) || 0,
 		payload: `${iv.toString('base64')}.${ciphertext.toString('base64')}.${authTag.toString('base64')}`,
@@ -84,7 +84,7 @@ export function encryptWithChannelKey(plaintext, channelKeyHex, channelId, gener
  * @returns {string | null} 明文 UTF-8
  */
 export function decryptWithChannelKey(envelope, channelKeyHex, channelId) {
-	if (envelope?.scheme !== CKG_SCHEME || !envelope.payload) return null
+	if (envelope?.scheme !== CHANNEL_KEY_SCHEME || !envelope.payload) return null
 	try {
 		const parts = envelope.payload.split('.')
 		if (parts.length !== 3) return null

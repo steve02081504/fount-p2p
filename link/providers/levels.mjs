@@ -7,3 +7,5 @@ export const LINK_LEVEL_LAN_TCP = 80
 export const LINK_LEVEL_WEBRTC = 70
 /** BLE GATT 链路 level。 */
 export const LINK_LEVEL_BLE_GATT = 40
+/** Nostr relay 末位数据链（仅其它传输失败后）。 */
+export const LINK_LEVEL_NOSTR = Number.NEGATIVE_INFINITY
