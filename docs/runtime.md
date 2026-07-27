@@ -55,8 +55,6 @@ deno run -A --minimum-dependency-age=0 --node-modules-dir=auto --allow-scripts=n
 
 ## Bluetooth probe
 
-`canUseBluetoothRuntime` runs hardware probe in a **subprocess** (`discovery/bt/probe_child.mjs`: load → poweredOn → stop → exit). On failure, discovery/link fall back to other paths.
+`canUseBluetoothRuntime` probes in-process: sysfs hint (Linux) → `loadNoble` → `waitPoweredOn` → `stop()`. Requires `@stoprocent/noble>=2.5.9` on Windows (safe teardown after probe; [stoprocent/noble#95](https://github.com/stoprocent/noble/issues/95)). On failure, discovery/link fall back to other paths.
 
-Do **not** `waitPoweredOn` in the parent process: on Windows, noble can stall the event loop; in-process `stop()` can AV ([stoprocent/noble#95](https://github.com/stoprocent/noble/issues/95)).
-
-Actual scan/GATT still uses in-process `loadNoble` / `loadBleno`. Win defaults to scan-only. Shutdown does not await BT warm; probe child and related `setTimeout`s are `unref`'d; a generation counter invalidates late side effects.
+Actual scan/GATT uses the same `loadNoble` / `loadBleno` path. Win defaults to scan-only. Shutdown does not await BT warm; a generation counter invalidates late side effects.

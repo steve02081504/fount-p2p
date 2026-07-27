@@ -1,8 +1,5 @@
-import { spawn } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
 
 /**
  * 解析 Bluetooth 角色（scan / dual）。
@@ -31,50 +28,34 @@ export function probeBluetoothHardware() {
 
 /** @type {boolean | null} canUseBluetoothRuntime 缓存 */
 let cachedRuntimeOk = null
-/** @type {Promise<boolean> | null} 并发 canUse 合并为一次子进程探测 */
+/** @type {Promise<boolean> | null} 并发 canUse 合并为一次进程内探测 */
 let probeInflight = null
 
-const PROBE_CHILD = join(dirname(fileURLToPath(import.meta.url)), 'probe_child.mjs')
-
 /**
- * 在子进程中探测 BT（父进程 waitPoweredOn 会拖住事件循环；stop() 还可能 AV）。
+ * 进程内 BT 可用性探测：load → poweredOn → stop。
+ * 需要 @stoprocent/noble>=2.5.9（Windows stop() 与事件循环释放，见 stoprocent/noble#95）。
  * @param {number} timeoutMs waitPoweredOn 超时
- * @returns {Promise<boolean>} 子进程 exit 0 为可用
+ * @returns {Promise<boolean>} poweredOn 且 stop 成功为 true
  */
-function probeBluetoothInSubprocess(timeoutMs) {
-	return new Promise(resolve => {
-		const child = spawn(process.execPath, [PROBE_CHILD, String(timeoutMs)], {
-			stdio: 'ignore',
-			windowsHide: true,
-		})
-		// 探测是旁路缓存填充；勿拖住父进程事件循环 / shutdown 退出。
-		child.unref()
-		let settled = false
-		/**
-		 * @param {boolean} ok 探测结果
-		 * @returns {void}
-		 */
-		const finish = ok => {
-			if (settled) return
-			settled = true
-			clearTimeout(timer)
-			resolve(ok)
-		}
-		const timer = setTimeout(() => {
-			child.kill('SIGKILL')
-			finish(false)
-		}, timeoutMs + 5_000)
-		timer.unref()
-		child.once('error', () => finish(false))
-		child.once('exit', (code, signal) => {
-			if (signal) finish(false)
-			else finish(code === 0)
-		})
-	})
+async function probeBluetoothInProcess(timeoutMs) {
+	/** @type {any} */
+	let noble = null
+	try {
+		noble = await loadNoble()
+		if (!noble?.startScanningAsync) return false
+		await waitPoweredOn(noble, timeoutMs)
+		return true
+	}
+	catch {
+		return false
+	}
+	finally {
+		if (noble) try { noble.stop() } catch { /* ignore */ }
+	}
 }
 
 /**
- * 探测 BT 栈是否真正可用（硬件迹象 → 子进程 load → poweredOn）。
+ * 探测 BT 栈是否真正可用（硬件迹象 → 进程内 load → poweredOn → stop）。
  * 任一步失败返回 false；不抛错。
  * @param {number} [timeoutMs=3000] waitPoweredOn 超时
  * @returns {Promise<boolean>} 可用为 true
@@ -86,7 +67,7 @@ export async function canUseBluetoothRuntime(timeoutMs = 3000) {
 		return false
 	}
 	if (!probeInflight)
-		probeInflight = probeBluetoothInSubprocess(timeoutMs)
+		probeInflight = probeBluetoothInProcess(timeoutMs)
 			.then(ok => {
 				cachedRuntimeOk = ok
 				return ok

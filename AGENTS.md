@@ -52,7 +52,7 @@
 - **Room startup:** `group_link_set` / `scoped_link` / first `ensureUserRoom()` call `registry.ensureRuntime()` before subscribe/advertise. `ensureRuntime` does not await listen/relays/BT. [runtime.md](docs/runtime.md)
 - **Link registry:** `configureLinkRegistry(opts)` before first `getLinkRegistry`. `startNode` does not take registry options. Rooms: `createGroupLinkSet` is the kernel; `createScopedLinkRoom` is a dial-all preset.
 - **Fetch ≠ apply:** `ingestSignedAdvert` vs `applyAdvertPeerHints`; `fetchPublicManifest` defaults to no cache; `pullReputationFromNode` never writes.
-- **Bluetooth:** optional noble/bleno; hardware probe is subprocess-only — never `waitPoweredOn` in the parent. [runtime.md](docs/runtime.md)
+- **Bluetooth:** optional noble/bleno (noble `>=2.5.9` for safe in-process probe teardown); availability probe is in-process (`loadNoble` → `waitPoweredOn` → `stop`). [runtime.md](docs/runtime.md)
 - **Infra / node-scope attaches:** [infra.md](docs/infra.md)
 
 ### Subjective reputation (`reputation.json`)
