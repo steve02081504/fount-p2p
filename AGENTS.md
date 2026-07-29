@@ -51,7 +51,7 @@
 - **Mesh first / no versioning:** ≥N links (K acquaintances + N−K explore); discovery API is `listVisibleNodeHashes` + `connectToNode` only; no topic on the fount-network surface; no version/compat fields. [mesh.md](docs/mesh.md)
 - **Room startup:** `group_link_set` / `scoped_link` / first `ensureUserRoom()` call `registry.ensureRuntime()` before subscribe/advertise. `ensureRuntime` does not await listen/relays/BT. [runtime.md](docs/runtime.md)
 - **Link registry:** `configureLinkRegistry(opts)` before first `getLinkRegistry`. `startNode` does not take registry options. Rooms: `createGroupLinkSet` is the kernel; `createScopedLinkRoom` is a dial-all preset.
-- **Fetch ≠ apply:** `ingestSignedAdvert` vs `applyAdvertPeerHints`; `fetchPublicManifest` defaults to no cache; `pullReputationFromNode` never writes.
+- **Fetch ≠ apply:** `ingestSignedAdvert` vs `applyAdvertPeerHints`; `fetchPublicManifest` defaults to no cache (still fanout-revalidates local publicSig by `publishedAt`); `pullReputationFromNode` never writes.
 - **Bluetooth:** optional noble/bleno (noble `>=2.5.9` for safe in-process probe teardown); availability probe is in-process (`loadNoble` → `waitPoweredOn` → `stop`). [runtime.md](docs/runtime.md)
 - **Infra / node-scope attaches:** [infra.md](docs/infra.md)
 
@@ -67,7 +67,7 @@
 
 - **Storage:** ciphertext chunks `{nodeDir}/chunks/` (CAS); manifests `{EntityStoreRoot}/{entityHash}/files/{path}.manifest.json`.
 - **Modules:** `files/` — `evfs`, `evfs_ref`, `acl`, `manifest_acl_registry`, `public_manifest` / `manifest_fetch`.
-- **Public files:** `publishPublicFile` signs with recovery key; remote `fed_manifest_get` → verify → cache. Signature covers content fields only — after verify, drop incoming `meta` except `publicSig`. Profile/avatar semantics live in the shell.
+- **Public files:** `publishPublicFile` signs with recovery key; remote `fed_manifest_get` → verify → cache. `fetchPublicManifest` always fanout-revalidates (prefer newer `publishedAt`; timeout falls back to local publicSig). Signature covers content fields only — after verify, drop incoming `meta` except `publicSig`. Profile/avatar semantics live in the shell.
 
 ## Tunables JSON
 

@@ -34,6 +34,8 @@ Shutdown-exit tests use the production path (default public Nostr + lan). Do not
 
 Use the `ws` package (not global `WebSocket`). Subscriptions share one WebSocket per relay URL (signal / network advert / per-node advert / group advert multiplex `REQ`s). Active subscriptions reconnect after drop (`NOSTR_RECONNECT_DELAY_MS`) and re-send `REQ`s. On intentional shutdown: `close()`, then `terminate()` after `NOSTR_CLOSE_GRACE_MS` (1s) if the socket is not yet `CLOSED`. Presence publish still uses short-lived sockets.
 
+Platform `WebSocket` cannot replace `ws` until force-drop / unref exists on both runtimes: Node/undici ([#5570](https://github.com/nodejs/undici/issues/5570) → `process.unref` in [#5578](https://github.com/nodejs/undici/pull/5578)); Deno still open ([denoland/deno#36337](https://github.com/denoland/deno/issues/36337)).
+
 Self presence echo from relays is filtered (`skipNodeHash`, same idea as LAN) and omitted from `listVisibleNodeHashes`. First-seen peer clues notify the link registry (`noteDiscoveryPeerClue`) so dial cooldown unlocks when a peer reappears.
 
 ## Deno vs Node native addons

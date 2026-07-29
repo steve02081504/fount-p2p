@@ -8,10 +8,13 @@ import { entityHashFromRecoveryPubKeyHex } from '../../core/entity_id.mjs'
 import { keyPairFromSeed } from '../../crypto/crypto.mjs'
 import {
 	manifestFetchExpectedKey,
+	pendingManifestFetches,
 	registerManifestFetchWait,
 	resolvePendingManifestFetch,
 } from '../../federation/manifest_fetch_pending.mjs'
 import { encryptPlaintextToParts, buildFileManifestFromEnc } from '../../files/assemble.mjs'
+import { loadFileManifest } from '../../files/evfs.mjs'
+import { cachePublicManifest, fetchPublicManifest } from '../../files/manifest_fetch.mjs'
 import { publicTransferKeyDescriptor } from '../../files/manifest.mjs'
 import {
 	attachPublicManifestSig,
@@ -22,6 +25,20 @@ import {
 import { getNodeHash } from '../../node/identity.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
+
+/**
+ * @param {number} [timeoutMs] 等待上限
+ * @returns {Promise<string | null>} 首个 pending requestId
+ */
+async function waitForPendingManifestRequestId(timeoutMs = 2000) {
+	const deadline = Date.now() + timeoutMs
+	while (Date.now() < deadline) {
+		const [requestId] = pendingManifestFetches.keys()
+		if (requestId) return requestId
+		await new Promise(resolve => setTimeout(resolve, 5))
+	}
+	return null
+}
 
 /**
  * @param {number} [n] 种子盐
@@ -271,4 +288,69 @@ test('fed_manifest_get responds with publicSig-only meta', async () => {
 	assertEquals(Object.keys(resp?.manifest?.meta || {}), ['publicSig'])
 	assertEquals(resp?.manifest?.meta?.publicSig?.publishedAt, 800)
 	assertEquals(resp?.manifest?.transferKeyDescriptor?.type, 'public')
+})
+
+test('fetchPublicManifest revalidates local publicSig and prefers newer publishedAt', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'fount-fetch-pub-revalidate-'))
+	initTestP2pNode({ nodeDir: dir })
+	const keys = testRecoveryKeys(13)
+	const owner = entityHashFromRecoveryPubKeyHex('a'.repeat(64), keys.pubKeyHex)
+	const older = await buildSignedManifest(owner, 'profile.json', 'v1', keys, 1000)
+	const newer = await buildSignedManifest(owner, 'profile.json', 'v2', keys, 2000)
+	await cachePublicManifest(owner, 'profile.json', older)
+
+	const fetchPromise = fetchPublicManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'profile.json',
+		cache: true,
+	})
+	const requestId = await waitForPendingManifestRequestId()
+	assertEquals(Boolean(requestId), true)
+	assertEquals(await resolvePendingManifestFetch({ requestId, manifest: newer }), true)
+
+	const got = await fetchPromise
+	assertEquals(got?.meta?.publicSig?.publishedAt, 2000)
+	assertEquals((await loadFileManifest(owner, 'profile.json'))?.meta?.publicSig?.publishedAt, 2000)
+})
+
+test('fetchPublicManifest keeps local when incoming publishedAt is not newer', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'fount-fetch-pub-keep-local-'))
+	initTestP2pNode({ nodeDir: dir })
+	const keys = testRecoveryKeys(14)
+	const owner = entityHashFromRecoveryPubKeyHex('b'.repeat(64), keys.pubKeyHex)
+	const newer = await buildSignedManifest(owner, 'profile.json', 'v2', keys, 2000)
+	const older = await buildSignedManifest(owner, 'profile.json', 'v1', keys, 1000)
+	await cachePublicManifest(owner, 'profile.json', newer)
+
+	const fetchPromise = fetchPublicManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'profile.json',
+		cache: true,
+	})
+	const requestId = await waitForPendingManifestRequestId()
+	assertEquals(Boolean(requestId), true)
+	assertEquals(await resolvePendingManifestFetch({ requestId, manifest: older }), true)
+
+	const got = await fetchPromise
+	assertEquals(got?.meta?.publicSig?.publishedAt, 2000)
+	assertEquals((await loadFileManifest(owner, 'profile.json'))?.meta?.publicSig?.publishedAt, 2000)
+})
+
+test('fetchPublicManifest falls back to local publicSig when revalidation times out', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'fount-fetch-pub-timeout-'))
+	initTestP2pNode({ nodeDir: dir })
+	const keys = testRecoveryKeys(15)
+	const owner = entityHashFromRecoveryPubKeyHex('c'.repeat(64), keys.pubKeyHex)
+	const local = await buildSignedManifest(owner, 'profile.json', 'cached', keys, 1500)
+	await cachePublicManifest(owner, 'profile.json', local)
+
+	const got = await fetchPublicManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'profile.json',
+		timeoutMs: 50,
+	})
+	assertEquals(got?.meta?.publicSig?.publishedAt, 1500)
 })

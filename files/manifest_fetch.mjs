@@ -15,9 +15,12 @@ import { fanoutFedFetch } from './fetch_fanout.mjs'
 import { normalizeFileManifest } from './manifest.mjs'
 import { shouldPreferIncomingPublicManifest } from './public_manifest.mjs'
 
+const DEFAULT_MANIFEST_FETCH_TIMEOUT_MS = 8000
+
 /**
  * 拉取公开 manifest；默认不写盘。`cache: true` 或 `cachePublicManifest` 才缓存。
- * @param {{ username: string, ownerEntityHash: string, logicalPath: string, cache?: boolean }} context - 拉取上下文
+ * 本地已有 publicSig 时仍会 fanout 再校验，按 publishedAt 择新；超时则回退本地。
+ * @param {{ username: string, ownerEntityHash: string, logicalPath: string, cache?: boolean, timeoutMs?: number }} context - 拉取上下文
  * @returns {Promise<import('./manifest.mjs').FileManifest | null>} 验签后的 manifest，失败为 null
  */
 export async function fetchPublicManifest(context) {
@@ -27,16 +30,19 @@ export async function fetchPublicManifest(context) {
 	if (!ownerEntityHash || !logicalPath || !username) return null
 
 	const local = await loadFileManifest(ownerEntityHash, logicalPath)
-	if (local?.transferKeyDescriptor?.type === 'public' && local?.meta?.publicSig)
-		return local
+	const hasLocalPublic = local?.transferKeyDescriptor?.type === 'public' && !!local?.meta?.publicSig
 
-	if (pendingManifestFetches.size >= MAX_PENDING_MANIFEST_FETCHES) return null
+	if (pendingManifestFetches.size >= MAX_PENDING_MANIFEST_FETCHES)
+		return hasLocalPublic ? local : null
 
+	const timeoutMs = Number(context.timeoutMs) > 0
+		? Number(context.timeoutMs)
+		: DEFAULT_MANIFEST_FETCH_TIMEOUT_MS
 	const requestId = randomUUID()
 	const { done } = registerManifestFetchWait(
 		requestId,
 		manifestFetchExpectedKey(ownerEntityHash, logicalPath),
-		8000,
+		timeoutMs,
 	)
 	const { nodeHash } = await resolveNodeHash(username)
 	const payload = {
@@ -47,11 +53,14 @@ export async function fetchPublicManifest(context) {
 	}
 	await fanoutFedFetch(username, 'fed_manifest_get', payload)
 	const result = await done
-	if (!result) return null
 
-	if (context.cache === true)
-		await cachePublicManifest(ownerEntityHash, logicalPath, result)
-	return result
+	if (result && (!hasLocalPublic || shouldPreferIncomingPublicManifest(local, result))) {
+		if (context.cache === true)
+			await cachePublicManifest(ownerEntityHash, logicalPath, result)
+		return result
+	}
+	if (hasLocalPublic) return local
+	return null
 }
 
 /**
