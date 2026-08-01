@@ -16,7 +16,7 @@
 
 ## Conventions
 
-- **Shared helpers:** `utils/shuffle`, `utils/emit_safe`, `utils/lru.createLruMap`, `utils/ttl_map.createTtlMap` (bounded caches; TTL maps take `maxSize`), `core/bytes_codec.toBytes`, `link/providers/link_id_pipe`.
+- **Shared helpers:** `utils/shuffle`, `utils/emit_safe`, `utils/lru.createLruMap`, `utils/ttl_map.createTtlMap` (bounded caches; TTL maps take `maxSize`), `utils/atomic_fs` (unique tmp + Windows rename retries; used by `utils/json_io` and `dag/storage`), `core/bytes_codec.toBytes`, `link/providers/link_id_pipe`.
 - **File naming:** parent directory is scope — child `.mjs` files use short names (`mailbox/store.mjs`). Tunables default: `<dir>/tunables.json`. Subpath `package.json` exports mirror filenames.
 - **Import boundary:** `test/integration/p2p_shell_import_guard.test.mjs`.
 

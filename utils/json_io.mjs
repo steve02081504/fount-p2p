@@ -2,6 +2,8 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 
+import { atomicTemporaryPath, finalizeAtomicRename, finalizeAtomicRenameSync } from './atomic_fs.mjs'
+
 /**
  * @param {string} filePath 绝对路径
  * @returns {Promise<object | null>} JSON 或 null
@@ -24,9 +26,10 @@ export async function readJsonFile(filePath) {
  */
 export async function writeJsonFile(filePath, data) {
 	await fsp.mkdir(path.dirname(filePath), { recursive: true })
-	const temporaryPath = `${filePath}.tmp`
+	const temporaryPath = atomicTemporaryPath(filePath)
 	await fsp.writeFile(temporaryPath, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
-	await fsp.rename(temporaryPath, filePath)
+	if (!await finalizeAtomicRename(temporaryPath, filePath))
+		throw Object.assign(new Error(`ENOENT: atomic rename failed for ${filePath}`), { code: 'ENOENT' })
 }
 
 /**
@@ -51,7 +54,8 @@ export function readJsonFileSync(filePath) {
  */
 export function writeJsonFileSync(filePath, data) {
 	fs.mkdirSync(path.dirname(filePath), { recursive: true })
-	const temporaryPath = `${filePath}.tmp`
+	const temporaryPath = atomicTemporaryPath(filePath)
 	fs.writeFileSync(temporaryPath, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
-	fs.renameSync(temporaryPath, filePath)
+	if (!finalizeAtomicRenameSync(temporaryPath, filePath))
+		throw Object.assign(new Error(`ENOENT: atomic rename failed for ${filePath}`), { code: 'ENOENT' })
 }

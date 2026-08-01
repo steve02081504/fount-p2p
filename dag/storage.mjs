@@ -1,62 +1,18 @@
 import { Buffer } from 'node:buffer'
-import { randomUUID } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { appendFile, mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, open, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { createInterface } from 'node:readline'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import { setTimeout as sleep } from 'node:timers/promises'
 
+import { atomicTemporaryPath, finalizeAtomicRename } from '../utils/atomic_fs.mjs'
 import { withAsyncMutex } from '../utils/async_mutex.mjs'
+
+export { finalizeAtomicRename } from '../utils/atomic_fs.mjs'
 
 /** 流式重写 JSONL 时分块写入的行数上限 */
 const WRITE_JSONL_CHUNK_LINES = 1000
-/** Windows 上 rename 可能被短暂占用，做几次短退避重试。 */
-const ATOMIC_RENAME_RETRY_DELAYS_MS = [0, 10, 25, 50, 100]
-const ATOMIC_RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'EACCES'])
-
-/**
- * @param {string} filePath 目标路径
- * @returns {string} 唯一临时文件路径
- */
-function atomicTemporaryPath(filePath) {
-	return `${filePath}.tmp.${process.pid}.${randomUUID()}`
-}
-
-/**
- * @param {string} temporaryPath 临时文件路径
- * @returns {Promise<void>}
- */
-async function cleanupAtomicTemporary(temporaryPath) {
-	try { await unlink(temporaryPath) } catch { /* ok */ }
-}
-
-/**
- * 完成原子写的最终 rename；若目标目录已在 cleanup 中消失，则清理残余临时文件后静默返回。
- * @param {string} temporaryPath 临时文件路径
- * @param {string} filePath 最终目标路径
- * @returns {Promise<boolean>} 是否已成功落到目标路径
- */
-export async function finalizeAtomicRename(temporaryPath, filePath) {
-	/** @type {NodeJS.ErrnoException | undefined} */
-	let lastError
-	for (const delayMs of ATOMIC_RENAME_RETRY_DELAYS_MS) {
-		if (delayMs) await sleep(delayMs)
-		try {
-			await rename(temporaryPath, filePath)
-			return true
-		}
-		catch (error) {
-			lastError = error
-			if (ATOMIC_RENAME_RETRY_CODES.has(error?.code)) continue
-			break
-		}
-	}
-	await cleanupAtomicTemporary(temporaryPath)
-	if (lastError?.code === 'ENOENT') return false
-	throw lastError
-}
 
 /**
  * @param {string} line JSONL 单行
