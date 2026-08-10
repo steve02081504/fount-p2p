@@ -75,7 +75,7 @@ Plain TCP on the LAN. Registry schedules listen in the background after `ensureR
 
 ### `webrtc` (70)
 
-Discovery signal + dual DataChannel; DTLS fingerprint as handshake binding; `needsOfferAnswer` glare path. Soft-fail (`null`) continues to lower-level providers.
+Discovery signal + dual DataChannel; DTLS fingerprint as handshake binding; `needsOfferAnswer` glare path. Soft-fail (`null`) continues to lower-level providers. Backend: `node-datachannel` when the native addon loads, else pure-JS `node-rtc-connection` (Android/Termux skips native). See [runtime.md](runtime.md).
 
 ### `ble_gatt` (40)
 

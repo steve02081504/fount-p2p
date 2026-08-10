@@ -53,6 +53,7 @@
 - **Link registry:** `configureLinkRegistry(opts)` before first `getLinkRegistry`. `startNode` does not take registry options. Rooms: `createGroupLinkSet` is the kernel; `createScopedLinkRoom` is a dial-all preset.
 - **Fetch ≠ apply:** `ingestSignedAdvert` vs `applyAdvertPeerHints`; `fetchPublicManifest` defaults to no cache (still fanout-revalidates local publicSig by `publishedAt`); `pullReputationFromNode` never writes.
 - **Bluetooth:** optional noble/bleno (noble `>=2.5.9` for safe in-process probe teardown); availability probe is in-process (`loadNoble` → `waitPoweredOn` → `stop`). [runtime.md](docs/runtime.md)
+- **WebRTC:** prefer optional `node-datachannel`; on Android/Termux or native load failure fall back to pure-JS `node-rtc-connection` (`link/rtc.mjs`). Pure backend forces trickle ICE (SDP has no candidates). [runtime.md](docs/runtime.md)
 - **Infra / node-scope attaches:** [infra.md](docs/infra.md)
 
 ### Subjective reputation (`reputation.json`)

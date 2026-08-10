@@ -42,14 +42,15 @@ function isDenoRuntime() {
 }
 
 /**
- * 探测 WebRTC（node-datachannel）是否可用。
+ * 探测 WebRTC（node-datachannel 或纯 JS fallback）是否可用。
  * @returns {Promise<boolean>} 可用为 true
  */
 export async function canUseWebRtcLink() {
 	if (cachedAvailable !== null) return cachedAvailable
 	try {
-		await loadNodeRtcPolyfill()
+		const rtc = await loadNodeRtcPolyfill()
 		cachedAvailable = true
+		nodeDebug('p2p:webrtc backend', { backend: rtc.backend })
 	}
 	catch (error) {
 		cachedAvailable = false
@@ -80,8 +81,11 @@ export async function canUseWebRtcLink() {
 export async function createWebRtcLink(options) {
 	const handshakeTimeoutMs = Number(options.handshakeTimeoutMs) || ms('10s')
 	const channelOpenTimeoutMs = Math.max(handshakeTimeoutMs, ms('30s'))
-	const trickleIceOff = getSignalingRuntimeConfig().trickleIceOff === true
 	const rtc = options.rtc ?? await loadNodeRtcPolyfill()
+	// node-rtc-connection 只做 trickle（SDP 不含 candidate）；强制开启 trickle。
+	const trickleIceOff = rtc.backend === 'node-rtc-connection'
+		? false
+		: getSignalingRuntimeConfig().trickleIceOff === true
 	const peerConnection = new rtc.RTCPeerConnection(options.iceServers?.length ? { iceServers: options.iceServers } : undefined)
 	const remoteSignalQueue = []
 	const seenRemoteSignals = createLruMap(1024)

@@ -119,11 +119,14 @@ export function onBufferedAmountLow(channel, callback) {
 	 */
 	const handler = () => callback()
 	channel.addEventListener?.('bufferedamountlow', handler)
+	channel.on?.('bufferedamountlow', handler)
 	channel.onbufferedamountlow = handler
 	if (channel.bufferedAmountLow?.subscribe)
 		channel.bufferedAmountLow.subscribe(handler)
 	return () => {
 		channel.removeEventListener?.('bufferedamountlow', handler)
+		channel.off?.('bufferedamountlow', handler)
+		channel.removeListener?.('bufferedamountlow', handler)
 		if (channel.onbufferedamountlow === handler) channel.onbufferedamountlow = null
 	}
 }

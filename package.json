@@ -71,7 +71,7 @@
 	},
 	"dependencies": {
 		"@noble/curves": "latest",
-		"node-datachannel": "latest",
+		"node-rtc-connection": "latest",
 		"on-shutdown": "latest",
 		"ws": "latest"
 	},
@@ -80,6 +80,10 @@
 	},
 	"optionalDependencies": {
 		"@stoprocent/bleno": "latest",
-		"@stoprocent/noble": "latest"
+		"@stoprocent/noble": "latest",
+		"node-datachannel": "latest"
+	},
+	"allowScripts": {
+		"node-datachannel@0.32.3": true
 	}
 }
