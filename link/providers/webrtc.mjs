@@ -60,7 +60,7 @@ export async function canUseWebRtcLink() {
  * @param {number} [options.heartbeatMs] 心跳间隔
  * @param {number} [options.idleTimeoutMs] 无入站流量超时
  * @param {number} [options.handshakeTimeoutMs] 握手超时
- * @param {import('../rtc/polyfill.mjs').LoadedRtcPolyfill | { RTCPeerConnection: typeof RTCPeerConnection, forcesTrickleIce?: boolean }} [options.rtc] RTC 构造器
+ * @param {import('../rtc/polyfill.mjs').LoadedRtcPolyfill} [options.rtc] RTC 构造器
  * @param {{ nodeHash?: string, nodePubKey?: string, secretKey?: Uint8Array, nonce?: string } | null} [options.localIdentity] 本地握手身份
  * @returns {Promise<import('./index.mjs').LinkHandle>} link 句柄
  */

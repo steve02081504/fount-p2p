@@ -6,12 +6,12 @@ import { assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'
 
 /**
- * @returns {{ left: { send: (m: unknown) => void, onRemote: (h: (m: unknown) => void) => void }, right: { send: (m: unknown) => void, onRemote: (h: (m: unknown) => void) => void } }}
+ * @returns {{ left: { send: (message: unknown) => void, onRemote: (handler: (message: unknown) => void) => void }, right: { send: (message: unknown) => void, onRemote: (handler: (message: unknown) => void) => void } }}
  */
 function createSignalPair() {
-	/** @type {((m: unknown) => void) | null} */
+	/** @type {((message: unknown) => void) | null} */
 	let leftHandler = null
-	/** @type {((m: unknown) => void) | null} */
+	/** @type {((message: unknown) => void) | null} */
 	let rightHandler = null
 	const leftQueue = []
 	const rightQueue = []
@@ -28,7 +28,7 @@ function createSignalPair() {
 				})
 			},
 			/**
-			 * @param {(m: unknown) => void} handler
+			 * @param {(message: unknown) => void} handler
 			 * @returns {void}
 			 */
 			onRemote(handler) {
@@ -49,7 +49,7 @@ function createSignalPair() {
 				})
 			},
 			/**
-			 * @param {(m: unknown) => void} handler
+			 * @param {(message: unknown) => void} handler
 			 * @returns {void}
 			 */
 			onRemote(handler) {
@@ -69,10 +69,6 @@ test({
 	 * @returns {Promise<void>}
 	 */
 	async fn() {
-		const missingNative = Object.assign(
-			new Error("Cannot find module '../../../build/Release/node_datachannel.node'"),
-			{ code: 'MODULE_NOT_FOUND' },
-		)
 		const rtc = await loadNodeRtcPolyfill({
 			backends: [{
 				id: 'node-datachannel',
@@ -80,7 +76,10 @@ test({
 				 * @returns {Promise<never>}
 				 */
 				async load() {
-					throw missingNative
+					throw Object.assign(
+						new Error("Cannot find module '../../../build/Release/node_datachannel.node'"),
+						{ code: 'MODULE_NOT_FOUND' },
+					)
 				},
 			}],
 		})

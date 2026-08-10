@@ -82,8 +82,5 @@
 		"@stoprocent/bleno": "latest",
 		"@stoprocent/noble": "latest",
 		"node-datachannel": "latest"
-	},
-	"allowScripts": {
-		"node-datachannel": true
 	}
 }

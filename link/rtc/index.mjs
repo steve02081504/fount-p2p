@@ -4,4 +4,4 @@ export {
 	filterIceLocalHostnameCandidate,
 	wrapRtcPeerConnectionForIceLocalHostname,
 } from './ice_local_hostname.mjs'
-export { loadNodeRtcPolyfill } from './polyfill.mjs'
+export { clearNodeRtcPolyfillCache, loadNodeRtcPolyfill } from './polyfill.mjs'

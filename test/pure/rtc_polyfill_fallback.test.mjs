@@ -8,10 +8,6 @@ import { assertEquals } from '../helpers/assert.mjs'
  * 修复前只能抛错或无 RTC；修复后应落到纯 JS 后端。
  */
 test('loadNodeRtcPolyfill falls back when node-datachannel native is missing', async () => {
-	const missingNative = Object.assign(
-		new Error("Cannot find module '../../../build/Release/node_datachannel.node'"),
-		{ code: 'MODULE_NOT_FOUND' },
-	)
 	const rtc = await loadNodeRtcPolyfill({
 		backends: [
 			{
@@ -20,7 +16,10 @@ test('loadNodeRtcPolyfill falls back when node-datachannel native is missing', a
 				 * @returns {Promise<never>}
 				 */
 				async load() {
-					throw missingNative
+					throw Object.assign(
+						new Error("Cannot find module '../../../build/Release/node_datachannel.node'"),
+						{ code: 'MODULE_NOT_FOUND' },
+					)
 				},
 			},
 		],

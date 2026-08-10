@@ -9,6 +9,9 @@ import { bridgePeerConnection } from './w3c_bridge.mjs'
 /** @type {boolean} */
 let exitCleanupHooked = false
 
+/** @type {Promise<LoadedRtcPolyfill> | null} */
+let cachedDefaultPolyfill = null
+
 /**
  * @typedef {{
  *   RTCPeerConnection: typeof RTCPeerConnection,
@@ -22,6 +25,14 @@ let exitCleanupHooked = false
  *   load: () => Promise<{ RTCPeerConnection: typeof RTCPeerConnection, RTCIceCandidate: typeof RTCIceCandidate }>,
  * }} RtcBackend
  */
+
+/**
+ * 清除默认后端加载缓存（iceLocalHostnamePolicy 变更后调用）。
+ * @returns {void}
+ */
+export function clearNodeRtcPolyfillCache() {
+	cachedDefaultPolyfill = null
+}
 
 /**
  * 注册进程退出时销毁 libdatachannel 原生资源（首次成功加载后挂一次）。
@@ -83,11 +94,10 @@ function defaultRtcBackends() {
 }
 
 /**
- * 加载 RTC polyfill（node-datachannel 优先，失败则 node-rtc-connection），并按配置包装 RTCPeerConnection。
- * @param {{ backends?: RtcBackend[] }} [options] 可注入后端列表（测试用）
- * @returns {Promise<LoadedRtcPolyfill>} RTC 构造器
+ * @param {{ backends?: RtcBackend[] }} options 后端列表
+ * @returns {Promise<LoadedRtcPolyfill>}
  */
-export async function loadNodeRtcPolyfill(options = {}) {
+async function loadNodeRtcPolyfillUncached(options) {
 	const backends = options.backends?.length
 		? [...options.backends, PURE_JS_BACKEND]
 		: defaultRtcBackends()
@@ -117,4 +127,22 @@ export async function loadNodeRtcPolyfill(options = {}) {
 		}
 	}
 	throw lastError instanceof Error ? lastError : new Error(String(lastError ?? 'no rtc backend'))
+}
+
+/**
+ * 加载 RTC polyfill（node-datachannel 优先，失败则 node-rtc-connection），并按配置包装 RTCPeerConnection。
+ * 默认后端路径会缓存首次成功结果；注入 backends 时不走缓存。
+ * @param {{ backends?: RtcBackend[] }} [options] 可注入后端列表（测试用）
+ * @returns {Promise<LoadedRtcPolyfill>} RTC 构造器
+ */
+export async function loadNodeRtcPolyfill(options = {}) {
+	if (options.backends?.length)
+		return loadNodeRtcPolyfillUncached(options)
+	if (!cachedDefaultPolyfill) {
+		cachedDefaultPolyfill = loadNodeRtcPolyfillUncached(options).catch(error => {
+			cachedDefaultPolyfill = null
+			throw error
+		})
+	}
+	return cachedDefaultPolyfill
 }

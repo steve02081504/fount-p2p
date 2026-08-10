@@ -58,13 +58,13 @@ export function wrapRtcPeerConnectionForIceLocalHostname(BaseRTC, RTCIceCandidat
 		 */
 		constructor(config) {
 			super(config)
-			super.onicecandidate = event => {
+			this.addEventListener('icecandidate', event => {
 				if (!this.#userIceHandler) return
 				if (!event?.candidate) return this.#userIceHandler(event)
 				const filtered = filterIceLocalHostnameCandidate(event.candidate, RTCIceCandidate, policy)
-				if (filtered)
-					this.#userIceHandler(filtered === event.candidate ? event : { ...event, candidate: filtered })
-			}
+				if (!filtered) return
+				this.#userIceHandler(filtered === event.candidate ? event : { candidate: filtered })
+			})
 		}
 
 		/** @returns {((event: RTCPeerConnectionIceEvent) => void) | null} */
