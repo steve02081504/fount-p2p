@@ -1,7 +1,6 @@
-import { Buffer } from 'node:buffer'
-
 import { pubKeyHash } from '../crypto/crypto.mjs'
 
+import { hexToBytes } from './bytes_codec.mjs'
 import {
 	encodeEntityHash,
 	ENTITY_HASH_RE,
@@ -26,9 +25,10 @@ export {
  */
 export function hashFromPubKeyHex(pubKeyHex) {
 	const hex = normalizeHex64(pubKeyHex)
-	if (!isHex64(hex) || Buffer.from(hex, 'hex').length !== 32)
-		throw new Error('invalid pubKeyHex')
-	return pubKeyHash(Buffer.from(hex, 'hex'))
+	if (!isHex64(hex)) throw new Error('invalid pubKeyHex')
+	const bytes = hexToBytes(hex)
+	if (bytes.length !== 32) throw new Error('invalid pubKeyHex')
+	return pubKeyHash(bytes)
 }
 
 /**

@@ -1,6 +1,6 @@
 import { sha256TextHex } from '../crypto/crypto.mjs'
 
-import { encodeEntityHash, parseEntityHash } from './entity_id.mjs'
+import { encodeEntityHash, parseEntityHash } from './entity_id_parse.mjs'
 
 /** @type {string} 逻辑实体 sentinel nodeHash（非物理节点绑定） */
 export const LOGICAL_ENTITY_SENTINEL_NODE_HASH = '0'.repeat(64)

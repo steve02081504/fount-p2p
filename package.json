@@ -1,6 +1,6 @@
 {
 	"name": "@steve02081504/fount-p2p",
-	"version": "0.0.22",
+	"version": "0.0.23",
 	"description": "fount federation P2P layer — link, trust graph, mailbox, DAG, EVFS.",
 	"keywords": [
 		"network",
@@ -71,6 +71,7 @@
 	},
 	"dependencies": {
 		"@noble/curves": "latest",
+		"@noble/hashes": "latest",
 		"node-rtc-connection": "latest",
 		"on-shutdown": "latest",
 		"ws": "latest"

@@ -14,6 +14,16 @@
 
 **Facade:** `index.mjs`; subpath exports mirror directories. Public `./transport/*`: `link_registry`, `user_room`, `group_link_set`, `node_scope`, `room_scopes`, `remote_user_room`. Detail docs: [transports](docs/transports.md), [mesh](docs/mesh.md), [signaling](docs/signaling.md), [runtime](docs/runtime.md), [infra](docs/infra.md).
 
+### Runtime: isomorphic vs Node
+
+| Surface | Runtime | Notes |
+|---|---|---|
+| `core/*` (`bytes_codec`, `logical_entity`, `entity_id*`, `hexIds`, `canonical_json`, `random_id`, …) | Node + browser | No `node:*` builtins |
+| `crypto/crypto.mjs` (`sha256Hex`, `logicalEntityHash` deps, Ed25519 sign/verify) | Node + browser | `@noble/hashes` + `@noble/curves`；勿再引入 `node:crypto` |
+| `crypto/key.mjs` / `crypto/channel.mjs`、磁盘存储、LAN/BT、`ws`、CLI/`startNode` | Node（及 Deno 桥） | AES-GCM / HMAC / fs / native optional；浏览器勿经 esm.sh 整包加载 |
+
+浏览器可安全 `import` 例：`…/core/logical_entity`、`…/crypto`（`crypto/crypto.mjs`）。全节点运行时仍走 Node。
+
 ## Conventions
 
 - **Shared helpers:** `utils/shuffle`, `utils/emit_safe`, `utils/lru.createLruMap`, `utils/ttl_map.createTtlMap` (bounded caches; TTL maps take `maxSize`), `utils/inflight_table.createInflightTable` (同 key 复用+touch；队满且超 `baseTimeoutMs` 才 cancel 队首 — EVFS manifest/chunk fanout), `utils/atomic_fs` (unique tmp + Windows rename retries; used by `utils/json_io` and `dag/storage`), `core/bytes_codec.toBytes`, `link/providers/link_id_pipe`.
@@ -32,6 +42,7 @@
 - Assertions: `test/helpers/assert.mjs` (`assert` / `assertEquals` / `assertThrows`)
 - Fixed-seed identity: `test/helpers/identity.mjs` (also via `test/live/helpers.mjs`)
 - Mock discovery (list+connect): `test/helpers/mock_discovery.mjs`
+- Browser/unenv crypto stub: `test/helpers/unenv_crypto_register.mjs` + `logical_entity_unenv_probe.mjs`（`test/pure/logical_entity_browser.test.mjs`）
 
 ## Hard rules
 
