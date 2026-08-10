@@ -134,4 +134,5 @@ export function onNodeChange(listener) {
 export function resetNodeForTests() {
 	runtime = null
 	changeListeners.clear()
+	import('../link/rtc/polyfill.mjs').then(m => m.clearNodeRtcPolyfillCache())
 }
