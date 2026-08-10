@@ -22,6 +22,6 @@ export function assertThrows(thunk, error) {
 }
 
 /**
- *
+ * 重导出 Node 内置 `assert`（供 `assert.equal` 等）。
  */
 export { assert }

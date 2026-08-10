@@ -157,7 +157,7 @@ export function createGroupLinkSet(options) {
 	}
 
 	/**
-	 *
+	 * 开启成员自动拨号与 roster 维护。
 	 */
 	function startAutoconnect() {
 		autoconnectEnabled = true
@@ -165,7 +165,7 @@ export function createGroupLinkSet(options) {
 	}
 
 	/**
-	 *
+	 * 停止自动拨号并清除待执行的拨号定时器。
 	 */
 	function stopAutoconnect() {
 		autoconnectEnabled = false

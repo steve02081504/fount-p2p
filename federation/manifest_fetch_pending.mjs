@@ -26,7 +26,7 @@ export function registerManifestFetchWait(key, expectedKey, timeoutMs) {
 		return {
 			done: Promise.resolve(null),
 			/**
-			 *
+			 * 槽位已满时的空操作取消。
 			 */
 			cancel: () => { },
 		}
@@ -57,7 +57,7 @@ export function registerManifestFetchWait(key, expectedKey, timeoutMs) {
 	return {
 		done,
 		/**
-		 *
+		 * 取消等待并以 null 结算。
 		 */
 		cancel: () => {
 			clearTimeout(timer)

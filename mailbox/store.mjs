@@ -20,7 +20,7 @@ import {
 } from './prune.mjs'
 
 /**
- *
+ * mailbox 桶裁剪与计量辅助（re-export）。
  */
 export { MAX_BUCKET_BYTES, MAX_BUCKET_ENTRIES, mailboxBucketKey, mailboxRecordBytes }
 

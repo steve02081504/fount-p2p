@@ -252,10 +252,10 @@ export function eventsToMetas(events) {
 }
 
 /**
- *
+ * DAG 行内容/签名 canonicalize（re-export）。
  */
 export { canonicalizeRowContent, canonicalizeSignedRow } from './canonicalize_row.mjs'
 /**
- *
+ * 剥离 DAG 事件本地扩展字段（re-export）。
  */
 export { stripDagEventLocalExtensions } from './strip_extensions.mjs'

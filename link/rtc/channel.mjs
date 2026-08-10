@@ -18,7 +18,7 @@ export function waitForChannelState(channel, eventName, timeoutMs) {
 			reject(new Error(`p2p: data channel ${eventName} timeout after ${timeoutMs}ms`))
 		}, timeoutMs)
 		/**
-		 *
+		 * 清除超时并恢复 data channel 事件 handler。
 		 */
 		const cleanup = () => {
 			if (!active) return

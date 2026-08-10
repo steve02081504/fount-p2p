@@ -20,7 +20,7 @@ export function registerChunkFetchWait(key, expectedHash, timeoutMs, options = {
 		return {
 			done: Promise.resolve(null),
 			/**
-			 *
+			 * 槽位已满时的空操作取消。
 			 */
 			cancel: () => { },
 		}

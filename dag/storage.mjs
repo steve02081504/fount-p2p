@@ -10,7 +10,7 @@ import { withAsyncMutex } from '../utils/async_mutex.mjs'
 import { atomicTemporaryPath, finalizeAtomicRename } from '../utils/atomic_fs.mjs'
 
 /**
- *
+ * 原子重命名 finalize（re-export）。
  */
 export { finalizeAtomicRename } from '../utils/atomic_fs.mjs'
 

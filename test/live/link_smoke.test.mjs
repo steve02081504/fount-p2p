@@ -13,7 +13,7 @@ test({
 	sanitizeOps: false,
 	sanitizeResources: false,
 	/**
-	 *
+	 * 完成 WebRTC 握手并校验远端 nodeHash。
 	 */
 	async fn() {
 		const alice = identity(1)

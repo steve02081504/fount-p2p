@@ -76,7 +76,7 @@ function readStreamChunk(stream) {
 	if (stream.readableEnded) return Promise.resolve(null)
 	return new Promise((resolve, reject) => {
 		/**
-		 *
+		 * readable 时读取下一块密文。
 		 */
 		const onReadable = () => {
 			cleanup()
@@ -84,7 +84,7 @@ function readStreamChunk(stream) {
 			resolve(next ? Buffer.from(next) : Buffer.alloc(0))
 		}
 		/**
-		 *
+		 * 流结束时 resolve null。
 		 */
 		const onEnd = () => {
 			cleanup()
@@ -98,7 +98,7 @@ function readStreamChunk(stream) {
 			reject(error)
 		}
 		/**
-		 *
+		 * 注销流事件监听。
 		 */
 		const cleanup = () => {
 			stream.off('readable', onReadable)
@@ -130,7 +130,7 @@ export function createManifestPlaintextStream(manifest, partStreams, contentKey)
 
 	return new Readable({
 		/**
-		 *
+		 * 按 manifest part 顺序解密密文块并推送明文。
 		 */
 		async read() {
 			if (finished) return

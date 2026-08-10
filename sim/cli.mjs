@@ -247,7 +247,7 @@ async function cmdMine(cliArguments) {
 }
 
 /**
- *
+ * 打印 CLI 用法与选项说明。
  */
 function printHelp() {
 	console.log(`usage:

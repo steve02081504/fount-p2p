@@ -317,7 +317,7 @@ export async function createWebRtcLink(options) {
 	}
 
 	/**
-	 *
+	 * 连接失败/断开时递增重连计数并关闭 pipe。
 	 */
 	peerConnection.onconnectionstatechange = () => {
 		if (['failed', 'closed', 'disconnected'].includes(peerConnection.connectionState)) {

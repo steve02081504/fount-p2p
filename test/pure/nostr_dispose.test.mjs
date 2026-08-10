@@ -29,7 +29,7 @@ test('unregisterDiscoveryProvider disposes previous nostr provider before replac
 	const first = createNostrDiscoveryProvider({ relayUrls: [] })
 	const originalDispose = first.dispose?.bind(first)
 	/**
-	 *
+	 * 包装 dispose 以统计调用次数。
 	 */
 	first.dispose = () => {
 		disposed++

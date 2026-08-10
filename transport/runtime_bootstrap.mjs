@@ -242,7 +242,7 @@ export function createRuntimeBootstrap(deps) {
 							if (typeof stop === 'function' && generation === gen && isLive()) {
 								const prev = stopPresence
 								/**
-								 *
+								 * 停止 presence 广播并链式调用上一轮清理。
 								 */
 								stopPresence = () => { try { stop() } catch { /* ignore */ }; prev?.() }
 							}
@@ -256,7 +256,7 @@ export function createRuntimeBootstrap(deps) {
 							if (typeof stop === 'function' && generation === gen && isLive()) {
 								const prev = stopSignalListener
 								/**
-								 *
+								 * 停止信令监听并链式调用上一轮清理。
 								 */
 								stopSignalListener = () => { try { stop() } catch { /* ignore */ }; prev?.() }
 							}
