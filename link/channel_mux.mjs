@@ -75,35 +75,23 @@ export function pickChannel(action, byteLength) {
 }
 
 /**
- * 读取 RTC 数据通道当前 bufferedAmount，失败时返回 0。
+ * 读取 RTC 数据通道当前 bufferedAmount。
  * @param {RTCDataChannel} channel RTC 数据通道
  * @returns {number} 缓冲区待发送字节数
  */
 export function readBufferedAmount(channel) {
-	try {
-		return Number.isFinite(channel?.bufferedAmount) ? Number(channel.bufferedAmount) : 0
-	}
-	catch {
-		return 0
-	}
+	return channel.bufferedAmount
 }
 
 /**
  * 配置数据通道的 bufferedAmountLowThreshold。
  * @param {RTCDataChannel} channel RTC 数据通道
  * @param {number} [thresholdBytes=CHANNEL_LOW_THRESHOLD_BYTES] 低水位阈值（字节）
- * @returns {number | null} 实际生效的阈值，不支持时返回 null
+ * @returns {number} 实际生效的阈值
  */
 export function configureBufferedAmountLowThreshold(channel, thresholdBytes = CHANNEL_LOW_THRESHOLD_BYTES) {
-	try {
-		channel.bufferedAmountLowThreshold = thresholdBytes
-		return Number.isFinite(channel.bufferedAmountLowThreshold)
-			? Number(channel.bufferedAmountLowThreshold)
-			: null
-	}
-	catch {
-		return null
-	}
+	channel.bufferedAmountLowThreshold = thresholdBytes
+	return channel.bufferedAmountLowThreshold
 }
 
 /**
@@ -113,21 +101,9 @@ export function configureBufferedAmountLowThreshold(channel, thresholdBytes = CH
  * @returns {() => void} 取消订阅函数
  */
 export function onBufferedAmountLow(channel, callback) {
-	/**
-	 * bufferedamountlow 事件处理函数。
-	 * @returns {void}
-	 */
-	const handler = () => callback()
-	channel.addEventListener?.('bufferedamountlow', handler)
-	channel.on?.('bufferedamountlow', handler)
-	channel.onbufferedamountlow = handler
-	if (channel.bufferedAmountLow?.subscribe)
-		channel.bufferedAmountLow.subscribe(handler)
+	channel.onbufferedamountlow = callback
 	return () => {
-		channel.removeEventListener?.('bufferedamountlow', handler)
-		channel.off?.('bufferedamountlow', handler)
-		channel.removeListener?.('bufferedamountlow', handler)
-		if (channel.onbufferedamountlow === handler) channel.onbufferedamountlow = null
+		if (channel.onbufferedamountlow === callback) channel.onbufferedamountlow = null
 	}
 }
 
@@ -166,12 +142,12 @@ export function createChannelSendQueues(options) {
 		const channel = getChannel(channelName)
 		if (channel?.readyState !== 'open') return
 		const queue = queues[channelName]
-		let i = 0
-		while (i < queue.length) {
+		let sent = 0
+		while (sent < queue.length) {
 			if (readBufferedAmount(channel) > highWatermarkBytes) break
-			channel.send(queue[i++].bytes)
+			channel.send(queue[sent++].bytes)
 		}
-		if (i > 0) queue.splice(0, i)
+		if (sent > 0) queue.splice(0, sent)
 	}
 
 	return {

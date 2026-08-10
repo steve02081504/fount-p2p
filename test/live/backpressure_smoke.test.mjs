@@ -2,7 +2,7 @@ import { test } from 'node:test'
 
 import { configureBufferedAmountLowThreshold, onBufferedAmountLow, readBufferedAmount } from '../../link/channel_mux.mjs'
 import { createWebRtcLink } from '../../link/providers/webrtc.mjs'
-import { waitForChannelState } from '../../link/rtc.mjs'
+import { waitForChannelState } from '../../link/rtc/index.mjs'
 import { DEFAULT_ICE_SERVERS } from '../../transport/ice_servers.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 
@@ -22,17 +22,14 @@ function waitForMessage(channel, timeoutMs) {
 		 * @param {MessageEvent} event 消息事件
 		 * @returns {void}
 		 */
-		const handler = event => {
+		channel.onmessage = event => {
 			clearTimeout(timer)
-			const data = event?.data
+			const data = event.data
 			if (typeof data === 'string') resolve(data)
 			else if (data instanceof Uint8Array) resolve(new TextDecoder().decode(data))
 			else if (data instanceof ArrayBuffer) resolve(new TextDecoder().decode(new Uint8Array(data)))
 			else resolve(String(data))
 		}
-		channel.addEventListener?.('message', handler)
-		channel.onmessage = handler
-		channel.onMessage?.subscribe(message => handler({ data: message }))
 	})
 }
 
@@ -84,8 +81,8 @@ test({
 		})
 		try {
 			await Promise.all([aliceLink.ready, bobLink.ready])
-			const sender = aliceLink._channelForTest('bulk')
-			const receiver = bobLink._channelForTest('bulk')
+			const sender = aliceLink.channelForTest('bulk')
+			const receiver = bobLink.channelForTest('bulk')
 			if (!sender || !receiver) throw new Error('bulk channel unavailable after link ready')
 			await Promise.all([waitForChannelState(sender, 'open', 30_000), waitForChannelState(receiver, 'open', 30_000)])
 			const basicMessage = waitForMessage(sender, 10_000)

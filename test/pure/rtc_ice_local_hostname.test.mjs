@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 
-import { applyIceLocalHostnamePolicy, filterIceLocalHostnameCandidate } from '../../transport/rtc_ice_local_hostname.mjs'
+import { applyIceLocalHostnamePolicy, filterIceLocalHostnameCandidate } from '../../link/rtc/index.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 
 test('applyIceLocalHostnamePolicy drop/rewrite/none', () => {

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 
 import { createWebRtcLink } from '../../link/providers/webrtc.mjs'
-import { loadNodeRtcPolyfill } from '../../link/rtc.mjs'
+import { loadNodeRtcPolyfill } from '../../link/rtc/index.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'
 

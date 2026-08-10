@@ -55,7 +55,7 @@ deno run -A --minimum-dependency-age=0 --node-modules-dir=auto --allow-scripts=n
 
 `deno.json` lists `"allowScripts": ["npm:node-datachannel"]` so project-local `deno install` does not try to compile noble/bleno. Blanket `--allow-scripts` is wrong here: optional BT deps may fail install scripts and Deno then aborts the entire command.
 
-On Android/Termux, `node-datachannel` has no Bionic prebuild — loader skips it and uses `node-rtc-connection` (data-channel only; backpressure is weaker than libdatachannel).
+On Android/Termux, `node-datachannel` has no Bionic prebuild — loader skips it and uses `node-rtc-connection` (data-channel only; EventEmitter → W3C bridge in `link/rtc/`; backpressure is weaker than libdatachannel).
 
 ## Bluetooth probe
 

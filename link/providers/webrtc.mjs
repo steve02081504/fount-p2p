@@ -1,3 +1,4 @@
+import { toBytes } from '../../core/bytes_codec.mjs'
 import { getSignalingRuntimeConfig } from '../../node/instance.mjs'
 import { nodeDebug } from '../../node/log.mjs'
 import { ms } from '../../utils/duration.mjs'
@@ -11,20 +12,12 @@ import {
 	onBufferedAmountLow,
 } from '../channel_mux.mjs'
 import { asLinkHandle, createLinkPipe } from '../pipe.mjs'
-import {
-	attachChannelMessageListener,
-	attachDataChannelListener,
-	attachIceCandidateListener,
-	loadNodeRtcPolyfill,
-	dataToBytes,
-	waitForChannelState,
-} from '../rtc.mjs'
+import { loadNodeRtcPolyfill, waitForChannelState } from '../rtc/index.mjs'
 import { extractDtlsFingerprint } from '../sdp_fingerprint.mjs'
 
 import { LINK_LEVEL_WEBRTC } from './levels.mjs'
 
 /**
- * 将错误对象格式化为短字符串。
  * @param {unknown} error 原始错误
  * @returns {string} 短 reason
  */
@@ -33,13 +26,6 @@ function formatErrorReason(error) {
 }
 
 let cachedAvailable = null
-
-/**
- * @returns {boolean} 是否跑在 Deno
- */
-function isDenoRuntime() {
-	return typeof globalThis.Deno !== 'undefined'
-}
 
 /**
  * 探测 WebRTC（node-datachannel 或纯 JS fallback）是否可用。
@@ -56,7 +42,7 @@ export async function canUseWebRtcLink() {
 		cachedAvailable = false
 		const reason = formatErrorReason(error)
 		nodeDebug('p2p:webrtc unavailable', {
-			err: isDenoRuntime()
+			err: typeof globalThis.Deno !== 'undefined'
 				? `${reason} | deno: see docs/runtime.md (node-datachannel scripts only)`
 				: reason,
 		})
@@ -74,7 +60,7 @@ export async function canUseWebRtcLink() {
  * @param {number} [options.heartbeatMs] 心跳间隔
  * @param {number} [options.idleTimeoutMs] 无入站流量超时
  * @param {number} [options.handshakeTimeoutMs] 握手超时
- * @param {{ RTCPeerConnection: typeof RTCPeerConnection } | null} [options.rtc] RTC 构造器
+ * @param {import('../rtc/polyfill.mjs').LoadedRtcPolyfill | { RTCPeerConnection: typeof RTCPeerConnection, forcesTrickleIce?: boolean }} [options.rtc] RTC 构造器
  * @param {{ nodeHash?: string, nodePubKey?: string, secretKey?: Uint8Array, nonce?: string } | null} [options.localIdentity] 本地握手身份
  * @returns {Promise<import('./index.mjs').LinkHandle>} link 句柄
  */
@@ -82,10 +68,8 @@ export async function createWebRtcLink(options) {
 	const handshakeTimeoutMs = Number(options.handshakeTimeoutMs) || ms('10s')
 	const channelOpenTimeoutMs = Math.max(handshakeTimeoutMs, ms('30s'))
 	const rtc = options.rtc ?? await loadNodeRtcPolyfill()
-	// node-rtc-connection 只做 trickle（SDP 不含 candidate）；强制开启 trickle。
-	const trickleIceOff = rtc.backend === 'node-rtc-connection'
-		? false
-		: getSignalingRuntimeConfig().trickleIceOff === true
+	// 纯 JS 后端只做 trickle（SDP 不含 candidate）；强制开启 trickle。
+	const trickleIceOff = !rtc.forcesTrickleIce && getSignalingRuntimeConfig().trickleIceOff === true
 	const peerConnection = new rtc.RTCPeerConnection(options.iceServers?.length ? { iceServers: options.iceServers } : undefined)
 	const remoteSignalQueue = []
 	const seenRemoteSignals = createLruMap(1024)
@@ -192,14 +176,6 @@ export async function createWebRtcLink(options) {
 	}
 
 	/**
-	 * @param {unknown} error addIceCandidate 错误
-	 * @returns {boolean} 是否应暂存后重试
-	 */
-	function shouldRetryQueuedIce(error) {
-		return /without ice transport/i.test(String(error?.message ?? error ?? ''))
-	}
-
-	/**
 	 * @returns {Promise<void>}
 	 */
 	async function waitForIceGatheringComplete() {
@@ -220,7 +196,7 @@ export async function createWebRtcLink(options) {
 				await peerConnection.addIceCandidate(candidate)
 			}
 			catch (error) {
-				if (shouldRetryQueuedIce(error)) {
+				if (/without ice transport/i.test(String(error?.message ?? error))) {
 					remoteSignalQueue.unshift(candidate)
 					return
 				}
@@ -265,7 +241,7 @@ export async function createWebRtcLink(options) {
 				await peerConnection.addIceCandidate(message.candidate)
 			}
 			catch (error) {
-				if (shouldRetryQueuedIce(error)) {
+				if (/without ice transport/i.test(String(error?.message ?? error))) {
 					remoteSignalQueue.push(message.candidate)
 					return
 				}
@@ -276,19 +252,19 @@ export async function createWebRtcLink(options) {
 
 	/**
 	 * @param {RTCDataChannel} channel RTC 数据通道
-	 * @returns {Promise<void>}
+	 * @returns {void}
 	 */
-	async function attachChannel(channel) {
+	function attachChannel(channel) {
 		if (channel.label === CHANNEL_CONTROL) controlChannel = channel
 		else if (channel.label === CHANNEL_BULK) bulkChannel = channel
 		else return
-		attachChannelMessageListener(channel, data => {
+		channel.onmessage = event => {
 			try {
-				if (typeof data === 'string') pipe.handleInbound(data)
-				else pipe.handleInbound(dataToBytes(data))
+				const data = event.data
+				pipe.handleInbound(typeof data === 'string' ? data : toBytes(data, { allowString: true }))
 			}
 			catch { /* drop */ }
-		})
+		}
 		attachBackpressurePump(channel)
 	}
 
@@ -316,20 +292,18 @@ export async function createWebRtcLink(options) {
 		void handleRemoteSignal(message).catch(error => pipe.close(`signal-error:${formatErrorReason(error)}`))
 	}) ?? null
 
-	attachIceCandidateListener(peerConnection, event => {
+	peerConnection.onicecandidate = event => {
 		if (trickleIceOff || !event.candidate) return
 		void sendSignal({
 			type: 'ice',
 			candidate: typeof event.candidate.toJSON === 'function' ? event.candidate.toJSON() : event.candidate,
 		}).catch(error => pipe.close(`signal-send-failed:${formatErrorReason(error)}`))
-	})
-	attachDataChannelListener(peerConnection, event => {
-		void attachChannel(event.channel)
-			.then(() => maybeStartPostOpenFlow())
-			.catch(error => pipe.close(`channel-attach-failed:${error?.message ?? error}`))
-	})
+	}
+	peerConnection.ondatachannel = event => {
+		attachChannel(event.channel)
+		void maybeStartPostOpenFlow().catch(error => pipe.close(`channel-attach-failed:${formatErrorReason(error)}`))
+	}
 
-	/** 连接失败/关闭时关掉 pipe。 */
 	peerConnection.onconnectionstatechange = () => {
 		if (['failed', 'closed', 'disconnected'].includes(peerConnection.connectionState)) {
 			reconnectCount++
@@ -338,8 +312,8 @@ export async function createWebRtcLink(options) {
 	}
 
 	if (options.initiator) {
-		await attachChannel(peerConnection.createDataChannel(CHANNEL_CONTROL))
-		await attachChannel(peerConnection.createDataChannel(CHANNEL_BULK))
+		attachChannel(peerConnection.createDataChannel(CHANNEL_CONTROL))
+		attachChannel(peerConnection.createDataChannel(CHANNEL_BULK))
 		const offer = await peerConnection.createOffer()
 		await peerConnection.setLocalDescription(offer)
 		await waitForIceGatheringComplete()
@@ -349,7 +323,7 @@ export async function createWebRtcLink(options) {
 		})
 	}
 
-	void maybeStartPostOpenFlow().catch(error => pipe.close(`open-flow-failed:${error?.message ?? error}`))
+	void maybeStartPostOpenFlow().catch(error => pipe.close(`open-flow-failed:${formatErrorReason(error)}`))
 
 	return asLinkHandle(pipe, {
 		/**
@@ -357,7 +331,7 @@ export async function createWebRtcLink(options) {
 		 * @param {'control' | 'bulk'} name 通道名
 		 * @returns {RTCDataChannel | null} 测试用通道
 		 */
-		_channelForTest(name) {
+		channelForTest(name) {
 			return name === CHANNEL_CONTROL ? controlChannel : bulkChannel
 		},
 	})
