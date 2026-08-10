@@ -84,6 +84,6 @@
 		"node-datachannel": "latest"
 	},
 	"allowScripts": {
-		"node-datachannel@0.32.3": true
+		"node-datachannel": true
 	}
 }
