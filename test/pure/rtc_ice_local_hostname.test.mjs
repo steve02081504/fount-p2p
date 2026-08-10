@@ -42,7 +42,7 @@ function createWrappedPeerConnection(policy) {
 		/** @type {typeof RTCIceCandidate} */ /** @type {unknown} */ FakeIceCandidate,
 		policy,
 	)
-	return /** @type {InstanceType<typeof FakeRTC> & RTCPeerConnection} */ (new Wrapped())
+	return /** @type {InstanceType<typeof FakeRTC> & RTCPeerConnection} */ new Wrapped()
 }
 
 test('applyIceLocalHostnamePolicy drop/rewrite/none', () => {
