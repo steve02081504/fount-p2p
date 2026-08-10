@@ -26,8 +26,8 @@ const manifestInflight = createInflightTable({
 
 /**
  * 拉取公开 manifest；默认不写盘。`cache: true` 或 `cachePublicManifest` 才缓存。
- * 本地已有 publicSig 时仍会 fanout 再校验，按 publishedAt 择新；超时则回退本地。
- * 同 key in-flight 去重；调用方外层超时不 abort，后台继续填缓存。
+ * 本地已有 publicSig 时立即返回，并后台 fanout；`cache: true` 时按 publishedAt 择新写盘。
+ * 冷 miss 仍等 fanout。同 key in-flight 去重；调用方外层超时不 abort，后台继续填缓存。
  * @param {{ username: string, ownerEntityHash: string, logicalPath: string, cache?: boolean, timeoutMs?: number }} context - 拉取上下文
  * @returns {Promise<import('./manifest.mjs').FileManifest | null>} 验签后的 manifest，失败为 null
  */
@@ -42,6 +42,7 @@ export async function fetchPublicManifest(context) {
 		: DEFAULT_MANIFEST_FETCH_TIMEOUT_MS
 	const expectedKey = manifestFetchExpectedKey(ownerEntityHash, logicalPath)
 	const inflightKey = `${username}\0${expectedKey}`
+	const wantCache = context.cache === true
 
 	// 先挂 in-flight（同步），再读本地 — 避免并发调用在 await 间隙各自 start
 	const localPromise = loadFileManifest(ownerEntityHash, logicalPath)
@@ -67,15 +68,21 @@ export async function fetchPublicManifest(context) {
 	const hasLocalPublic = local?.transferKeyDescriptor?.type === 'public' && !!local?.meta?.publicSig
 	if (!shared) return hasLocalPublic ? local : null
 
-	const result = await shared
-
-	if (result && (!hasLocalPublic || shouldPreferIncomingPublicManifest(local, result))) {
-		if (context.cache === true)
-			await cachePublicManifest(ownerEntityHash, logicalPath, result)
-		return result
+	if (hasLocalPublic) {
+		// SWR：立刻回本地；后台 fanout 择新写盘（需 cache: true）
+		if (wantCache) {
+			void shared.then(async result => {
+				if (result && shouldPreferIncomingPublicManifest(local, result))
+					await cachePublicManifest(ownerEntityHash, logicalPath, result)
+			})
+		}
+		return local
 	}
-	if (hasLocalPublic) return local
-	return null
+
+	const result = await shared
+	if (!result) return null
+	if (wantCache) await cachePublicManifest(ownerEntityHash, logicalPath, result)
+	return result
 }
 
 /**

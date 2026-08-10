@@ -52,7 +52,7 @@
 - **Mesh first / no versioning:** ≥N links (K acquaintances + N−K explore); discovery API is `listVisibleNodeHashes` + `connectToNode` only; no topic on the fount-network surface; no version/compat fields. [mesh.md](docs/mesh.md)
 - **Room startup:** `group_link_set` / `scoped_link` / first `ensureUserRoom()` call `registry.ensureRuntime()` before subscribe/advertise. `ensureRuntime` does not await listen/relays/BT. [runtime.md](docs/runtime.md)
 - **Link registry:** `configureLinkRegistry(opts)` before first `getLinkRegistry`. `startNode` does not take registry options. Rooms: `createGroupLinkSet` is the kernel; `createScopedLinkRoom` is a dial-all preset.
-- **Fetch ≠ apply:** `ingestSignedAdvert` vs `applyAdvertPeerHints`; `fetchPublicManifest` defaults to no cache (still fanout-revalidates local publicSig by `publishedAt`); `pullReputationFromNode` never writes.
+- **Fetch ≠ apply:** `ingestSignedAdvert` vs `applyAdvertPeerHints`; `fetchPublicManifest` defaults to no cache; local publicSig returns immediately while fanout revalidates in background (`cache: true` writes newer `publishedAt`); `pullReputationFromNode` never writes.
 - **Bluetooth:** optional noble/bleno (noble `>=2.5.9` for safe in-process probe teardown); availability probe is in-process (`loadNoble` → `waitPoweredOn` → `stop`). [runtime.md](docs/runtime.md)
 - **WebRTC:** prefer optional `node-datachannel`; on Android/Termux or native load failure fall back to pure-JS `node-rtc-connection` (`link/rtc/`). Pure backend is bridged to W3C handlers at load and forces trickle ICE (SDP has no candidates). [runtime.md](docs/runtime.md)
 - **Infra / node-scope attaches:** [infra.md](docs/infra.md)
@@ -69,7 +69,7 @@
 
 - **Storage:** ciphertext chunks `{nodeDir}/chunks/` (CAS); manifests `{EntityStoreRoot}/{entityHash}/files/{path}.manifest.json`.
 - **Modules:** `files/` — `evfs`, `evfs_ref`, `acl`, `manifest_acl_registry`, `public_manifest` / `manifest_fetch`.
-- **Public files:** `publishPublicFile` signs with recovery key; remote `fed_manifest_get` → verify → cache. `fetchPublicManifest` always fanout-revalidates (prefer newer `publishedAt`; timeout falls back to local publicSig). Same-key in-flight is deduped via `utils/inflight_table` (touch to tail; evict aged front only when over cap). Outer caller timeouts should not abort — background fill continues. Signature covers content fields only — after verify, drop incoming `meta` except `publicSig`. Profile/avatar semantics live in the shell.
+- **Public files:** `publishPublicFile` signs with recovery key; remote `fed_manifest_get` → verify → cache. `fetchPublicManifest`: local publicSig → return immediately + background fanout (`cache: true` prefers newer `publishedAt`); cold miss awaits fanout. Same-key in-flight is deduped via `utils/inflight_table` (touch to tail; evict aged front only when over cap). Outer caller timeouts should not abort — background fill continues. Signature covers content fields only — after verify, drop incoming `meta` except `publicSig`. Profile/avatar semantics live in the shell.
 
 ## Tunables JSON
 
