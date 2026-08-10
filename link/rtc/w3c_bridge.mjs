@@ -59,8 +59,10 @@ export function bridgePeerConnection(BaseRTC) {
 		constructor(config) {
 			super(config)
 			super.on('icecandidate', event => {
-				this.#iceHandler?.(event)
-				this.#emit('icecandidate', event)
+				const normalized = this.prepareIceCandidateEvent(event)
+				if (normalized == null) return
+				this.#iceHandler?.(normalized)
+				this.#emit('icecandidate', normalized)
 			})
 			super.on('datachannel', event => {
 				const adapted = { channel: bridgeDataChannel(event.channel) }
@@ -74,14 +76,23 @@ export function bridgePeerConnection(BaseRTC) {
 		}
 
 		/**
+		 * ICE 事件规范化钩子；子类可覆盖（drop 返回 null，rewrite 返回替换后的事件）。
+		 * @param {RTCPeerConnectionIceEvent | { candidate?: unknown }} event 原始 ICE 事件
+		 * @returns {RTCPeerConnectionIceEvent | { candidate?: unknown } | null}
+		 */
+		prepareIceCandidateEvent(event) {
+			return event
+		}
+
+		/**
 		 * @param {string} type 事件名
-		 * @param {unknown} event 事件载荷
+		 * @param {unknown} event 事件载荷（icecandidate 须已规范化）
 		 * @returns {void}
 		 */
 		#emit(type, event) {
-			const set = this.#listeners.get(type)
-			if (!set) return
-			for (const listener of set) listener(event)
+			const listeners = this.#listeners.get(type)
+			if (!listeners) return
+			for (const listener of listeners) listener(event)
 		}
 
 		/**
@@ -90,12 +101,12 @@ export function bridgePeerConnection(BaseRTC) {
 		 * @returns {void}
 		 */
 		addEventListener(type, listener) {
-			let set = this.#listeners.get(type)
-			if (!set) {
-				set = new Set()
-				this.#listeners.set(type, set)
+			let listeners = this.#listeners.get(type)
+			if (!listeners) {
+				listeners = new Set()
+				this.#listeners.set(type, listeners)
 			}
-			set.add(listener)
+			listeners.add(listener)
 		}
 
 		/**

@@ -10,8 +10,8 @@ export function waitForChannelState(channel, eventName, timeoutMs) {
 	return new Promise((resolve, reject) => {
 		if (eventName === 'open' && channel.readyState === 'open') return resolve()
 		if (eventName === 'close' && channel.readyState === 'closed') return resolve()
-		const prop = eventName === 'open' ? 'onopen' : 'onclose'
-		const prev = channel[prop]
+		const eventHandlerProperty = eventName === 'open' ? 'onopen' : 'onclose'
+		const previousHandler = channel[eventHandlerProperty]
 		let active = true
 		const timer = setTimeout(() => {
 			cleanup()
@@ -21,14 +21,14 @@ export function waitForChannelState(channel, eventName, timeoutMs) {
 			if (!active) return
 			active = false
 			clearTimeout(timer)
-			if (channel[prop] === chained) channel[prop] = prev
+			if (channel[eventHandlerProperty] === chained) channel[eventHandlerProperty] = previousHandler
 		}
-		const chained = (...args) => {
-			prev?.(...args)
+		const chained = (...eventArguments) => {
+			previousHandler?.(...eventArguments)
 			if (!active) return
 			cleanup()
 			resolve()
 		}
-		channel[prop] = chained
+		channel[eventHandlerProperty] = chained
 	})
 }

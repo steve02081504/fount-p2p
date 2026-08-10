@@ -49,35 +49,84 @@ export function filterIceLocalHostnameCandidate(candidate, RTCIceCandidateCtor, 
 export function wrapRtcPeerConnectionForIceLocalHostname(BaseRTC, RTCIceCandidate, policy = 'drop') {
 	if (policy === 'none') return BaseRTC
 
+	const baseRoutesIce = typeof BaseRTC.prototype.prepareIceCandidateEvent === 'function'
+
 	return class IceLocalHostnameFilteredRTCPeerConnection extends BaseRTC {
 		/** @type {((event: RTCPeerConnectionIceEvent) => void) | null} */
 		#userIceHandler = null
+		/** @type {Set<(event: unknown) => void>} */
+		#iceListeners = new Set()
+		/** 去重：同一次 native 派发可能既走 attribute 又走 listener */
+		#lastIceEvent = null
+
+		/**
+		 * drop：不派发；rewrite：仅派发替换 candidate 后的事件。
+		 * @param {RTCPeerConnectionIceEvent | { candidate?: unknown }} event 原始 ICE 事件
+		 * @returns {RTCPeerConnectionIceEvent | { candidate?: unknown } | null}
+		 */
+		prepareIceCandidateEvent(event) {
+			if (!event?.candidate) return event
+			const filtered = filterIceLocalHostnameCandidate(event.candidate, RTCIceCandidate, policy)
+			if (!filtered) return null
+			return filtered === event.candidate ? event : { candidate: filtered }
+		}
 
 		/**
 		 * @param {RTCConfiguration} [config] RTC 配置
 		 */
 		constructor(config) {
 			super(config)
-			// 基类 ctor 可能留下自有 onicecandidate 数据字段；换成 accessor，避免赋值绕过过滤。
+			if (baseRoutesIce) return
+
+			// native EventTarget：在派发前规范化，自管 listener，不依赖 stopImmediatePropagation。
 			Object.defineProperty(this, 'onicecandidate', {
 				configurable: true,
 				enumerable: true,
-				get: () => this.#userIceHandler,
+				get: () => this.#userIceHandler ? this.#deliverIce : null,
 				set: handler => { this.#userIceHandler = handler },
 			})
-			// capture：先于基类「onicecandidate?.(e)」并 stop，避免未过滤 .local 直通或双发。
-			this.addEventListener('icecandidate', event => {
-				if (!this.#userIceHandler) return
-				if (!event?.candidate) {
-					event.stopImmediatePropagation?.()
-					this.#userIceHandler(event)
-					return
-				}
-				const filtered = filterIceLocalHostnameCandidate(event.candidate, RTCIceCandidate, policy)
-				event.stopImmediatePropagation?.()
-				if (filtered)
-					this.#userIceHandler(filtered === event.candidate ? event : { candidate: filtered })
-			}, true)
+			super.addEventListener('icecandidate', event => this.#deliverIce(event))
+		}
+
+		/**
+		 * @param {RTCPeerConnectionIceEvent | { candidate?: unknown }} event
+		 * @returns {void}
+		 */
+		#deliverIce = event => {
+			if (this.#lastIceEvent === event) return
+			this.#lastIceEvent = event
+			const normalized = this.prepareIceCandidateEvent(event)
+			if (normalized == null) return
+			this.#userIceHandler?.(normalized)
+			for (const listener of this.#iceListeners) listener(normalized)
+		}
+
+		/**
+		 * @param {string} type
+		 * @param {(event: unknown) => void} listener
+		 * @param {boolean | AddEventListenerOptions} [options]
+		 * @returns {void}
+		 */
+		addEventListener(type, listener, options) {
+			if (!baseRoutesIce && type === 'icecandidate') {
+				this.#iceListeners.add(listener)
+				return
+			}
+			return super.addEventListener(type, listener, options)
+		}
+
+		/**
+		 * @param {string} type
+		 * @param {(event: unknown) => void} listener
+		 * @param {boolean | EventListenerOptions} [options]
+		 * @returns {void}
+		 */
+		removeEventListener(type, listener, options) {
+			if (!baseRoutesIce && type === 'icecandidate') {
+				this.#iceListeners.delete(listener)
+				return
+			}
+			return super.removeEventListener(type, listener, options)
 		}
 	}
 }

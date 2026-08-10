@@ -1,6 +1,6 @@
 import process from 'node:process'
 
-import { getSignalingRuntimeConfig } from '../../node/instance.mjs'
+import { getRtcPolyfillCacheEpoch, getSignalingRuntimeConfig } from '../../node/instance.mjs'
 import { nodeDebug } from '../../node/log.mjs'
 
 import { wrapRtcPeerConnectionForIceLocalHostname } from './ice_local_hostname.mjs'
@@ -11,6 +11,9 @@ let exitCleanupHooked = false
 
 /** @type {Promise<LoadedRtcPolyfill> | null} */
 let cachedDefaultPolyfill = null
+
+/** @type {number} 与 cachedDefaultPolyfill 绑定的策略世代 */
+let cachedDefaultPolyfillEpoch = -1
 
 /**
  * @typedef {{
@@ -32,6 +35,7 @@ let cachedDefaultPolyfill = null
  */
 export function clearNodeRtcPolyfillCache() {
 	cachedDefaultPolyfill = null
+	cachedDefaultPolyfillEpoch = -1
 }
 
 /**
@@ -138,9 +142,13 @@ async function loadNodeRtcPolyfillUncached(options) {
 export async function loadNodeRtcPolyfill(options = {}) {
 	if (options.backends?.length)
 		return loadNodeRtcPolyfillUncached(options)
-	if (!cachedDefaultPolyfill) {
+	const epoch = getRtcPolyfillCacheEpoch()
+	if (!cachedDefaultPolyfill || cachedDefaultPolyfillEpoch !== epoch) {
+		cachedDefaultPolyfill = null
+		cachedDefaultPolyfillEpoch = epoch
 		cachedDefaultPolyfill = loadNodeRtcPolyfillUncached(options).catch(error => {
 			cachedDefaultPolyfill = null
+			cachedDefaultPolyfillEpoch = -1
 			throw error
 		})
 	}
