@@ -62,7 +62,7 @@ export function wrapRtcPeerConnectionForIceLocalHostname(BaseRTC, RTCIceCandidat
 		/**
 		 * drop：不派发；rewrite：仅派发替换 candidate 后的事件。
 		 * @param {RTCPeerConnectionIceEvent | { candidate?: unknown }} event 原始 ICE 事件
-		 * @returns {RTCPeerConnectionIceEvent | { candidate?: unknown } | null}
+		 * @returns {RTCPeerConnectionIceEvent | { candidate?: unknown } | null} 规范化后的事件；drop 时为 null
 		 */
 		prepareIceCandidateEvent(event) {
 			if (!event?.candidate) return event
@@ -82,14 +82,21 @@ export function wrapRtcPeerConnectionForIceLocalHostname(BaseRTC, RTCIceCandidat
 			Object.defineProperty(this, 'onicecandidate', {
 				configurable: true,
 				enumerable: true,
+				/**
+				 * @returns {((event: RTCPeerConnectionIceEvent) => void) | null} 用户 ICE handler
+				 */
 				get: () => this.#userIceHandler ? this.#deliverIce : null,
+				/**
+				 * @param {((event: RTCPeerConnectionIceEvent) => void) | null} handler 用户 ICE handler
+				 * @returns {void}
+				 */
 				set: handler => { this.#userIceHandler = handler },
 			})
 			super.addEventListener('icecandidate', event => this.#deliverIce(event))
 		}
 
 		/**
-		 * @param {RTCPeerConnectionIceEvent | { candidate?: unknown }} event
+		 * @param {RTCPeerConnectionIceEvent | { candidate?: unknown }} event 原始 ICE 事件
 		 * @returns {void}
 		 */
 		#deliverIce = event => {
@@ -102,9 +109,9 @@ export function wrapRtcPeerConnectionForIceLocalHostname(BaseRTC, RTCIceCandidat
 		}
 
 		/**
-		 * @param {string} type
-		 * @param {(event: unknown) => void} listener
-		 * @param {boolean | AddEventListenerOptions} [options]
+		 * @param {string} type 事件名
+		 * @param {(event: unknown) => void} listener 回调
+		 * @param {boolean | AddEventListenerOptions} [options] 监听选项
 		 * @returns {void}
 		 */
 		addEventListener(type, listener, options) {
@@ -116,9 +123,9 @@ export function wrapRtcPeerConnectionForIceLocalHostname(BaseRTC, RTCIceCandidat
 		}
 
 		/**
-		 * @param {string} type
-		 * @param {(event: unknown) => void} listener
-		 * @param {boolean | EventListenerOptions} [options]
+		 * @param {string} type 事件名
+		 * @param {(event: unknown) => void} listener 回调
+		 * @param {boolean | EventListenerOptions} [options] 监听选项
 		 * @returns {void}
 		 */
 		removeEventListener(type, listener, options) {

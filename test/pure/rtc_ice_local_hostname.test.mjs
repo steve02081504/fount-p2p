@@ -30,71 +30,81 @@ test('filterIceLocalHostnameCandidate returns null when dropped', () => {
 })
 
 test('bridged wrap drops .local host before listeners see it', () => {
+	/** 测试用 ICE candidate */
 	class FakeIceCandidate {
 		/**
-		 * @param {{ candidate: string }} init
+		 * @param {{ candidate: string }} init candidate 初始化字段
 		 */
 		constructor(init) {
 			this.candidate = init.candidate
 		}
 	}
+	/** 测试用 EventEmitter RTCPeerConnection */
 	class FakeRTC extends EventEmitter {
 		/**
-		 * @param {{ candidate: string } | null} candidate
+		 * @param {{ candidate: string } | null} candidate 要派发的 candidate
+		 * @returns {boolean} emit 是否成功
 		 */
 		emitIce(candidate) {
 			this.emit('icecandidate', { candidate })
 		}
 	}
-	const Bridged = bridgePeerConnection(/** @type {typeof RTCPeerConnection} */ (/** @type {unknown} */ (FakeRTC)))
+	const Bridged = bridgePeerConnection(/** @type {typeof RTCPeerConnection} */ /** @type {unknown} */ FakeRTC)
 	const Wrapped = wrapRtcPeerConnectionForIceLocalHostname(
-		/** @type {typeof RTCPeerConnection} */ (/** @type {unknown} */ (Bridged)),
-		/** @type {typeof RTCIceCandidate} */ (/** @type {unknown} */ (FakeIceCandidate)),
+		/** @type {typeof RTCPeerConnection} */ /** @type {unknown} */ Bridged,
+		/** @type {typeof RTCIceCandidate} */ /** @type {unknown} */ FakeIceCandidate,
 		'drop',
 	)
-	const pc = /** @type {InstanceType<typeof FakeRTC> & RTCPeerConnection} */ (new Wrapped())
+	const pc = /** @type {InstanceType<typeof FakeRTC> & RTCPeerConnection} */ new Wrapped()
 	/** @type {unknown[]} */
 	const seen = []
+	/**
+	 * @param {RTCPeerConnectionIceEvent} event ICE candidate 事件
+	 * @returns {void}
+	 */
 	pc.onicecandidate = event => { seen.push(event) }
 	pc.addEventListener('icecandidate', event => { seen.push(['listener', event]) })
 	pc.emitIce({ candidate: 'candidate:1 1 udp 2130706431 host.local 54321 typ host' })
 	pc.emitIce({ candidate: 'candidate:2 1 udp 2130706431 10.0.0.1 54321 typ host' })
 	pc.emitIce(null)
 	assertEquals(seen.length, 4)
-	assertEquals(/** @type {{ candidate: { candidate: string } }} */ (seen[0]).candidate.candidate.includes('10.0.0.1'), true)
-	assertEquals(/** @type {['listener', { candidate: { candidate: string } }]} */ (seen[1])[1].candidate.candidate.includes('10.0.0.1'), true)
-	assertEquals(/** @type {{ candidate: null }} */ (seen[2]).candidate, null)
-	assertEquals(/** @type {['listener', { candidate: null }]} */ (seen[3])[1].candidate, null)
+	assertEquals(/** @type {{ candidate: { candidate: string } }} */ seen[0].candidate.candidate.includes('10.0.0.1'), true)
+	assertEquals(/** @type {['listener', { candidate: { candidate: string } }]} */ seen[1][1].candidate.candidate.includes('10.0.0.1'), true)
+	assertEquals(/** @type {{ candidate: null }} */ seen[2].candidate, null)
+	assertEquals(/** @type {['listener', { candidate: null }]} */ seen[3][1].candidate, null)
 })
 
 test('bridged wrap rewrite-loopback only dispatches rewritten candidate', () => {
+	/** 测试用 ICE candidate */
 	class FakeIceCandidate {
 		/**
-		 * @param {{ candidate: string }} init
+		 * @param {{ candidate: string }} init candidate 初始化字段
 		 */
 		constructor(init) {
 			this.candidate = init.candidate
 		}
 	}
+	/** 测试用 EventEmitter RTCPeerConnection */
 	class FakeRTC extends EventEmitter {
 		/**
-		 * @param {{ candidate: string }} candidate
+		 * @param {{ candidate: string }} candidate 要派发的 candidate
+		 * @returns {boolean} emit 是否成功
 		 */
 		emitIce(candidate) {
 			this.emit('icecandidate', { candidate })
 		}
 	}
-	const Bridged = bridgePeerConnection(/** @type {typeof RTCPeerConnection} */ (/** @type {unknown} */ (FakeRTC)))
+	const Bridged = bridgePeerConnection(/** @type {typeof RTCPeerConnection} */ /** @type {unknown} */ FakeRTC)
 	const Wrapped = wrapRtcPeerConnectionForIceLocalHostname(
-		/** @type {typeof RTCPeerConnection} */ (/** @type {unknown} */ (Bridged)),
-		/** @type {typeof RTCIceCandidate} */ (/** @type {unknown} */ (FakeIceCandidate)),
+		/** @type {typeof RTCPeerConnection} */ /** @type {unknown} */ Bridged,
+		/** @type {typeof RTCIceCandidate} */ /** @type {unknown} */ FakeIceCandidate,
 		'rewrite-loopback',
 	)
-	const pc = /** @type {InstanceType<typeof FakeRTC> & RTCPeerConnection} */ (new Wrapped())
+	const pc = /** @type {InstanceType<typeof FakeRTC> & RTCPeerConnection} */ new Wrapped()
 	/** @type {string[]} */
 	const seen = []
 	pc.addEventListener('icecandidate', event => {
-		seen.push(/** @type {{ candidate: { candidate: string } }} */ (event).candidate.candidate)
+		seen.push(/** @type {{ candidate: { candidate: string } }} */ event.candidate.candidate)
 	})
 	pc.emitIce({ candidate: 'candidate:1 1 udp 2130706431 host.local 54321 typ host' })
 	assertEquals(seen.length, 1)

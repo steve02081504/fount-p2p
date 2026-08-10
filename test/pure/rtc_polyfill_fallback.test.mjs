@@ -13,11 +13,11 @@ test('loadNodeRtcPolyfill falls back when node-datachannel native is missing', a
 			{
 				id: 'node-datachannel',
 				/**
-				 * @returns {Promise<never>}
+				 * @returns {Promise<never>} 模拟 native 模块缺失
 				 */
 				async load() {
 					throw Object.assign(
-						new Error("Cannot find module '../../../build/Release/node_datachannel.node'"),
+						new Error('Cannot find module \'../../../build/Release/node_datachannel.node\''),
 						{ code: 'MODULE_NOT_FOUND' },
 					)
 				},

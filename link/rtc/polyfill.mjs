@@ -54,7 +54,7 @@ async function ensureNodeDatachannelExitCleanup() {
 }
 
 /**
- * @returns {Promise<{ RTCPeerConnection: typeof RTCPeerConnection, RTCIceCandidate: typeof RTCIceCandidate }>}
+ * @returns {Promise<{ RTCPeerConnection: typeof RTCPeerConnection, RTCIceCandidate: typeof RTCIceCandidate }>} node-datachannel 构造器
  */
 async function loadNodeDatachannelBackend() {
 	const mod = await import('node-datachannel/polyfill')
@@ -67,12 +67,12 @@ async function loadNodeDatachannelBackend() {
 
 /**
  * 纯 JS WebRTC DataChannel（Termux / 无 native prebuild 时的 fallback）。
- * @returns {Promise<{ RTCPeerConnection: typeof RTCPeerConnection, RTCIceCandidate: typeof RTCIceCandidate }>}
+ * @returns {Promise<{ RTCPeerConnection: typeof RTCPeerConnection, RTCIceCandidate: typeof RTCIceCandidate }>} node-rtc-connection 构造器
  */
 async function loadNodeRtcConnectionBackend() {
 	const mod = await import('node-rtc-connection')
 	return {
-		RTCPeerConnection: /** @type {typeof RTCPeerConnection} */ (bridgePeerConnection(mod.RTCPeerConnection)),
+		RTCPeerConnection: /** @type {typeof RTCPeerConnection} */ bridgePeerConnection(mod.RTCPeerConnection),
 		RTCIceCandidate: mod.RTCIceCandidate,
 	}
 }
@@ -99,7 +99,7 @@ function defaultRtcBackends() {
 
 /**
  * @param {{ backends?: RtcBackend[] }} options 后端列表
- * @returns {Promise<LoadedRtcPolyfill>}
+ * @returns {Promise<LoadedRtcPolyfill>} 首个可用后端的 polyfill
  */
 async function loadNodeRtcPolyfillUncached(options) {
 	const backends = options.backends?.length
@@ -107,7 +107,7 @@ async function loadNodeRtcPolyfillUncached(options) {
 		: defaultRtcBackends()
 	/** @type {unknown} */
 	let lastError = null
-	for (const backend of backends) {
+	for (const backend of backends) 
 		try {
 			const mod = await backend.load()
 			const { iceLocalHostnamePolicy } = getSignalingRuntimeConfig()
@@ -129,7 +129,7 @@ async function loadNodeRtcPolyfillUncached(options) {
 				err: String(error?.message ?? error).replace(/\s+/g, ' ').slice(0, 240),
 			})
 		}
-	}
+	
 	throw lastError instanceof Error ? lastError : new Error(String(lastError ?? 'no rtc backend'))
 }
 

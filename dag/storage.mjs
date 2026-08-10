@@ -6,9 +6,12 @@ import { createInterface } from 'node:readline'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 
-import { atomicTemporaryPath, finalizeAtomicRename } from '../utils/atomic_fs.mjs'
 import { withAsyncMutex } from '../utils/async_mutex.mjs'
+import { atomicTemporaryPath, finalizeAtomicRename } from '../utils/atomic_fs.mjs'
 
+/**
+ *
+ */
 export { finalizeAtomicRename } from '../utils/atomic_fs.mjs'
 
 /** 流式重写 JSONL 时分块写入的行数上限 */

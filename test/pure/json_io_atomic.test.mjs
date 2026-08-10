@@ -21,7 +21,7 @@ test('writeJsonFile concurrent rewrites of the same path do not ENOENT', async (
 				writeJsonFile(filePath, { blocked: [{ scope: 'entity', value: String(i).padStart(128, 'a') }] })),
 		)
 		const failures = results.filter(r => r.status === 'rejected').map(r =>
-			/** @type {PromiseRejectedResult} */ (r).reason?.code || String(/** @type {PromiseRejectedResult} */ (r).reason))
+			/** @type {PromiseRejectedResult} */ r.reason?.code || String(/** @type {PromiseRejectedResult} */ r.reason))
 		assertEquals(failures, [])
 		const data = await readJsonFile(filePath)
 		assert.ok(data && Array.isArray(data.blocked))

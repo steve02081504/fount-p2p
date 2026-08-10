@@ -17,12 +17,19 @@ export function waitForChannelState(channel, eventName, timeoutMs) {
 			cleanup()
 			reject(new Error(`p2p: data channel ${eventName} timeout after ${timeoutMs}ms`))
 		}, timeoutMs)
+		/**
+		 *
+		 */
 		const cleanup = () => {
 			if (!active) return
 			active = false
 			clearTimeout(timer)
 			if (channel[eventHandlerProperty] === chained) channel[eventHandlerProperty] = previousHandler
 		}
+		/**
+		 * @param {...any} eventArguments 原 handler 参数
+		 * @returns {void}
+		 */
 		const chained = (...eventArguments) => {
 			previousHandler?.(...eventArguments)
 			if (!active) return

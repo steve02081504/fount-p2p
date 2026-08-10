@@ -258,6 +258,10 @@ export async function createWebRtcLink(options) {
 		if (channel.label === CHANNEL_CONTROL) controlChannel = channel
 		else if (channel.label === CHANNEL_BULK) bulkChannel = channel
 		else return
+		/**
+		 * @param {MessageEvent} event 入站消息事件
+		 * @returns {void}
+		 */
 		channel.onmessage = event => {
 			try {
 				const data = event.data
@@ -292,6 +296,10 @@ export async function createWebRtcLink(options) {
 		void handleRemoteSignal(message).catch(error => pipe.close(`signal-error:${formatErrorReason(error)}`))
 	}) ?? null
 
+	/**
+	 * @param {RTCPeerConnectionIceEvent} event ICE candidate 事件
+	 * @returns {void}
+	 */
 	peerConnection.onicecandidate = event => {
 		if (trickleIceOff || !event.candidate) return
 		void sendSignal({
@@ -299,11 +307,18 @@ export async function createWebRtcLink(options) {
 			candidate: typeof event.candidate.toJSON === 'function' ? event.candidate.toJSON() : event.candidate,
 		}).catch(error => pipe.close(`signal-send-failed:${formatErrorReason(error)}`))
 	}
+	/**
+	 * @param {RTCDataChannelEvent} event 远端 data channel 事件
+	 * @returns {void}
+	 */
 	peerConnection.ondatachannel = event => {
 		attachChannel(event.channel)
 		void maybeStartPostOpenFlow().catch(error => pipe.close(`channel-attach-failed:${formatErrorReason(error)}`))
 	}
 
+	/**
+	 *
+	 */
 	peerConnection.onconnectionstatechange = () => {
 		if (['failed', 'closed', 'disconnected'].includes(peerConnection.connectionState)) {
 			reconnectCount++

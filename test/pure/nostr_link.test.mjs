@@ -51,18 +51,21 @@ test('LINK_LEVEL_NOSTR is -Infinity and sorts last', () => {
 		/** @returns {boolean} 可用 */
 		isAvailable: () => true,
 		/**
-		 * @returns {Promise<null>}
+		 * @returns {Promise<null>} 不建立连接
 		 */
 		async dial() { return null },
 	})
-	registerLinkProvider(createNostrLinkProvider({ getRelayUrls: () => ['ws://127.0.0.1:1'] }))
+	registerLinkProvider(createNostrLinkProvider({ /**
+	 * @returns {string[]} relay URL 列表
+	 */
+		getRelayUrls: () => ['ws://127.0.0.1:1'] }))
 	registerLinkProvider({
 		id: 'mid',
 		level: 40,
 		/** @returns {boolean} 可用 */
 		isAvailable: () => true,
 		/**
-		 * @returns {Promise<null>}
+		 * @returns {Promise<null>} 不建立连接
 		 */
 		async dial() { return null },
 	})
@@ -79,8 +82,14 @@ test('nostr link dial/accept exchanges an envelope over type:link', async () => 
 	clearDiscoveryProviders()
 	const alice = identity(31)
 	const bob = identity(32)
-	const aliceLink = createNostrLinkProvider({ getRelayUrls: () => ['ws://memory'] })
-	const bobLink = createNostrLinkProvider({ getRelayUrls: () => ['ws://memory'] })
+	const aliceLink = createNostrLinkProvider({ /**
+	 * @returns {string[]} relay URL 列表
+	 */
+		getRelayUrls: () => ['ws://memory'] })
+	const bobLink = createNostrLinkProvider({ /**
+	 * @returns {string[]} relay URL 列表
+	 */
+		getRelayUrls: () => ['ws://memory'] })
 	registerMemoryNostrDiscovery({ alice, bob, aliceLink, bobLink })
 
 	/** @type {object | null} */
@@ -144,7 +153,7 @@ test('ensureLinkToNode falls back to nostr after higher providers fail', async (
 		/** @returns {boolean} 可到达 */
 		canReach: () => true,
 		/**
-		 * @returns {Promise<null>}
+		 * @returns {Promise<null>} 拨号失败
 		 */
 		async dial() {
 			dialed.push('high-fail')
@@ -152,8 +161,14 @@ test('ensureLinkToNode falls back to nostr after higher providers fail', async (
 		},
 	})
 
-	const aliceLink = createNostrLinkProvider({ getRelayUrls: () => ['ws://memory'] })
-	const bobLink = createNostrLinkProvider({ getRelayUrls: () => ['ws://memory'] })
+	const aliceLink = createNostrLinkProvider({ /**
+	 * @returns {string[]} relay URL 列表
+	 */
+		getRelayUrls: () => ['ws://memory'] })
+	const bobLink = createNostrLinkProvider({ /**
+	 * @returns {string[]} relay URL 列表
+	 */
+		getRelayUrls: () => ['ws://memory'] })
 	registerMemoryNostrDiscovery({ alice, bob, aliceLink, bobLink })
 	registerLinkProvider(aliceLink)
 
@@ -177,6 +192,10 @@ test('ensureLinkToNode falls back to nostr after higher providers fail', async (
 		await registry.ensureRuntime()
 		// 入站链也要挂到 bob 侧；本测试只验证 alice dial 顺序与 nostr 成功
 		const originalDial = aliceLink.dial.bind(aliceLink)
+		/**
+		 * @param {object} options 拨号选项
+		 * @returns {Promise<object | null>} 建立的 link
+		 */
 		aliceLink.dial = async options => {
 			dialed.push('nostr')
 			return originalDial(options)

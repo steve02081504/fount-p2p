@@ -6,7 +6,7 @@ import { assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'
 
 /**
- * @returns {{ left: { send: (message: unknown) => void, onRemote: (handler: (message: unknown) => void) => void }, right: { send: (message: unknown) => void, onRemote: (handler: (message: unknown) => void) => void } }}
+ * @returns {{ left: { send: (message: unknown) => void, onRemote: (handler: (message: unknown) => void) => void }, right: { send: (message: unknown) => void, onRemote: (handler: (message: unknown) => void) => void } }} 内存信令对
  */
 function createSignalPair() {
 	/** @type {((message: unknown) => void) | null} */
@@ -18,7 +18,7 @@ function createSignalPair() {
 	return {
 		left: {
 			/**
-			 * @param {unknown} message
+			 * @param {unknown} message 信令消息
 			 * @returns {void}
 			 */
 			send(message) {
@@ -28,7 +28,7 @@ function createSignalPair() {
 				})
 			},
 			/**
-			 * @param {(message: unknown) => void} handler
+			 * @param {(message: unknown) => void} handler 远端消息回调
 			 * @returns {void}
 			 */
 			onRemote(handler) {
@@ -39,7 +39,7 @@ function createSignalPair() {
 		},
 		right: {
 			/**
-			 * @param {unknown} message
+			 * @param {unknown} message 信令消息
 			 * @returns {void}
 			 */
 			send(message) {
@@ -49,7 +49,7 @@ function createSignalPair() {
 				})
 			},
 			/**
-			 * @param {(message: unknown) => void} handler
+			 * @param {(message: unknown) => void} handler 远端消息回调
 			 * @returns {void}
 			 */
 			onRemote(handler) {
@@ -73,11 +73,11 @@ test({
 			backends: [{
 				id: 'node-datachannel',
 				/**
-				 * @returns {Promise<never>}
+				 * @returns {Promise<never>} 模拟 native 模块缺失
 				 */
 				async load() {
 					throw Object.assign(
-						new Error("Cannot find module '../../../build/Release/node_datachannel.node'"),
+						new Error('Cannot find module \'../../../build/Release/node_datachannel.node\''),
 						{ code: 'MODULE_NOT_FOUND' },
 					)
 				},
