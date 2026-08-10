@@ -3,14 +3,23 @@ import { randomUUID } from 'node:crypto'
 import { bytesToBase64 } from '../core/bytes_codec.mjs'
 import {
 	MAX_PENDING_CHUNK_FETCHES,
-	pendingChunkFetches,
 	registerChunkFetchWait,
 } from '../federation/chunk_fetch_pending.mjs'
+import { ms } from '../utils/duration.mjs'
+import { createInflightTable } from '../utils/inflight_table.mjs'
 
 import { verifiedChunkBytes } from './chunk_fetch_verify.mjs'
 import { fetchFederationChunk, resolveNodeHash } from './chunk_provider_registry.mjs'
 import { getChunk, hasChunk, putChunk } from './chunk_store.mjs'
 import { fanoutFedFetch } from './fetch_fanout.mjs'
+
+const DEFAULT_CHUNK_FETCH_TIMEOUT_MS = ms('8s')
+
+/** 同 username+hash 共享一次 fanout；队满只丢已超基础超时的队首。 */
+const chunkInflight = createInflightTable({
+	maxSize: MAX_PENDING_CHUNK_FETCHES,
+	baseTimeoutMs: DEFAULT_CHUNK_FETCH_TIMEOUT_MS,
+})
 
 /**
  * @typedef {{
@@ -42,19 +51,27 @@ export async function fetchChunk(context) {
 		}
 	}
 
-	if (pendingChunkFetches.size >= MAX_PENDING_CHUNK_FETCHES) return null
+	const inflightKey = `${username}\0${hash}`
+	const shared = chunkInflight.acquire(inflightKey, () => {
+		const requestId = randomUUID()
+		const wait = registerChunkFetchWait(requestId, hash, DEFAULT_CHUNK_FETCH_TIMEOUT_MS)
+		void (async () => {
+			try {
+				const { nodeHash } = await resolveNodeHash(username)
+				await fanoutFedFetch(username, 'fed_chunk_get', {
+					requestId,
+					nodeHash,
+					chunkHash: hash,
+					ownerEntityHash: context.ownerEntityHash,
+				})
+			}
+			catch { /* pending wait 超时/cancel 负责 settle */ }
+		})()
+		return { done: wait.done, cancel: wait.cancel }
+	})
+	if (!shared) return null
 
-	const requestId = randomUUID()
-	const { done } = registerChunkFetchWait(requestId, hash, 8000)
-	const { nodeHash } = await resolveNodeHash(username)
-	const payload = {
-		requestId,
-		nodeHash,
-		chunkHash: hash,
-		ownerEntityHash: context.ownerEntityHash,
-	}
-	await fanoutFedFetch(username, 'fed_chunk_get', payload)
-	const result = await done
+	const result = await shared
 	const verified = verifiedChunkBytes(hash, result)
 	if (verified) {
 		await putChunk(hash, verified)

@@ -16,7 +16,7 @@
 
 ## Conventions
 
-- **Shared helpers:** `utils/shuffle`, `utils/emit_safe`, `utils/lru.createLruMap`, `utils/ttl_map.createTtlMap` (bounded caches; TTL maps take `maxSize`), `utils/atomic_fs` (unique tmp + Windows rename retries; used by `utils/json_io` and `dag/storage`), `core/bytes_codec.toBytes`, `link/providers/link_id_pipe`.
+- **Shared helpers:** `utils/shuffle`, `utils/emit_safe`, `utils/lru.createLruMap`, `utils/ttl_map.createTtlMap` (bounded caches; TTL maps take `maxSize`), `utils/inflight_table.createInflightTable` (同 key 复用+touch；队满且超 `baseTimeoutMs` 才 cancel 队首 — EVFS manifest/chunk fanout), `utils/atomic_fs` (unique tmp + Windows rename retries; used by `utils/json_io` and `dag/storage`), `core/bytes_codec.toBytes`, `link/providers/link_id_pipe`.
 - **File naming:** parent directory is scope — child `.mjs` files use short names (`mailbox/store.mjs`). Tunables default: `<dir>/tunables.json`. Subpath `package.json` exports mirror filenames.
 - **Import boundary:** `test/integration/p2p_shell_import_guard.test.mjs`.
 
@@ -67,7 +67,7 @@
 
 - **Storage:** ciphertext chunks `{nodeDir}/chunks/` (CAS); manifests `{EntityStoreRoot}/{entityHash}/files/{path}.manifest.json`.
 - **Modules:** `files/` — `evfs`, `evfs_ref`, `acl`, `manifest_acl_registry`, `public_manifest` / `manifest_fetch`.
-- **Public files:** `publishPublicFile` signs with recovery key; remote `fed_manifest_get` → verify → cache. `fetchPublicManifest` always fanout-revalidates (prefer newer `publishedAt`; timeout falls back to local publicSig). Signature covers content fields only — after verify, drop incoming `meta` except `publicSig`. Profile/avatar semantics live in the shell.
+- **Public files:** `publishPublicFile` signs with recovery key; remote `fed_manifest_get` → verify → cache. `fetchPublicManifest` always fanout-revalidates (prefer newer `publishedAt`; timeout falls back to local publicSig). Same-key in-flight is deduped via `utils/inflight_table` (touch to tail; evict aged front only when over cap). Outer caller timeouts should not abort — background fill continues. Signature covers content fields only — after verify, drop incoming `meta` except `publicSig`. Profile/avatar semantics live in the shell.
 
 ## Tunables JSON
 

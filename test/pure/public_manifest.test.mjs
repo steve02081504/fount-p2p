@@ -23,6 +23,7 @@ import {
 	verifySignedPublicManifest,
 } from '../../files/public_manifest.mjs'
 import { getNodeHash } from '../../node/identity.mjs'
+import { ms } from '../../utils/duration.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
 
@@ -30,7 +31,7 @@ import { initTestP2pNode } from '../helpers/node.mjs'
  * @param {number} [timeoutMs] 等待上限
  * @returns {Promise<string | null>} 首个 pending requestId
  */
-async function waitForPendingManifestRequestId(timeoutMs = 2000) {
+async function waitForPendingManifestRequestId(timeoutMs = ms('2s')) {
 	const deadline = Date.now() + timeoutMs
 	while (Date.now() < deadline) {
 		const [requestId] = pendingManifestFetches.keys()
@@ -171,7 +172,7 @@ test('valid manifest data resolves pending wait', async () => {
 	const { done } = registerManifestFetchWait(
 		requestId,
 		manifestFetchExpectedKey(owner, 'profile.json'),
-		2000,
+		ms('2s'),
 	)
 	assertEquals(await resolvePendingManifestFetch({ requestId, manifest: signed }), true)
 	const got = await done
@@ -353,4 +354,33 @@ test('fetchPublicManifest falls back to local publicSig when revalidation times 
 		timeoutMs: 50,
 	})
 	assertEquals(got?.meta?.publicSig?.publishedAt, 1500)
+})
+
+test('fetchPublicManifest dedups concurrent in-flight by username+owner+path', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'fount-fetch-pub-dedup-'))
+	initTestP2pNode({ nodeDir: dir })
+	const keys = testRecoveryKeys(16)
+	const owner = entityHashFromRecoveryPubKeyHex('d'.repeat(64), keys.pubKeyHex)
+	const signed = await buildSignedManifest(owner, 'profile.json', 'once', keys, 3000)
+
+	const p1 = fetchPublicManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'profile.json',
+		cache: true,
+	})
+	const p2 = fetchPublicManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'profile.json',
+		cache: true,
+	})
+	const requestId = await waitForPendingManifestRequestId()
+	assertEquals(Boolean(requestId), true)
+	assertEquals(pendingManifestFetches.size, 1)
+
+	assertEquals(await resolvePendingManifestFetch({ requestId, manifest: signed }), true)
+	const [a, b] = await Promise.all([p1, p2])
+	assertEquals(a?.meta?.publicSig?.publishedAt, 3000)
+	assertEquals(b?.meta?.publicSig?.publishedAt, 3000)
 })
