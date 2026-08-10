@@ -85,7 +85,7 @@ export function wrapRtcPeerConnectionForIceLocalHostname(BaseRTC, RTCIceCandidat
 				/**
 				 * @returns {((event: RTCPeerConnectionIceEvent) => void) | null} 用户 ICE handler
 				 */
-				get: () => this.#userIceHandler ? this.#deliverIce : null,
+				get: () => this.#userIceHandler,
 				/**
 				 * @param {((event: RTCPeerConnectionIceEvent) => void) | null} handler 用户 ICE handler
 				 * @returns {void}

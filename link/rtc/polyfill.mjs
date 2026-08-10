@@ -70,10 +70,10 @@ async function loadNodeDatachannelBackend() {
  * @returns {Promise<{ RTCPeerConnection: typeof RTCPeerConnection, RTCIceCandidate: typeof RTCIceCandidate }>} node-rtc-connection 构造器
  */
 async function loadNodeRtcConnectionBackend() {
-	const mod = await import('node-rtc-connection')
+	const module = await import('node-rtc-connection')
 	return {
-		RTCPeerConnection: /** @type {typeof RTCPeerConnection} */ bridgePeerConnection(mod.RTCPeerConnection),
-		RTCIceCandidate: mod.RTCIceCandidate,
+		RTCPeerConnection: /** @type {typeof RTCPeerConnection} */ bridgePeerConnection(module.RTCPeerConnection),
+		RTCIceCandidate: module.RTCIceCandidate,
 	}
 }
 
@@ -146,11 +146,14 @@ export async function loadNodeRtcPolyfill(options = {}) {
 	if (!cachedDefaultPolyfill || cachedDefaultPolyfillEpoch !== epoch) {
 		cachedDefaultPolyfill = null
 		cachedDefaultPolyfillEpoch = epoch
-		cachedDefaultPolyfill = loadNodeRtcPolyfillUncached(options).catch(error => {
-			cachedDefaultPolyfill = null
-			cachedDefaultPolyfillEpoch = -1
+		const pending = loadNodeRtcPolyfillUncached(options).catch(error => {
+			if (cachedDefaultPolyfill === pending) {
+				cachedDefaultPolyfill = null
+				cachedDefaultPolyfillEpoch = -1
+			}
 			throw error
 		})
+		cachedDefaultPolyfill = pending
 	}
 	return cachedDefaultPolyfill
 }
