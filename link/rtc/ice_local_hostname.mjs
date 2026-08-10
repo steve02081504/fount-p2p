@@ -58,19 +58,26 @@ export function wrapRtcPeerConnectionForIceLocalHostname(BaseRTC, RTCIceCandidat
 		 */
 		constructor(config) {
 			super(config)
+			// 基类 ctor 可能留下自有 onicecandidate 数据字段；换成 accessor，避免赋值绕过过滤。
+			Object.defineProperty(this, 'onicecandidate', {
+				configurable: true,
+				enumerable: true,
+				get: () => this.#userIceHandler,
+				set: handler => { this.#userIceHandler = handler },
+			})
+			// capture：先于基类「onicecandidate?.(e)」并 stop，避免未过滤 .local 直通或双发。
 			this.addEventListener('icecandidate', event => {
 				if (!this.#userIceHandler) return
-				if (!event?.candidate) return this.#userIceHandler(event)
+				if (!event?.candidate) {
+					event.stopImmediatePropagation?.()
+					this.#userIceHandler(event)
+					return
+				}
 				const filtered = filterIceLocalHostnameCandidate(event.candidate, RTCIceCandidate, policy)
-				if (!filtered) return
-				this.#userIceHandler(filtered === event.candidate ? event : { candidate: filtered })
-			})
+				event.stopImmediatePropagation?.()
+				if (filtered)
+					this.#userIceHandler(filtered === event.candidate ? event : { candidate: filtered })
+			}, true)
 		}
-
-		/** @returns {((event: RTCPeerConnectionIceEvent) => void) | null} */
-		get onicecandidate() { return this.#userIceHandler }
-
-		/** @param {((event: RTCPeerConnectionIceEvent) => void) | null} handler */
-		set onicecandidate(handler) { this.#userIceHandler = handler }
 	}
 }

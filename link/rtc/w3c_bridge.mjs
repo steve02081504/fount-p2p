@@ -50,17 +50,61 @@ export function bridgePeerConnection(BaseRTC) {
 		#dataChannelHandler = null
 		/** @type {(() => void) | null} */
 		#connectionStateHandler = null
+		/** @type {Map<string, Set<(event: unknown) => void>>} */
+		#listeners = new Map()
 
 		/**
 		 * @param {RTCConfiguration} [config]
 		 */
 		constructor(config) {
 			super(config)
-			super.on('icecandidate', event => this.#iceHandler?.(event))
-			super.on('datachannel', event =>
-				this.#dataChannelHandler?.({ channel: bridgeDataChannel(event.channel) })
-			)
-			super.on('connectionstatechange', () => this.#connectionStateHandler?.())
+			super.on('icecandidate', event => {
+				this.#iceHandler?.(event)
+				this.#emit('icecandidate', event)
+			})
+			super.on('datachannel', event => {
+				const adapted = { channel: bridgeDataChannel(event.channel) }
+				this.#dataChannelHandler?.(adapted)
+				this.#emit('datachannel', adapted)
+			})
+			super.on('connectionstatechange', () => {
+				this.#connectionStateHandler?.()
+				this.#emit('connectionstatechange', undefined)
+			})
+		}
+
+		/**
+		 * @param {string} type 事件名
+		 * @param {unknown} event 事件载荷
+		 * @returns {void}
+		 */
+		#emit(type, event) {
+			const set = this.#listeners.get(type)
+			if (!set) return
+			for (const listener of set) listener(event)
+		}
+
+		/**
+		 * @param {string} type 事件名
+		 * @param {(event: unknown) => void} listener 回调
+		 * @returns {void}
+		 */
+		addEventListener(type, listener) {
+			let set = this.#listeners.get(type)
+			if (!set) {
+				set = new Set()
+				this.#listeners.set(type, set)
+			}
+			set.add(listener)
+		}
+
+		/**
+		 * @param {string} type 事件名
+		 * @param {(event: unknown) => void} listener 回调
+		 * @returns {void}
+		 */
+		removeEventListener(type, listener) {
+			this.#listeners.get(type)?.delete(listener)
 		}
 
 		/** @returns {((event: RTCPeerConnectionIceEvent) => void) | null} */
