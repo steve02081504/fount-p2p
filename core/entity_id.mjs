@@ -11,7 +11,7 @@ import {
 import { isHex64, normalizeHex64 } from './hexIds.mjs'
 
 /**
- *
+ * entityHash 编解码与校验（re-export）。
  */
 export {
 	encodeEntityHash,

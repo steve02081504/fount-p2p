@@ -4,7 +4,7 @@ Internal WebRTC (`needsOfferAnswer`) glare and handshake. Shells use the fount-n
 
 ## Glare: connId dual-PC pick-one
 
-`node-datachannel` has no perfect-negotiation/rollback; simultaneous dials on one PC collide. Resolution in `transport/offer_answer.mjs`: both sides dial with a random `connId`; on true glare each side builds an independent answer PC, then **keeps the link initiated by the smaller `nodeHash`** (`linkIsPreferred`). Only the canonical link fires `linkUp` / `linkDown`.
+`node-datachannel` has no perfect-negotiation/rollback; simultaneous dials on one PC collide. The pure-JS fallback (`node-rtc-connection`) is the same: one PC cannot safely host two glare dials. Resolution in `transport/offer_answer.mjs`: both sides dial with a random `connId`; on true glare each side builds an independent answer PC, then **keeps the link initiated by the smaller `nodeHash`** (`linkIsPreferred`). Only the canonical link fires `linkUp` / `linkDown`.
 
 - Outbound: `ensureDirectLinkToNode` → `dialOfferAnswer` → `createConnSession` + provider `dial`.
 - Inbound offer with unknown `connId`: new answer PC via `accept` — **not** gated by per-`nodeHash` inflights.

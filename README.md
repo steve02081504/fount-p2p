@@ -107,8 +107,9 @@ Maintainer notes for agents / contributors: [AGENTS.md](./AGENTS.md). Sim harnes
 
 ## Optional dependencies
 
-- `@stoprocent/noble` / `@stoprocent/bleno` — Bluetooth (optionalDependencies). Hardware probe is subprocess-only; see [docs/runtime.md](./docs/runtime.md).
-- `node-datachannel` — WebRTC DataChannels (dependency).
+- `@stoprocent/noble` / `@stoprocent/bleno` — Bluetooth (optionalDependencies). Hardware probe is in-process; see [docs/runtime.md](./docs/runtime.md).
+- `node-datachannel` — native WebRTC DataChannels (optionalDependencies). Preferred when the addon loads.
+- `node-rtc-connection` — pure-JS WebRTC DataChannel fallback (dependency; used on Termux/Android or when native is missing).
 - `ws` — Nostr discovery / signaling / last-resort link WebSockets (dependency).
 
 Group chunk remote storage (S3, etc.) is implemented by the shell as `GroupStoragePlugin` and injected; see `node/storage_plugins.mjs` for the local reference implementation.

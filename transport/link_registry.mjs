@@ -386,7 +386,7 @@ export function createLinkRegistry(options = {}) {
 	})
 
 	/**
-	 *
+	 * 启动 discovery/link runtime 并开启 mesh keepalive。
 	 */
 	const ensureRuntimeWithMesh = async () => {
 		await bootstrap.ensureRuntime()

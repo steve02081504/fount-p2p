@@ -99,7 +99,7 @@ export function attachTrustGraphFedChunkResponder(username, room, fedOut, guardG
 			if (!String(data.requestId || '')) return
 			await handleFedChunkGetIngress(username, data, peerId, (resp, pid) => {
 				/**
-				 *
+				 * 发送 fed_chunk_data 响应（可经 fedOut 限速队列）。
 				 */
 				const send = () => {
 					try { sendChunkData(resp, pid) }
@@ -123,7 +123,7 @@ export function attachTrustGraphFedChunkResponder(username, room, fedOut, guardG
 			if (!String(data.requestId || '')) return
 			await handleFedManifestGetIngress(username, data, peerId, (resp, pid) => {
 				/**
-				 *
+				 * 发送 fed_manifest_data 响应（可经 fedOut 限速队列）。
 				 */
 				const send = () => {
 					try { sendManifestData(resp, pid) }

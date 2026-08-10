@@ -13,7 +13,7 @@ test({
 	sanitizeOps: false,
 	sanitizeResources: false,
 	/**
-	 *
+	 * 经 mock discovery 完成 advert 交换与 nodeHash 拨号。
 	 */
 	async fn() {
 		const mock = createMockDiscoveryProvider()

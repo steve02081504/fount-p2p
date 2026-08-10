@@ -8,7 +8,7 @@ import { hashFromPubKeyHex } from '../core/entity_id.mjs'
 import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
 
 /**
- *
+ * entity 密钥撤销签名的域分隔前缀。
  */
 export const ENTITY_KEY_REVOKE_DOMAIN = 'fount-entity-key-revoke'
 

@@ -22,6 +22,16 @@ let runtime = null
 /** @type {Set<(event: string, payload?: unknown) => void>} */
 const changeListeners = new Set()
 
+/** RTC polyfill 缓存世代：策略变更时同步推进，避免动态 import 清缓存前仍命中旧构造器 */
+let rtcPolyfillCacheEpoch = 0
+
+/**
+ * @returns {number} 当前 RTC polyfill 缓存世代
+ */
+export function getRtcPolyfillCacheEpoch() {
+	return rtcPolyfillCacheEpoch
+}
+
 /**
  * @param {{ nodeDir: string, entityStore?: import('./entity_store.mjs').EntityStore }} options - 节点目录与可选 entity store
  * @returns {NodeRuntime} 初始化后的运行时
@@ -72,7 +82,10 @@ export function setNodeLogger(logger) {
  */
 export function setSignalingRuntimeConfig(config) {
 	if (!runtime) throw new Error('p2p: setSignalingRuntimeConfig requires initNode')
+	const previousPolicy = runtime.signaling.iceLocalHostnamePolicy
 	runtime.signaling = resolveSignalingRuntimeConfig({ ...runtime.signaling, ...config })
+	if (runtime.signaling.iceLocalHostnamePolicy !== previousPolicy)
+		rtcPolyfillCacheEpoch++
 	emitNodeChange('signaling-changed', runtime.signaling)
 }
 
@@ -131,4 +144,5 @@ export function onNodeChange(listener) {
 export function resetNodeForTests() {
 	runtime = null
 	changeListeners.clear()
+	rtcPolyfillCacheEpoch++
 }

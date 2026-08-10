@@ -14,8 +14,8 @@ import {
 } from '../../federation/manifest_fetch_pending.mjs'
 import { encryptPlaintextToParts, buildFileManifestFromEnc } from '../../files/assemble.mjs'
 import { loadFileManifest } from '../../files/evfs.mjs'
-import { cachePublicManifest, fetchPublicManifest } from '../../files/manifest_fetch.mjs'
 import { publicTransferKeyDescriptor } from '../../files/manifest.mjs'
+import { cachePublicManifest, fetchPublicManifest } from '../../files/manifest_fetch.mjs'
 import {
 	attachPublicManifestSig,
 	publishPublicFile,

@@ -44,16 +44,18 @@ Self presence echo from relays is filtered (`skipNodeHash`, same idea as LAN) an
 |---|---|---|
 | Package tests / production CLI | `node` / `npx @steve02081504/fount-p2p` | Not primary |
 | fount bridge (`npm run test:fount`) | — | `deno.json` keeps `"nodeModulesDir": "none"` |
-| WebRTC (`node-datachannel`) | works after npm install | needs local `node_modules` + scripts for **only** that package |
+| WebRTC | `node-datachannel` when native loads; else pure-JS `node-rtc-connection` (Termux/Android skips native) | same; native needs local `node_modules` + scripts for **only** `node-datachannel` |
 | BLE (`noble` / `bleno`) | optionalDependencies; lazy-loaded | do **not** blanket `--allow-scripts` (optional native builds can abort the whole run) |
 
-Recommended Deno one-shot for the published CLI when you want WebRTC:
+Recommended Deno one-shot for the published CLI when you want native WebRTC:
 
 ```bash
 deno run -A --minimum-dependency-age=0 --node-modules-dir=auto --allow-scripts=npm:node-datachannel npm:@steve02081504/fount-p2p
 ```
 
 `deno.json` lists `"allowScripts": ["npm:node-datachannel"]` so project-local `deno install` does not try to compile noble/bleno. Blanket `--allow-scripts` is wrong here: optional BT deps may fail install scripts and Deno then aborts the entire command.
+
+On Android/Termux, `node-datachannel` has no Bionic prebuild — loader skips it and uses `node-rtc-connection` (data-channel only; EventEmitter → W3C bridge in `link/rtc/`; backpressure is weaker than libdatachannel).
 
 ## Bluetooth probe
 

@@ -23,6 +23,9 @@ test('inflight acquire reuses same done and touches to tail', async () => {
 		const done = new Promise(resolve => { settle = resolve })
 		return {
 			done,
+			/**
+			 * @returns {void}
+			 */
 			cancel: () => settle?.(null),
 		}
 	})
@@ -42,10 +45,13 @@ test('inflight acquire reuses same done and touches to tail', async () => {
 })
 
 test('inflight refuses new key when full and front is still within baseTimeout', () => {
-	let clock = 1000
+	const clock = 1000
 	const table = createInflightTable({
 		maxSize: 2,
 		baseTimeoutMs: 500,
+		/**
+		 * @returns {number} 模拟时钟
+		 */
 		now: () => clock,
 	})
 	/** @type {Array<() => void>} */
@@ -85,6 +91,9 @@ test('inflight cancels aged front only when over cap (dual window)', async () =>
 	const table = createInflightTable({
 		maxSize: 2,
 		baseTimeoutMs: 100,
+		/**
+		 * @returns {number} 模拟时钟
+		 */
 		now: () => clock,
 	})
 	/** @type {string[]} */
@@ -92,7 +101,7 @@ test('inflight cancels aged front only when over cap (dual window)', async () =>
 
 	/**
 	 * @param {string} key 键
-	 * @returns {Promise<string | null> | null}
+	 * @returns {Promise<string | null> | null} 共享 promise
 	 */
 	function start(key) {
 		return table.acquire(key, () => {
@@ -101,6 +110,9 @@ test('inflight cancels aged front only when over cap (dual window)', async () =>
 			const done = new Promise(r => { resolve = r })
 			return {
 				done,
+				/**
+				 * @returns {void}
+				 */
 				cancel: () => {
 					cancelled.push(key)
 					resolve(null)
@@ -131,6 +143,9 @@ test('reuse touches key so a fresher sibling is cancelled first under pressure',
 	const table = createInflightTable({
 		maxSize: 2,
 		baseTimeoutMs: 10,
+		/**
+		 * @returns {number} 模拟时钟
+		 */
 		now: () => clock,
 	})
 	/** @type {string[]} */
@@ -138,7 +153,7 @@ test('reuse touches key so a fresher sibling is cancelled first under pressure',
 
 	/**
 	 * @param {string} key 键
-	 * @returns {Promise<unknown> | null}
+	 * @returns {Promise<unknown> | null} 共享 promise
 	 */
 	function start(key) {
 		return table.acquire(key, () => {
@@ -147,6 +162,9 @@ test('reuse touches key so a fresher sibling is cancelled first under pressure',
 			const done = new Promise(r => { resolve = r })
 			return {
 				done,
+				/**
+				 * @returns {void}
+				 */
 				cancel: () => {
 					cancelled.push(key)
 					resolve(null)

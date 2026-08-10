@@ -13,7 +13,7 @@ test({
 	sanitizeOps: false,
 	sanitizeResources: false,
 	/**
-	 *
+	 * 经 roomSecret 发现成员并承载 group envelope。
 	 */
 	async fn() {
 		const mock = createMockDiscoveryProvider('mock-group-discovery')

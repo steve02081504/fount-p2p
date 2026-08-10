@@ -17,6 +17,7 @@
 ## Conventions
 
 - **Shared helpers:** `utils/shuffle`, `utils/emit_safe`, `utils/lru.createLruMap`, `utils/ttl_map.createTtlMap` (bounded caches; TTL maps take `maxSize`), `utils/inflight_table.createInflightTable` (同 key 复用+touch；队满且超 `baseTimeoutMs` 才 cancel 队首 — EVFS manifest/chunk fanout), `utils/atomic_fs` (unique tmp + Windows rename retries; used by `utils/json_io` and `dag/storage`), `core/bytes_codec.toBytes`, `link/providers/link_id_pipe`.
+- **Heterogeneous backends:** normalize at the load boundary (e.g. `link/rtc/w3c_bridge.mjs` EventEmitter → W3C); call sites speak one contract — no multi-API attach shims in providers/`channel_mux`.
 - **File naming:** parent directory is scope — child `.mjs` files use short names (`mailbox/store.mjs`). Tunables default: `<dir>/tunables.json`. Subpath `package.json` exports mirror filenames.
 - **Import boundary:** `test/integration/p2p_shell_import_guard.test.mjs`.
 
@@ -53,6 +54,7 @@
 - **Link registry:** `configureLinkRegistry(opts)` before first `getLinkRegistry`. `startNode` does not take registry options. Rooms: `createGroupLinkSet` is the kernel; `createScopedLinkRoom` is a dial-all preset.
 - **Fetch ≠ apply:** `ingestSignedAdvert` vs `applyAdvertPeerHints`; `fetchPublicManifest` defaults to no cache (still fanout-revalidates local publicSig by `publishedAt`); `pullReputationFromNode` never writes.
 - **Bluetooth:** optional noble/bleno (noble `>=2.5.9` for safe in-process probe teardown); availability probe is in-process (`loadNoble` → `waitPoweredOn` → `stop`). [runtime.md](docs/runtime.md)
+- **WebRTC:** prefer optional `node-datachannel`; on Android/Termux or native load failure fall back to pure-JS `node-rtc-connection` (`link/rtc/`). Pure backend is bridged to W3C handlers at load and forces trickle ICE (SDP has no candidates). [runtime.md](docs/runtime.md)
 - **Infra / node-scope attaches:** [infra.md](docs/infra.md)
 
 ### Subjective reputation (`reputation.json`)

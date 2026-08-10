@@ -9,7 +9,7 @@ import { createMockDiscoveryProvider } from '../helpers/mock_discovery.mjs'
 import { identity, waitFor } from './helpers.mjs'
 
 /**
- *
+ * 双向同时拨号的一轮 glare 场景。
  */
 async function runGlareRound() {
 	const mock = createMockDiscoveryProvider('mock-glare-two-pc-discovery')
