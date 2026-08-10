@@ -107,7 +107,7 @@ async function loadNodeRtcPolyfillUncached(options) {
 		: defaultRtcBackends()
 	/** @type {unknown} */
 	let lastError = null
-	for (const backend of backends) 
+	for (const backend of backends)
 		try {
 			const mod = await backend.load()
 			const { iceLocalHostnamePolicy } = getSignalingRuntimeConfig()
@@ -129,7 +129,7 @@ async function loadNodeRtcPolyfillUncached(options) {
 				err: String(error?.message ?? error).replace(/\s+/g, ' ').slice(0, 240),
 			})
 		}
-	
+
 	throw lastError instanceof Error ? lastError : new Error(String(lastError ?? 'no rtc backend'))
 }
 

@@ -58,7 +58,8 @@ test('LINK_LEVEL_NOSTR is -Infinity and sorts last', () => {
 	registerLinkProvider(createNostrLinkProvider({ /**
 	 * @returns {string[]} relay URL 列表
 	 */
-		getRelayUrls: () => ['ws://127.0.0.1:1'] }))
+		getRelayUrls: () => ['ws://127.0.0.1:1']
+	}))
 	registerLinkProvider({
 		id: 'mid',
 		level: 40,
@@ -85,11 +86,13 @@ test('nostr link dial/accept exchanges an envelope over type:link', async () => 
 	const aliceLink = createNostrLinkProvider({ /**
 	 * @returns {string[]} relay URL 列表
 	 */
-		getRelayUrls: () => ['ws://memory'] })
+		getRelayUrls: () => ['ws://memory']
+	})
 	const bobLink = createNostrLinkProvider({ /**
 	 * @returns {string[]} relay URL 列表
 	 */
-		getRelayUrls: () => ['ws://memory'] })
+		getRelayUrls: () => ['ws://memory']
+	})
 	registerMemoryNostrDiscovery({ alice, bob, aliceLink, bobLink })
 
 	/** @type {object | null} */
@@ -164,11 +167,13 @@ test('ensureLinkToNode falls back to nostr after higher providers fail', async (
 	const aliceLink = createNostrLinkProvider({ /**
 	 * @returns {string[]} relay URL 列表
 	 */
-		getRelayUrls: () => ['ws://memory'] })
+		getRelayUrls: () => ['ws://memory']
+	})
 	const bobLink = createNostrLinkProvider({ /**
 	 * @returns {string[]} relay URL 列表
 	 */
-		getRelayUrls: () => ['ws://memory'] })
+		getRelayUrls: () => ['ws://memory']
+	})
 	registerMemoryNostrDiscovery({ alice, bob, aliceLink, bobLink })
 	registerLinkProvider(aliceLink)
 

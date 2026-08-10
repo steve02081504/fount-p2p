@@ -296,7 +296,7 @@ export function buildWorld(scenario, seed, tunables, attackGenome) {
 		}))
 
 	// K=0 冷启动观察者（scenario.coldStartObserver 开启时）：无 trusted，仅靠 explore 槽入网
-	if (scenario.coldStartObserver) 
+	if (scenario.coldStartObserver)
 		observers.push({
 			id: fakeNodeHash(nodeIndex++),
 			reputation: ensureReputationShape({ byNodeHash: {}, wantUnknownHits: [], relayBumpSeen: [] }),
@@ -305,7 +305,6 @@ export function buildWorld(scenario, seed, tunables, attackGenome) {
 			injectedHints: [],
 			coldStart: true,
 		})
-	
 
 	// 观察者对自己满信任；直信对端从自己按 introducerSeedEdge 继承初始信誉
 	// （旧实现里 introducer=观察者自身且其分=0，导致 0.8 边权被乘成 0、整段播种是空操作）。
