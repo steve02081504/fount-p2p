@@ -41,6 +41,10 @@ export function attachPartQueryWire(wireContext, wire, dependencies = {}) {
 	const deps = withDefaultDeliver(dependencies)
 	const state = resolvePartQueryState(deps)
 	return subscribeWire(wire, {
+		/**
+		 * @param {unknown} data part_query_req 载荷
+		 * @param {string} peerId 对端 nodeHash
+		 */
 		part_query_req(data, peerId) {
 			if (!isPlainObject(data)) return
 			const request = parsePartQueryReq(data)
@@ -52,6 +56,10 @@ export function attachPartQueryWire(wireContext, wire, dependencies = {}) {
 			})) return
 			void processIncomingPartQueryRequest(wireContext, wire, request, String(peerId || ''), deps)
 		},
+		/**
+		 * @param {unknown} data part_query_res 载荷
+		 * @param {string} peerId 对端 nodeHash
+		 */
 		part_query_res(data, peerId) {
 			const response = parsePartQueryRes(data)
 			if (!response) return
@@ -73,6 +81,9 @@ export function queryNetwork(username, partpath, kind, query, options = {}) {
 	return queryNetworkCore(username, partpath, kind, query, withDefaultDeliver(options))
 }
 
+/**
+ *
+ */
 export {
 	createPartQueryNodeState,
 	registerQueryInboundHandler,

@@ -10,6 +10,9 @@ export {
 	hasNodeScopeAction,
 } from './wire.mjs'
 
+/**
+ *
+ */
 export {
 	attachNodeScopeChunks,
 	attachNodeScopeDefaultFeatures,

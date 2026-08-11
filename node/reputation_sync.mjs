@@ -228,6 +228,10 @@ export function attachReputationSyncWire() {
 	ensureNodeScope()
 	if (!getNodeScopeWire()) throw new Error('p2p: attachReputationSyncWire requires node scope wire')
 	const dispose = attachNodeScopeFeature('rep_sync', wire => subscribeWire(wire, {
+		/**
+		 * @param {unknown} payload rep_sync_req 载荷
+		 * @param {string} peerId 对端 nodeHash
+		 */
 		rep_sync_req(payload, peerId) {
 			const requester = normalizeHex64(peerId)
 			if (!requester || !getReputationExportAllowlist().includes(requester)) return
@@ -239,6 +243,10 @@ export function attachReputationSyncWire() {
 			}
 			catch { /* disconnected */ }
 		},
+		/**
+		 * @param {unknown} payload rep_sync_res 载荷
+		 * @param {string} peerId 对端 nodeHash
+		 */
 		rep_sync_res(payload, peerId) {
 			const requestId = String(payload?.requestId || '')
 			const pending = pendingPulls.get(requestId)

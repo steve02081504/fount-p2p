@@ -17,11 +17,19 @@ import { parseMailboxGive, parseMailboxPut, parseMailboxWant } from './parse.mjs
  */
 export function attachMailboxWire(wireContext, wire) {
 	return subscribeWire(wire, {
+		/**
+		 * @param {unknown} payload mailbox_put 载荷
+		 * @param {string} peerId 对端 nodeHash
+		 */
 		mailbox_put(payload, peerId) {
 			const put = parseMailboxPut(payload)
 			if (!put.ok) return
 			void ingestMailboxPut(wireContext, put.value, peerId).catch(error => console.error('mailbox: put ingest failed', error))
 		},
+		/**
+		 * @param {unknown} payload mailbox_want 载荷
+		 * @param {string} peerId 对端 nodeHash
+		 */
 		mailbox_want(payload, peerId) {
 			const want = parseMailboxWant(payload)
 			if (!want.ok) return
@@ -32,6 +40,9 @@ export function attachMailboxWire(wireContext, wire) {
 				catch { /* disconnected */ }
 			}, peerId).catch(error => console.error('mailbox: want failed', error))
 		},
+		/**
+		 * @param {unknown} payload mailbox_give 载荷
+		 */
 		mailbox_give(payload) {
 			const give = parseMailboxGive(payload)
 			if (!give.ok) return

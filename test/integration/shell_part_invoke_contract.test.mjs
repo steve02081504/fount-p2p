@@ -16,6 +16,13 @@ const SHELL_CONTRACT = [
 			'partInvokeDataRows',
 			'partInvokeErrorMessages',
 			'PART_INVOKE_FANOUT_DEFAULT',
+			'TIMELINE_FANOUT_LIMIT',
+		],
+	},
+	{
+		subpath: './wire/part/group',
+		exports: [
+			'attachGroupPartWire',
 		],
 	},
 	{
@@ -39,6 +46,34 @@ const SHELL_CONTRACT = [
 		exports: [
 			'pendingPartInvoke',
 			'handleIncomingPartInvokeResponse',
+		],
+	},
+	{
+		subpath: './files/chunk/responder',
+		exports: [
+			'handleFedChunkGetIngress',
+			'handleFedChunkDataIngress',
+			'attachTrustGraphFedChunkResponder',
+		],
+	},
+	{
+		subpath: './files/chunk/pending',
+		exports: [
+			'registerChunkFetchWait',
+			'resolveChunkFetchWait',
+			'resolvePendingChunkFetch',
+		],
+	},
+	{
+		subpath: './core/object',
+		exports: [
+			'isPlainObject',
+		],
+	},
+	{
+		subpath: './core/partpath',
+		exports: [
+			'parsePartpath',
 		],
 	},
 ]

@@ -67,9 +67,28 @@ export function attachNodeScopeFeature(key, attachCore, options = {}) {
 
 /** @type {Record<string, (wire: NodeScopeWire, context: NodeScopeContext) => () => void>} */
 const builtinFeatures = {
+	/**
+	 * @param {NodeScopeWire} wire node scope wire
+	 * @param {NodeScopeContext} context 入站上下文
+	 * @returns {() => void} 取消挂载的 dispose
+	 */
 	mailbox: (wire, context) => attachMailboxWire(context, wire),
+	/**
+	 * @param {NodeScopeWire} wire node scope wire
+	 * @param {NodeScopeContext} context 入站上下文
+	 * @returns {() => void} 取消挂载的 dispose
+	 */
 	part: (wire, context) => attachPartWire(context, wire),
+	/**
+	 * @param {NodeScopeWire} wire node scope wire
+	 * @param {NodeScopeContext} context 入站上下文
+	 * @returns {() => void} 取消挂载的 dispose
+	 */
 	partQuery: (wire, context) => attachPartQueryWire(context, wire),
+	/**
+	 * @param {NodeScopeWire} wire node scope wire
+	 * @returns {() => void} 取消挂载的 dispose
+	 */
 	chunks: wire => attachNodeScopeFedResponder(wire),
 }
 

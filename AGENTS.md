@@ -52,7 +52,7 @@ Safe browser imports: `…/core/logical_entity`, `…/crypto` (`crypto/crypto.mj
 
 - **Untrusted ingress only:** discovery adverts/signals, link/overlay envelopes, group federation frames, `remoteIngest`, `part_timeline_*` / `part_invoke`, `part_query_*`, public manifest (`fed_manifest_data`). Validate / `canonicalize*` / `verifySignedPublicManifest` **only** here.
 - **Trusted after disk:** from `events.jsonl`, only `stripDagEventLocalExtensions` — no re-canonicalization upstream.
-- **Fanout vs targeted:** timeline/chunk exploration → `fanoutToTopNodes`; Mailbox / targeted packets → `sendToNode` / User Room, never fanout. part_invoke RPC collect → `wire/part/fanout.collectPartInvokeResponses`（须已 `attachPartWire`）。
+- **Fanout vs targeted:** timeline/chunk exploration → `fanoutToTopNodes`; Mailbox / targeted packets → `sendToNode` / User Room, never fanout. part_invoke RPC collect → `wire/part/fanout.collectPartInvokeResponses`（须已 `attachPartWire`）；群房间 part → `wire/part/group.attachGroupPartWire`；TrustGraph/群 Trystero chunk → `files/chunk/responder.attachTrustGraphFedChunkResponder`。
 - **Channel encryption:** per-channel `K_ch`, scheme `channel-key` (`CHANNEL_KEY_SCHEME`); decrypted payloads are untrusted outside DAG Ed25519 context.
 - **Denylist vs personal lists:** node `denylist.json` vs per-entity `personal_block.json` / `personal_hide.json`.
 - **Manifest ACL / transfer owner:** shells register matchers; core does not hard-code chat/social types.

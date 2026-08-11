@@ -11,10 +11,6 @@ import {
 	sortMailboxForRetention,
 } from './importance.mjs'
 import {
-	MAX_BUCKET_BYTES,
-	MAX_BUCKET_ENTRIES,
-	mailboxBucketKey,
-	mailboxRecordBytes,
 	pruneMailboxBuckets,
 	pruneMailboxGlobalFair,
 } from './prune.mjs'

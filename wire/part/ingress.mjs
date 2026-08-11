@@ -82,6 +82,9 @@ async function dispatchPartInvoke(wireContext, payload) {
  */
 export function attachPartWire(wireContext, wire, options = {}) {
 	return subscribeWire(wire, {
+		/**
+		 * @param {unknown} data part_timeline_put 载荷
+		 */
 		part_timeline_put(data) {
 			if (!isPlainObject(data)) return
 			const partpath = parsePartpath(data.partpath)
@@ -93,6 +96,10 @@ export function attachPartWire(wireContext, wire, options = {}) {
 				requesterNodeHash: data.nodeHash ? String(data.nodeHash).trim() : null,
 			}, message)
 		},
+		/**
+		 * @param {unknown} data part_invoke 载荷
+		 * @param {string} peerId 对端 nodeHash
+		 */
 		part_invoke(data, peerId) {
 			if (!isPlainObject(data)) return
 			if (options.allowPartInvoke?.(data) === false) return
@@ -102,6 +109,10 @@ export function attachPartWire(wireContext, wire, options = {}) {
 			else
 				void handleIncomingPartInvokeFireAndForget(wireContext, payload, wire, peerId)
 		},
+		/**
+		 * @param {unknown} data part_invoke_response 载荷
+		 * @param {string} peerId 对端 nodeHash
+		 */
 		part_invoke_response(data, peerId) {
 			if (!isPlainObject(data)) return
 			handleIncomingPartInvokeResponse(data, peerId)

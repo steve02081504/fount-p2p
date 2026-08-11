@@ -9,6 +9,8 @@ import { pendingPartInvoke } from './pending.mjs'
 /** @typedef {import('./invoke.mjs').PartInvokeResponse} PartInvokeResponse */
 /** @typedef {import('./invoke.mjs').PartInvoke} PartInvoke */
 
+/** 时间线 part_timeline_put fanout 上限 */
+export const TIMELINE_FANOUT_LIMIT = 8
 /** part_invoke RPC collect 默认响应数 */
 export const PART_INVOKE_FANOUT_DEFAULT = 6
 
@@ -73,6 +75,9 @@ export async function collectPartInvokeResponses(username, partpath, invoke, tim
 	const responses = []
 
 	const waitForResponses = new Promise(resolve => {
+		/**
+		 *
+		 */
 		const finish = () => {
 			clearTimeout(timer)
 			pendingPartInvoke.delete(requestId)

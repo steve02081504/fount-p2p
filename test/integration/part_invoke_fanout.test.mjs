@@ -41,11 +41,22 @@ function createMemoryWire() {
 		handlers,
 		sent,
 		wire: {
+			/**
+			 * @param {string} name action 名
+			 * @param {Function} handler 回调
+			 * @returns {() => void} 取消订阅
+			 */
 			on(name, handler) {
 				if (!handlers.has(name)) handlers.set(name, new Set())
 				handlers.get(name).add(handler)
 				return () => handlers.get(name)?.delete(handler)
 			},
+			/**
+			 * @param {string} name action 名
+			 * @param {unknown} payload 载荷
+			 * @param {string | null} peerId 目标 peer
+			 * @returns {void}
+			 */
 			send(name, payload, peerId) {
 				sent.push({ name, payload, peerId })
 			},
@@ -76,9 +87,25 @@ test('collectPartInvokeResponses gathers neighbor replies until maxResponses', a
 	/** @type {object[]} */
 	const fanouts = []
 	registerTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER, {
+		/**
+		 * @returns {Promise<Map<string, never>>} 空信任图
+		 */
 		async buildMergedGraph() { return new Map() },
+		/**
+		 * @returns {Promise<never[]>} 无节点
+		 */
 		pickTopNodes() { return [] },
+		/**
+		 * @returns {Promise<boolean>} 发送结果
+		 */
 		async sendToNode() { return false },
+		/**
+		 * @param {string} _username 副本用户名
+		 * @param {string} action action 名
+		 * @param {unknown} payload 载荷
+		 * @param {number} limit 扇出上限
+		 * @returns {Promise<number>} 扇出次数
+		 */
 		async fanoutToTopNodes(_username, action, payload, limit) {
 			fanouts.push({ action, payload, limit })
 			queueMicrotask(() => {
@@ -128,9 +155,21 @@ test('collectPartInvokeResponses finishes immediately when fanout sends zero', a
 	attachPartWire({ replicaUsername: 'alice' }, createMemoryWire().wire)
 
 	registerTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER, {
+		/**
+		 * @returns {Promise<Map<string, never>>} 空信任图
+		 */
 		async buildMergedGraph() { return new Map() },
+		/**
+		 * @returns {Promise<never[]>} 无节点
+		 */
 		pickTopNodes() { return [] },
+		/**
+		 * @returns {Promise<boolean>} 发送结果
+		 */
 		async sendToNode() { return false },
+		/**
+		 * @returns {Promise<number>} 扇出次数
+		 */
 		async fanoutToTopNodes() { return 0 },
 	})
 

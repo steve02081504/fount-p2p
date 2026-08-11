@@ -20,6 +20,11 @@ let nodeScopeSubscribeCleanup = null
  */
 function createNodeScopeWire() {
 	return {
+		/**
+		 * @param {string} name action 名
+		 * @param {(payload: unknown, peerId: string) => void} handler 回调
+		 * @returns {() => void} 取消订阅
+		 */
 		on(name, handler) {
 			if (!nodeActionHandlers.has(name)) nodeActionHandlers.set(name, new Set())
 			nodeActionHandlers.get(name).add(handler)
@@ -30,6 +35,12 @@ function createNodeScopeWire() {
 				if (!set.size) nodeActionHandlers.delete(name)
 			}
 		},
+		/**
+		 * @param {string} name action 名
+		 * @param {unknown} payload 载荷
+		 * @param {string} peerId 目标 peer
+		 * @returns {void}
+		 */
 		send(name, payload, peerId) {
 			if (!peerId) return
 			void sendToNodeLink(peerId, { scope: 'node', action: name, payload }).catch(() => { })
