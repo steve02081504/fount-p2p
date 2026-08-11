@@ -1,8 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { readFile } from 'node:fs/promises'
-import path from 'node:path'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
 
 /**
  * 壳层（fount social / cabinet）依赖的公开子路径与符号。
@@ -78,7 +76,6 @@ const SHELL_CONTRACT = [
 	},
 ]
 
-const packageRoot = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))))
 const PACKAGE_NAME = '@steve02081504/fount-p2p'
 
 /**
@@ -98,7 +95,7 @@ test('shell part_invoke contract exports stay loadable', async () => {
 })
 
 test('attachPartWire registers part_invoke_response collector', async () => {
-	const text = await readFile(path.join(packageRoot, 'wire/part/ingress.mjs'), 'utf8')
+	const text = await readFile(new URL('../../wire/part/ingress.mjs', import.meta.url), 'utf8')
 	assert.match(text, /part_invoke_response/)
 	assert.match(text, /handleIncomingPartInvokeResponse/)
 })

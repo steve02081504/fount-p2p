@@ -58,10 +58,9 @@ async function dispatchPartInvoke(wireContext, payload) {
 	const partpath = parsePartpath(payload?.partpath)
 	const invoke = payload?.invoke
 	if (!partpath || !isPlainObject(invoke)) return null
-	const requesterNodeHash = payload.peerId ? String(payload.peerId).trim() : null
 	return dispatchRpcInbound({
 		replicaUsername: wireContext.replicaUsername,
-		requesterNodeHash,
+		requesterNodeHash: payload.peerId ? String(payload.peerId).trim() : null,
 		groupId: payload.groupId ? String(payload.groupId).trim() : undefined,
 		peerId: payload.peerId,
 	}, {

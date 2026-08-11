@@ -9,8 +9,7 @@ const PACKAGE_NAME = '@steve02081504/fount-p2p'
  * @returns {Promise<Record<string, unknown>>} 动态导入的模块命名空间
  */
 async function importExport(subpath) {
-	const specifier = subpath === '.' ? PACKAGE_NAME : `${PACKAGE_NAME}/${subpath.slice(2)}`
-	return import(specifier)
+	return import(subpath === '.' ? PACKAGE_NAME : `${PACKAGE_NAME}/${subpath.slice(2)}`)
 }
 
 test('package exports resolve to loadable modules', async () => {
@@ -51,8 +50,6 @@ test('package exports resolve to loadable modules', async () => {
 		'./mailbox/importance',
 		'./governance/branch',
 	]
-	for (const subpath of samples) {
-		const moduleNamespace = await importExport(subpath)
-		assert.equal(typeof moduleNamespace, 'object', subpath)
-	}
+	for (const subpath of samples)
+		assert.equal(typeof await importExport(subpath), 'object', subpath)
 })

@@ -41,7 +41,7 @@ export function activeLinkRoster() {
  *   roomId: string
  *   roomSecret: string
  *   room: object | null
- *   sendToPeer: (peerId: string, actionName: string, payload: unknown) => void
+ *   sendToPeer: (peerId: string, actionName: string, payload: unknown) => Promise<boolean>
  *   getRoster: () => Array<{ peerId: string, remoteNodeHash: string | undefined }>
  *   getPeerIdByNodeHash: (nodeHash: string) => string | null
  * }} UserRoomSlot
@@ -65,7 +65,7 @@ registerFederationRoomProvider('user-room', () => {
 		 * @param {string} peerId - 目标 peer
 		 * @param {string} actionName - node scope action 名
 		 * @param {unknown} payload - 载荷
-		 * @returns {void}
+		 * @returns {Promise<boolean>} 是否发出
 		 */
 		sendToPeer: (peerId, actionName, payload) => slot.sendToPeer(peerId, actionName, payload),
 	}]
@@ -116,10 +116,10 @@ export async function ensureUserRoom(options = {}) {
 			 * @param {string} peerId - 目标 peer
 			 * @param {string} actionName - node scope action 名
 			 * @param {unknown} payload - 载荷
-			 * @returns {void}
+			 * @returns {Promise<boolean>} 是否发出
 			 */
 			sendToPeer(peerId, actionName, payload) {
-				void sendToNodeLink(peerId, { scope: 'node', action: actionName, payload }).catch(() => { })
+				return sendToNodeLink(peerId, { scope: 'node', action: actionName, payload }).catch(() => false)
 			},
 			/**
 			 * @returns {Array<{ peerId: string, remoteNodeHash: string }>} 当前活跃链路 roster
@@ -154,16 +154,14 @@ export async function ensureUserRoom(options = {}) {
  */
 export async function deliverToUserRoomPeers(username, actionName, payload, exceptPeerId = null, limit) {
 	const fanoutLimit = limit ?? USER_ROOM_PEER_FANOUT_DEFAULT
+	if (fanoutLimit <= 0) return 0
+	const slot = await ensureUserRoom({ replicaUsername: username })
 	let sent = 0
-	const peers = shuffleInPlace(activeLinkRoster()
+	const peers = shuffleInPlace(slot.getRoster()
 		.filter(({ peerId }) => peerId && peerId !== exceptPeerId))
 	for (const { peerId } of peers)
 		try {
-			if (await sendToNodeLink(peerId, {
-				scope: 'node',
-				action: actionName,
-				payload: { ...payload, nodeHash: getNodeHash() },
-			}))
+			if (await slot.sendToPeer(peerId, actionName, { ...payload, nodeHash: getNodeHash() }))
 				sent++
 			if (sent >= fanoutLimit) break
 		}
