@@ -53,7 +53,7 @@ async function ensureManifestPartsLocal(username, manifest, options = {}) {
 /**
  * @param {string} ownerEntityHash 所有者
  * @param {string} logicalPath 路径
- * @returns {Promise<import('./manifest/normalize.mjs').FileManifest | null>} 归一化 manifest
+ * @returns {Promise<import('./manifest/normalize.mjs').FileManifest | null>} 本机已写盘的 manifest
  */
 export async function loadFileManifest(ownerEntityHash, logicalPath) {
 	return getEntityStore().readManifest(ownerEntityHash, logicalPath)
@@ -222,7 +222,7 @@ export async function putFileManifestFromStream(parameters) {
  * @returns {Promise<Buffer | null>} 明文或 null
  */
 export async function readPublicFile(replicaUsername, entityHash, logicalPath, options = {}) {
-	const { fetchPublicManifest } = await import('./manifest_fetch.mjs')
+	const { fetchPublicManifest } = await import('./manifest/fetch.mjs')
 	const manifest = await fetchPublicManifest({
 		username: options.username || replicaUsername,
 		ownerEntityHash: entityHash,
