@@ -190,6 +190,60 @@ test('collectPartInvokeResponses finishes immediately when fanout sends zero', a
 	}
 })
 
+test('collectPartInvokeResponses respects timeoutMs even when fanout hangs', async () => {
+	const nodeDir = await createTemporaryNodeDirectory()
+	resetNodeForTests()
+	clearTrustGraphProvider()
+	initNode({ nodeDir })
+	attachPartWire({ replicaUsername: 'alice' }, createMemoryWire().wire)
+
+	registerTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER, {
+		/**
+		 * @returns {Promise<Map<string, never>>} 空信任图
+		 */
+		async buildMergedGraph() { return new Map() },
+		/**
+		 * @returns {Promise<never[]>} 无节点
+		 */
+		pickTopNodes() { return [] },
+		/**
+		 * @returns {Promise<boolean>} 发送结果
+		 */
+		async sendToNode() { return false },
+		/**
+		 * @returns {Promise<number>} 永不 settle（模拟 discoverRoute / stuck send）
+		 */
+		async fanoutToTopNodes() {
+			await new Promise(() => { /* hang */ })
+			return 0
+		},
+	})
+
+	try {
+		const started = Date.now()
+		const collectPromise = collectPartInvokeResponses(
+			'alice',
+			'shells/social',
+			{ kind: 'list_available_emoji_packs' },
+			80,
+			2,
+		)
+		// 外层哨兵：bug 复现时 collect 永不 settle，不能直接 await
+		const outcome = await Promise.race([
+			collectPromise.then(replies => ({ kind: 'settled', replies, elapsed: Date.now() - started })),
+			new Promise(resolve => setTimeout(() => resolve({ kind: 'hung' }), 500)),
+		])
+		assertEquals(outcome.kind, 'settled')
+		assertEquals(outcome.replies, [])
+		assert.ok(outcome.elapsed < 500, `expected end-to-end bound by timeoutMs, took ${outcome.elapsed}ms`)
+	}
+	finally {
+		clearTrustGraphProvider()
+		resetNodeForTests()
+		await rm(nodeDir, { recursive: true, force: true })
+	}
+})
+
 test('partInvokeDataRows / partInvokeErrorMessages split result and error', () => {
 	const rows = partInvokeDataRows([
 		{ result: { ok: 1 } },

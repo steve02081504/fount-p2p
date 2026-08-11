@@ -8,7 +8,7 @@ Day-to-day trust rules: [AGENTS.md](../AGENTS.md). Node-scope presets: [infra.md
 |---|---|---|
 | Timeline / chunk exploration | `fanoutToTopNodes` | TrustGraph-ranked fanout |
 | Mailbox / targeted packets | `sendToNode` / User Room | Never fanout |
-| part_invoke RPC collect | `wire/part/fanout.collectPartInvokeResponses` | Requires `attachPartWire` already |
+| part_invoke RPC collect | `wire/part/fanout.collectPartInvokeResponses` | Requires `attachPartWire` already; `timeoutMs` bounds end-to-end (fanout is not awaited) |
 | Group-room part | `wire/part/group.attachGroupPartWire` | Group federation frames |
 | TrustGraph / group Trystero chunk | `files/chunk/responder.attachTrustGraphFedChunkResponder` | Chunk responder on trust/group path |
 

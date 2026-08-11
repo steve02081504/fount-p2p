@@ -52,6 +52,7 @@ Deno / native / BT details: [runtime.md](docs/runtime.md).
 - **Untrusted ingress only:** discovery adverts/signals, link/overlay envelopes, group federation frames, `remoteIngest`, `part_timeline_*` / `part_invoke`, `part_query_*`, public manifest (`fed_manifest_data`). Validate / `canonicalize*` / `verifySignedPublicManifest` **only** here.
 - **Trusted after disk:** from `events.jsonl`, only `stripDagEventLocalExtensions` — no re-canonicalization upstream.
 - **Fanout vs targeted:** timeline/chunk exploration → `fanoutToTopNodes`; Mailbox / targeted packets → `sendToNode` / User Room, never fanout. Wire attach inventory: [wire.md](docs/wire.md).
+- **Timed collect:** APIs with `timeoutMs` (e.g. `collectPartInvokeResponses`) must register the wait first and must not `await` fanout/send on the return path — otherwise a stuck `discoverRoute` / `link.send` defeats the timeout (#13). Pattern: `beginFedFanoutFetch` / fire-and-forget fanout + `sent === 0 → finish()`.
 - **Channel encryption:** per-channel `K_ch`, scheme `channel-key` (`CHANNEL_KEY_SCHEME`); decrypted payloads are untrusted outside DAG Ed25519 context.
 - **Denylist vs personal lists:** node `denylist.json` vs per-entity `personal_block.json` / `personal_hide.json`.
 - **Manifest ACL / transfer owner:** shells register matchers; core does not hard-code chat/social types.

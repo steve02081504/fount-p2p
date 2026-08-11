@@ -285,7 +285,6 @@ export async function processIncomingPartQueryRequest(wireContext, wire, request
 
 	const selfHash = nodeHashOf()
 	const exclude = new Set([selfHash, request.originNodeHash, String(peerId || '').trim().toLowerCase()].filter(Boolean))
-	const neighbors = username ? await selectQueryNeighbors(username, exclude, dependencies) : []
 	const forwardPayload = { ...request, ttl: nextTtl }
 
 	/** @type {RelayPending} */
@@ -304,18 +303,25 @@ export async function processIncomingPartQueryRequest(wireContext, wire, request
 		state,
 	}
 	state.relayPending.set(request.requestId, pending)
-
-	let sent = 0
-	for (const target of neighbors)
-		if (await deliverQuery(target, 'part_query_req', forwardPayload, dependencies)) sent++
-	pending.expected = sent
-
-	if (sent === 0 || pending.received >= pending.expected) {
-		flushRelayPending(pending)
-		return
-	}
-
+	// 先挂 hop 超时：勿等 select/deliver settle，否则 stuck send 永不 flush upstream（#13 同类）
 	pending.timer = setTimeout(() => flushRelayPending(pending), resolvePartQueryHopTimeoutMs(request.ttl))
+
+	void (async () => {
+		try {
+			const neighbors = username ? await selectQueryNeighbors(username, exclude, dependencies) : []
+			if (pending.flushed) return
+			let sent = 0
+			for (const target of neighbors)
+				if (await deliverQuery(target, 'part_query_req', forwardPayload, dependencies)) sent++
+			if (pending.flushed) return
+			pending.expected = sent
+			if (sent === 0 || pending.received >= pending.expected)
+				flushRelayPending(pending)
+		}
+		catch {
+			if (!pending.flushed) flushRelayPending(pending)
+		}
+	})()
 }
 
 /**
@@ -353,6 +359,7 @@ export function handleIncomingPartQueryResponse(response, peerId = '', dependenc
 
 /**
  * 多跳查询：本地 handler + 网络回流（反向路径聚合）；本地缓存命中则不广播。
+ * `timeoutMs` 端到端约束：select/deliver 挂起也不阻塞返回。
  * @param {string} username trust graph 上下文
  * @param {string} partpath part 路径
  * @param {string} kind 查询标签
@@ -420,14 +427,20 @@ export async function queryNetwork(username, partpath, kind, query, options = {}
 
 	const selfHash = nodeHashOf()
 	const exclude = new Set([selfHash, parsed.originNodeHash])
-	const neighbors = await selectQueryNeighbors(username, exclude, options)
-	let sent = 0
-	for (const target of neighbors)
-		if (await deliverQuery(target, 'part_query_req', parsed, options)) sent++
-	bag.expected = sent
+	// 勿 await select/deliver：否则 timeout 已触发也要等扇出 settle（#13）
+	void (async () => {
+		try {
+			const neighbors = await selectQueryNeighbors(username, exclude, options)
+			let sent = 0
+			for (const target of neighbors)
+				if (await deliverQuery(target, 'part_query_req', parsed, options)) sent++
+			bag.expected = sent
+			if (sent === 0 || bag.received >= bag.expected)
+				finishMultiWireWaiters(state.originWaits, parsed.requestId, '')
+		}
+		catch { /* pending wait 超时负责 settle */ }
+	})()
 
-	if (sent === 0 || bag.received >= bag.expected)
-		finishMultiWireWaiters(state.originWaits, parsed.requestId, '')
 	await waitPromise
 	state.originBags.delete(parsed.requestId)
 

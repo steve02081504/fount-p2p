@@ -416,3 +416,42 @@ test('empty queryNetwork miss is not sticky when neighbors appear later', async 
 	assertEquals(hit.map(r => r.id), ['b-late'])
 	assertEquals((forwardCounts.get(NODE_A) || 0) >= 1, true)
 })
+
+test('queryNetwork respects timeoutMs even when deliver hangs', async () => {
+	resetPartQueryStateForTests()
+	const state = createPartQueryNodeState({ cache: createPartQueryCache({ ttlMs: 60_000 }) })
+	registerQueryInboundHandler('shells/social', 'entity_search', () => [{ id: 'a-local' }], state)
+
+	const queryPromise = queryNetwork('alice', 'shells/social', 'entity_search', { q: 'hang' }, {
+		state,
+		/**
+		 * @returns {string} 本节点
+		 */
+		getNodeHash: () => NODE_A,
+		/**
+		 * @returns {Promise<string[]>} 邻居
+		 */
+		selectNeighbors: async () => [NODE_B],
+		/**
+		 * @returns {Promise<boolean>} 永不 settle
+		 */
+		deliver: async () => {
+			await new Promise(() => { /* hang */ })
+			return false
+		},
+		ttl: 1,
+		timeoutMs: 80,
+		/**
+		 * @param {{ id: string }} row 行
+		 * @returns {string} 去重键
+		 */
+		rowKey: row => row.id,
+	})
+
+	const outcome = await Promise.race([
+		queryPromise.then(rows => ({ kind: 'settled', rows })),
+		new Promise(resolve => setTimeout(() => resolve({ kind: 'hung' }), 500)),
+	])
+	assertEquals(outcome.kind, 'settled')
+	assertEquals(outcome.rows.map(r => r.id), ['a-local'])
+})

@@ -61,10 +61,11 @@ export function partInvokeErrorMessages(results) {
 /**
  * 向 trust-graph top-K 扇出 part_invoke，收集 part_invoke_response。
  * 调用方须已挂载 `attachPartWire`（否则收不到 response）。
+ * `timeoutMs` 端到端约束：fanout 挂起（discoverRoute / stuck send）也不阻塞返回。
  * @param {string} username trust graph 上下文
  * @param {string} partpath part 路径
  * @param {PartInvoke} invoke 调用体
- * @param {number} [timeoutMs=2500] 超时
+ * @param {number} [timeoutMs=2500] 端到端超时
  * @param {number} [maxResponses=6] 最多响应数
  * @returns {Promise<PartInvokeResponse[]>} 邻居 PartInvokeResponse（含 error）
  */
@@ -85,15 +86,16 @@ export async function collectPartInvokeResponses(username, partpath, invoke, tim
 		pendingPartInvoke.set(requestId, { responses, finish, maxResponses, respondedPeers: new Set() })
 	})
 
-	const sent = await requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER).fanoutToTopNodes(
+	// 勿 await fanout：否则 timeout 已触发也要等扇出 settle（#13）
+	void requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER).fanoutToTopNodes(
 		username,
 		'part_invoke',
 		buildPartInvokePayload(partpath, invoke, nodeHash, requestId),
 		maxResponses,
-	)
-
-	const pending = pendingPartInvoke.get(requestId)
-	if (pending && sent === 0) pending.finish()
+	).then(sent => {
+		const pending = pendingPartInvoke.get(requestId)
+		if (pending && sent === 0) pending.finish()
+	}, () => { /* pending wait 超时负责 settle */ })
 
 	return waitForResponses
 }
