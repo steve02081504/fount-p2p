@@ -4,15 +4,15 @@ Internal WebRTC (`needsOfferAnswer`) glare and handshake. Shells use the fount-n
 
 ## Glare: connId dual-PC pick-one
 
-`node-datachannel` has no perfect-negotiation/rollback; simultaneous dials on one PC collide. The pure-JS fallback (`node-rtc-connection`) is the same: one PC cannot safely host two glare dials. Resolution in `transport/offer_answer.mjs`: both sides dial with a random `connId`; on true glare each side builds an independent answer PC, then **keeps the link initiated by the smaller `nodeHash`** (`linkIsPreferred`). Only the canonical link fires `linkUp` / `linkDown`.
+`node-datachannel` / `node-rtc-connection` cannot safely host two simultaneous glare dials on one PC. Resolution in `transport/offer_answer.mjs`: both sides dial with a random `connId`; on true glare each side builds an independent answer PC, then **keeps the link initiated by the smaller `nodeHash`** (`linkIsPreferred`). Only the canonical link fires `linkUp` / `linkDown`.
 
-- Outbound: `ensureDirectLinkToNode` → `dialOfferAnswer` → `createConnSession` + provider `dial`.
+- Outbound: `ensureDirectLinkToNode` → `dialOfferAnswer`.
 - Inbound offer with unknown `connId`: new answer PC via `accept` — **not** gated by per-`nodeHash` inflights.
-- One-way dial never builds a second PC. Regression: `test/live/link_glare_two_pc.test.mjs`.
+- One-way dial never builds a second PC.
 
 ## Handshake: buffer early `auth`
 
-Frames: `hello` then `auth`. On simultaneous dial, peer `auth` can arrive before peer `hello` — buffer it (`pendingAuth` in `link/pipe.mjs`); never drop. Regression: `test/pure/link_handshake_reorder.test.mjs`.
+Frames: `hello` then `auth`. On simultaneous dial, peer `auth` can arrive before peer `hello` — buffer it (`pendingAuth` in `link/pipe.mjs`); never drop.
 
 ## Windows / `trickleIceOff`
 

@@ -23,7 +23,7 @@ Day-to-day package rules: [AGENTS.md](../AGENTS.md). Implementation: `files/` (`
 | Default options | No cache write |
 | Local hit with `publicSig` | Return immediately; fanout revalidates in the background. With `cache: true`, write only when remote `publishedAt` is newer |
 | Cold miss | Await fanout |
-| Same key in flight | Deduped via `utils/inflight_table` (reuse + touch-to-tail; when over cap, cancel the aged front only if past `baseTimeoutMs`) |
+| Same key in flight | Deduped via `utils/inflight_table` |
 
 Outer caller timeouts must **not** abort the in-flight work — background fill continues after the caller gives up.
 
