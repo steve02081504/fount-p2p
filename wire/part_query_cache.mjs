@@ -71,13 +71,14 @@ export function createPartQueryCache(options = {}) {
 		 * @param {string} partpath part 路径
 		 * @param {string} kind 查询标签
 		 * @param {unknown} query 查询体
-		 * @param {unknown[]} rows 聚合 rows
+		 * @param {unknown[]} rows 聚合 rows（空数组不入库）
 		 * @param {number} [now=Date.now()] 当前时间
 		 * @returns {void}
 		 */
 		set(partpath, kind, query, rows, now = Date.now()) {
 			const key = partQueryCacheKey(partpath, kind, query)
-			if (!key || !rows) return
+			// 空 miss 不缓存：mesh 晚就绪 / 超时早查询不应被长 TTL 负缓存粘住（#10）
+			if (!key || !Array.isArray(rows) || rows.length === 0) return
 			sweep(now)
 			map.touch(key, {
 				rows: rows.slice(0, maxHits),
