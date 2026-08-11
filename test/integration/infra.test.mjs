@@ -44,14 +44,14 @@ import {
 	resetLinkRegistryForTests,
 } from '../../transport/link_registry.mjs'
 import {
+	attachNodeScopeDefaultFeatures,
 	attachNodeScopeMailbox,
 	attachNodeScopePart,
-	attachUserRoomDefaultWires,
 	countNodeScopeActionHandlers,
 	dispatchNodeScopeAction,
 	hasNodeScopeAction,
 	stopNodeScopeRuntime,
-} from '../../transport/node_scope.mjs'
+} from '../../transport/node_scope/index.mjs'
 
 const HASH_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const HASH_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
@@ -289,7 +289,7 @@ test('infra + default wires share one mailbox handler; stopInfra keeps user mail
 		initNode({ nodeDir })
 		await startInfra({ logger: null })
 		assert.equal(countNodeScopeActionHandlers('mailbox_put'), 1)
-		const disposeDefaults = attachUserRoomDefaultWires({ replicaUsername: 'alice' })
+		const disposeDefaults = attachNodeScopeDefaultFeatures({ replicaUsername: 'alice' })
 		assert.equal(countNodeScopeActionHandlers('mailbox_put'), 1)
 		assert.equal(hasNodeScopeAction('part_timeline_put'), true)
 		await stopInfra()

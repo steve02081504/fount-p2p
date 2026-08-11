@@ -6,9 +6,9 @@ import { shuffleInPlace } from '../utils/shuffle.mjs'
 
 import { getLinkRegistry, listLinks, sendToNodeLink } from './link_registry.mjs'
 import {
-	attachUserRoomDefaultWires,
+	attachNodeScopeDefaultFeatures,
 	ensureNodeScope,
-} from './node_scope.mjs'
+} from './node_scope/index.mjs'
 import { USER_ROOM_SCOPE } from './room_scopes.mjs'
 
 /** User Room 随机 peer 转发默认上限 */
@@ -88,7 +88,7 @@ export function resolveUserRoomCredentials() {
 }
 
 /**
- * 用户房间槽 + runtime；默认不挂业务 wire（用 `attachUserRoomDefaultWires` / `attachDefaultWires: true`）。
+ * 用户房间槽 + runtime；默认不挂业务 wire（用 `attachNodeScopeDefaultFeatures` / `attachDefaultWires: true`）。
  * @param {{ replicaUsername?: string, attachDefaultWires?: boolean }} [options] - 副本用户名与是否挂载默认 wire
  * @returns {Promise<UserRoomSlot>} 用户房间槽
  */
@@ -98,7 +98,7 @@ export async function ensureUserRoom(options = {}) {
 		ensureNodeScope({ replicaUsername: options.replicaUsername })
 	if (userRoomSlot) {
 		if (attachDefaultWires && !userRoomDefaultWiresDispose)
-			userRoomDefaultWiresDispose = attachUserRoomDefaultWires({ replicaUsername: options.replicaUsername })
+			userRoomDefaultWiresDispose = attachNodeScopeDefaultFeatures({ replicaUsername: options.replicaUsername })
 		return userRoomSlot
 	}
 	if (userRoomInflight) return await userRoomInflight
@@ -108,7 +108,7 @@ export async function ensureUserRoom(options = {}) {
 		await getLinkRegistry().ensureRuntime()
 		ensureNodeScope({ replicaUsername: options.replicaUsername })
 		if (attachDefaultWires && !userRoomDefaultWiresDispose)
-			userRoomDefaultWiresDispose = attachUserRoomDefaultWires({ replicaUsername: options.replicaUsername })
+			userRoomDefaultWiresDispose = attachNodeScopeDefaultFeatures({ replicaUsername: options.replicaUsername })
 		const creds = resolveUserRoomCredentials()
 		userRoomSlot = {
 			roomId: creds.roomId,

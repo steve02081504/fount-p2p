@@ -42,9 +42,9 @@ import {
 	sendToNodeLink,
 } from './transport/link_registry.mjs'
 import {
-	attachUserRoomDefaultWires,
+	attachNodeScopeDefaultFeatures,
 	ensureNodeScope,
-} from './transport/node_scope.mjs'
+} from './transport/node_scope/index.mjs'
 import { createScopedLinkRoom } from './transport/scoped_link.mjs'
 import {
 	ensureUserRoom,
@@ -56,7 +56,7 @@ import {
  */
 export {
 	attachReputationSyncWire,
-	attachUserRoomDefaultWires,
+	attachNodeScopeDefaultFeatures,
 	configureLinkRegistry,
 	createGroupLinkSet,
 	createScopedLinkRoom,

@@ -53,6 +53,8 @@ test('package exports resolve to loadable modules', async () => {
 		'./wire/part/ingress',
 		'./wire/part/query',
 		'./wire/part/invoke',
+		'./wire/part/fanout',
+		'./wire/part/pending',
 		'./files/chunk/store',
 		'./files/manifest/normalize',
 		'./files/fed/responder',

@@ -14,13 +14,13 @@ Call after `initNode`. CLI: `npx @steve02081504/fount-p2p`.
 
 ## Node-scope attaches
 
-Composable attaches in `transport/node_scope.mjs`:
+Composable attaches in `transport/node_scope/`:
 
 - `ensureNodeScope`
 - `attachNodeScopeMailbox` / `Part` / `PartQuery` / `Chunks`
-- `attachUserRoomDefaultWires`
+- `attachNodeScopeDefaultFeatures`
 
-Each attach returns `dispose` and is **refcount-shared** (infra + default wires can both hold mailbox without double handlers).
+Each attach returns `dispose` and is **refcount-shared** (infra + default features can both hold mailbox without double handlers).
 
 - `ensureUserRoom` is **slot + runtime only** (default `attachDefaultWires: false`).
-- Full preset: `attachUserRoomDefaultWires()` or `ensureUserRoom({ attachDefaultWires: true })`.
+- Full preset: `attachNodeScopeDefaultFeatures()` or `ensureUserRoom({ attachDefaultWires: true })`.

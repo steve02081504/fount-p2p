@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto'
 
 import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
 import { sendToNodeLink } from '../transport/link_registry.mjs'
-import { attachNodeScopeFeature, ensureNodeScope, getNodeScopeWire } from '../transport/node_scope.mjs'
+import { attachNodeScopeFeature, ensureNodeScope, getNodeScopeWire } from '../transport/node_scope/index.mjs'
+import { subscribeWire } from '../wire/subscribe.mjs'
 
 import {
 	loadReputation,
@@ -226,34 +227,28 @@ function exportScoreTable() {
 export function attachReputationSyncWire() {
 	ensureNodeScope()
 	if (!getNodeScopeWire()) throw new Error('p2p: attachReputationSyncWire requires node scope wire')
-	const dispose = attachNodeScopeFeature('rep_sync', wire => {
-		const offs = [
-			wire.on('rep_sync_req', (payload, peerId) => {
-				const requester = normalizeHex64(peerId)
-				if (!requester || !getReputationExportAllowlist().includes(requester)) return
-				try {
-					wire.send('rep_sync_res', {
-						requestId: payload?.requestId,
-						...exportScoreTable(),
-					}, peerId)
-				}
-				catch { /* disconnected */ }
-			}),
-			wire.on('rep_sync_res', (payload, peerId) => {
-				const requestId = String(payload?.requestId || '')
-				const pending = pendingPulls.get(requestId)
-				if (!pending) return
-				if (normalizeHex64(peerId) !== pending.donor) return
-				clearTimeout(pending.timer)
-				pendingPulls.delete(requestId)
-				pending.resolve(payload)
-			}),
-		]
-		return () => {
-			for (const off of offs)
-				try { off?.() } catch { /* ignore */ }
-		}
-	})
+	const dispose = attachNodeScopeFeature('rep_sync', wire => subscribeWire(wire, {
+		rep_sync_req(payload, peerId) {
+			const requester = normalizeHex64(peerId)
+			if (!requester || !getReputationExportAllowlist().includes(requester)) return
+			try {
+				wire.send('rep_sync_res', {
+					requestId: payload?.requestId,
+					...exportScoreTable(),
+				}, peerId)
+			}
+			catch { /* disconnected */ }
+		},
+		rep_sync_res(payload, peerId) {
+			const requestId = String(payload?.requestId || '')
+			const pending = pendingPulls.get(requestId)
+			if (!pending) return
+			if (normalizeHex64(peerId) !== pending.donor) return
+			clearTimeout(pending.timer)
+			pendingPulls.delete(requestId)
+			pending.resolve(payload)
+		},
+	}))
 	syncWireDisposers.add(dispose)
 	return () => {
 		if (!syncWireDisposers.delete(dispose)) return

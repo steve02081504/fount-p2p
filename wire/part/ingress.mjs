@@ -1,29 +1,19 @@
 import { isPlainObject } from '../../core/object.mjs'
 import { parsePartpath } from '../../core/partpath.mjs'
 import { dispatchDeliveryInbound, dispatchRpcInbound } from '../../registries/inbound.mjs'
+import { subscribeWire } from '../subscribe.mjs'
 
-import { buildPartInvokePayload } from './common.mjs'
 import {
 	isPartInvoke,
 	isPartInvokeResponse,
 	unwrapPartInvokeResult,
 } from './invoke.mjs'
+import { handleIncomingPartInvokeResponse } from './pending.mjs'
 
+/** @typedef {import('../../wire/adapter.mjs').WireAdapter} WireAdapter */
+/** @typedef {import('../../wire/adapter.mjs').WireContext} PartWireContext */
 /** @typedef {import('./invoke.mjs').PartInvokeResponse} PartInvokeResponse */
-
-/** @type {Map<string, { responses: PartInvokeResponse[], finish: () => void, maxResponses: number, respondedPeers: Set<string> }>} */
-export const pendingPartInvoke = new Map()
-
-/**
- * @typedef {{
- *   send: (name: string, payload: unknown, peerId: string | null) => void
- *   on: (name: string, handler: (payload: unknown, peerId: string) => void) => (() => void) | void
- * }} PartWireAdapter
- */
-
-/**
- * @typedef {{ replicaUsername?: string }} PartWireContext
- */
+/** @typedef {import('./invoke.mjs').PartInvoke} PartInvoke */
 
 /**
  * @param {object} data 入站 part_timeline_put 载荷
@@ -40,6 +30,22 @@ function parsePartTimelinePut(data, partpath) {
 		event: data.event,
 		...data.nodeHash ? { nodeHash: String(data.nodeHash).trim() } : {},
 		...data.groupId ? { groupId: String(data.groupId).trim() } : {},
+	}
+}
+
+/**
+ * @param {string} partpath part 路径
+ * @param {PartInvoke} invoke 调用体
+ * @param {string} [nodeHash] 来源节点
+ * @param {string} [groupId] 群上下文
+ * @returns {object} part_invoke 线载荷
+ */
+function buildPartInvokePayload(partpath, invoke, nodeHash, groupId) {
+	return {
+		partpath,
+		invoke,
+		...nodeHash ? { nodeHash } : {},
+		...groupId ? { groupId } : {},
 	}
 }
 
@@ -70,13 +76,13 @@ async function dispatchPartInvoke(wireContext, payload) {
 /**
  * 挂载 part_timeline_put / part_invoke / part_invoke_response。
  * @param {PartWireContext} wireContext 入站上下文
- * @param {PartWireAdapter} wire Trystero 适配器
+ * @param {WireAdapter} wire action 表
  * @param {{ allowPartInvoke?: (payload: object) => boolean }} [options] 入站过滤
  * @returns {() => void} 取消挂载的 dispose
  */
 export function attachPartWire(wireContext, wire, options = {}) {
-	const offs = [
-		wire.on('part_timeline_put', data => {
+	return subscribeWire(wire, {
+		part_timeline_put(data) {
 			if (!isPlainObject(data)) return
 			const partpath = parsePartpath(data.partpath)
 			if (!partpath) return
@@ -86,8 +92,8 @@ export function attachPartWire(wireContext, wire, options = {}) {
 				replicaUsername: wireContext.replicaUsername,
 				requesterNodeHash: data.nodeHash ? String(data.nodeHash).trim() : null,
 			}, message)
-		}),
-		wire.on('part_invoke', (data, peerId) => {
+		},
+		part_invoke(data, peerId) {
 			if (!isPlainObject(data)) return
 			if (options.allowPartInvoke?.(data) === false) return
 			const payload = { ...data, peerId }
@@ -95,22 +101,18 @@ export function attachPartWire(wireContext, wire, options = {}) {
 				void handleIncomingPartInvokeRequest(wireContext, payload, wire, peerId)
 			else
 				void handleIncomingPartInvokeFireAndForget(wireContext, payload, wire, peerId)
-		}),
-		wire.on('part_invoke_response', (data, peerId) => {
+		},
+		part_invoke_response(data, peerId) {
 			if (!isPlainObject(data)) return
 			handleIncomingPartInvokeResponse(data, peerId)
-		}),
-	]
-	return () => {
-		for (const off of offs)
-			try { off?.() } catch { /* ignore */ }
-	}
+		},
+	})
 }
 
 /**
  * @param {PartWireContext} wireContext 入站上下文
  * @param {object} payload part_invoke 请求（含 requestId）
- * @param {PartWireAdapter} wire 发送适配器
+ * @param {WireAdapter} wire 发送适配器
  * @param {string} peerId 对端
  * @returns {Promise<void>}
  */
@@ -134,7 +136,7 @@ export async function handleIncomingPartInvokeRequest(wireContext, payload, wire
 /**
  * @param {PartWireContext} wireContext 入站上下文
  * @param {object} payload part_invoke 请求（无 requestId）
- * @param {PartWireAdapter} wire 发送适配器
+ * @param {WireAdapter} wire 发送适配器
  * @param {string} peerId 对端
  * @returns {Promise<void>}
  */
@@ -146,28 +148,7 @@ export async function handleIncomingPartInvokeFireAndForget(wireContext, payload
 	const followUp = unwrapPartInvokeResult(response)
 	if (!isPartInvoke(followUp)) return
 	try {
-		wire.send('part_invoke', buildPartInvokePayload({
-			partpath,
-			invoke: followUp,
-			nodeHash: payload.nodeHash,
-			groupId: payload.groupId,
-		}), peerId)
+		wire.send('part_invoke', buildPartInvokePayload(partpath, followUp, payload.nodeHash, payload.groupId), peerId)
 	}
 	catch { /* disconnected */ }
-}
-
-/**
- * @param {object} payload 响应
- * @param {string} [peerId] Trystero 对端 id，用于同 peer 去重
- * @returns {void}
- */
-export function handleIncomingPartInvokeResponse(payload, peerId = '') {
-	const pending = pendingPartInvoke.get(payload.requestId)
-	if (!pending || !isPartInvokeResponse(payload.response)) return
-	if (peerId) {
-		if (pending.respondedPeers.has(peerId)) return
-		pending.respondedPeers.add(peerId)
-	}
-	pending.responses.push(payload.response)
-	if (pending.responses.length >= pending.maxResponses) pending.finish()
 }

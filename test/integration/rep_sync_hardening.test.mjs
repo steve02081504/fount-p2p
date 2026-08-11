@@ -20,7 +20,7 @@ import {
 	dispatchNodeScopeAction,
 	hasNodeScopeAction,
 	stopNodeScopeRuntime,
-} from '../../transport/node_scope.mjs'
+} from '../../transport/node_scope/index.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
 
 const HASH_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'

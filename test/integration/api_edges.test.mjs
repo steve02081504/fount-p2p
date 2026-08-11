@@ -38,7 +38,7 @@ import {
 	getNodeScopeContext,
 	hasNodeScopeAction,
 	stopNodeScopeRuntime,
-} from '../../transport/node_scope.mjs'
+} from '../../transport/node_scope/index.mjs'
 import { ensureUserRoom } from '../../transport/user_room.mjs'
 
 const HASH_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -178,7 +178,7 @@ test('rep_sync_req responds for allowlisted peer without writing caller table', 
 		await setReputationTable({ byNodeHash: { [HASH_A]: { score: 0.77 } } })
 		setReputationExportAllowlist([HASH_B])
 		attachReputationSyncWire()
-		const wire = (await import('../../transport/node_scope.mjs')).getNodeScopeWire()
+		const wire = (await import('../../transport/node_scope/index.mjs')).getNodeScopeWire()
 		/** @type {unknown} */
 		let sent = null
 		const original = wire.send

@@ -2,12 +2,12 @@ import { test } from 'node:test'
 
 import { createPartQueryCache } from '../../federation/part_query/cache.mjs'
 import {
+	attachPartQueryWire,
 	createPartQueryNodeState,
 	queryNetwork,
 	registerQueryInboundHandler,
 	resetPartQueryStateForTests,
-} from '../../federation/part_query/runtime.mjs'
-import { attachPartQueryWire } from '../../wire/part/query.mjs'
+} from '../../wire/part/query.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
 
 const NODE_A = 'aa'.repeat(32)

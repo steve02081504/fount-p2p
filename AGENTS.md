@@ -28,7 +28,7 @@ Safe browser imports: `…/core/logical_entity`, `…/crypto` (`crypto/crypto.mj
 
 ## Conventions
 
-- **Shared helpers:** `utils/shuffle`, `utils/emit_safe`, `utils/lru.createLruMap`, `utils/ttl_map.createTtlMap` (bounded; TTL maps take `maxSize`), `utils/inflight_table.createInflightTable` (same-key reuse + touch; EVFS fanout), `utils/fetch_wait.createFetchWaitTable` (bounded pending fetch slots), `utils/atomic_fs` (unique tmp + Windows rename retries; used by `utils/json_io` and `dag/storage`), `core/bytes_codec.toBytes`, `core/object.isPlainObject`, `core/partpath.parsePartpath` (inbound shape check only — no rewrite), `core/composite_key`, `link/providers/link_id_pipe`.
+- **Shared helpers:** `utils/shuffle`, `utils/emit_safe`, `utils/lru.createLruMap`, `utils/ttl_map.createTtlMap` (bounded; TTL maps take `maxSize`), `utils/inflight_table.createInflightTable` (same-key reuse + touch; EVFS fanout), `utils/fetch_wait.createFetchWaitTable` (bounded pending fetch slots), `utils/atomic_fs` (unique tmp + Windows rename retries; used by `utils/json_io` and `dag/storage`), `core/bytes_codec.toBytes`, `core/object.isPlainObject`, `core/partpath.parsePartpath` (inbound shape check only — no rewrite), `core/composite_key`, `link/providers/link_id_pipe`, `wire/subscribe.subscribeWire`, `wire/adapter` (`WireAdapter` / `WireContext`).
 - **Heterogeneous backends:** normalize at the load boundary (e.g. `link/rtc/w3c_bridge.mjs` EventEmitter → W3C); call sites speak one contract — no multi-API attach shims in providers / `channel_mux`.
 - **File naming:** parent directory is scope — short child names (`mailbox/store.mjs`, `wire/part/query.mjs`, `federation/part_query/runtime.mjs`). Tunables default `<dir>/tunables.json` (exception: `schemas/part_query.tunables.json`). Subpath `package.json` exports mirror filenames.
 - **Import boundary:** `test/integration/p2p_shell_import_guard.test.mjs`.
@@ -52,7 +52,7 @@ Safe browser imports: `…/core/logical_entity`, `…/crypto` (`crypto/crypto.mj
 
 - **Untrusted ingress only:** discovery adverts/signals, link/overlay envelopes, group federation frames, `remoteIngest`, `part_timeline_*` / `part_invoke`, `part_query_*`, public manifest (`fed_manifest_data`). Validate / `canonicalize*` / `verifySignedPublicManifest` **only** here.
 - **Trusted after disk:** from `events.jsonl`, only `stripDagEventLocalExtensions` — no re-canonicalization upstream.
-- **Fanout vs targeted:** timeline/chunk exploration → `fanoutToTopNodes`; Mailbox / targeted packets → `sendToNode` / User Room, never fanout.
+- **Fanout vs targeted:** timeline/chunk exploration → `fanoutToTopNodes`; Mailbox / targeted packets → `sendToNode` / User Room, never fanout. part_invoke RPC collect → `wire/part/fanout.collectPartInvokeResponses`（须已 `attachPartWire`）。
 - **Channel encryption:** per-channel `K_ch`, scheme `channel-key` (`CHANNEL_KEY_SCHEME`); decrypted payloads are untrusted outside DAG Ed25519 context.
 - **Denylist vs personal lists:** node `denylist.json` vs per-entity `personal_block.json` / `personal_hide.json`.
 - **Manifest ACL / transfer owner:** shells register matchers; core does not hard-code chat/social types.

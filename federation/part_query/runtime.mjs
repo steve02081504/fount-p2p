@@ -9,7 +9,6 @@ import {
 	parsePartQueryReq,
 } from '../../schemas/part_query.mjs'
 import partQueryTunables from '../../schemas/part_query.tunables.json' with { type: 'json' }
-import { sendToNodeLink } from '../../transport/link_registry.mjs'
 import { buildMergedGraph } from '../../trust_graph/build.mjs'
 import { pickTopFromGraph } from '../../trust_graph/engine.mjs'
 import { resolveFederationFanoutTopK } from '../../trust_graph/resolve.mjs'
@@ -22,11 +21,7 @@ import { createPartQueryCache, partQueryCache } from './cache.mjs'
 /** @typedef {import('../../schemas/part_query.mjs').PartQueryReq} PartQueryReq */
 /** @typedef {import('../../schemas/part_query.mjs').PartQueryRes} PartQueryRes */
 
-/**
- * @typedef {{
- *   send: (name: string, payload: unknown, peerId: string | null) => void
- * }} PartQueryWire
- */
+/** @typedef {import('../../wire/adapter.mjs').WireAdapter} PartQueryWire */
 
 /**
  * @typedef {{
@@ -212,8 +207,8 @@ async function selectQueryNeighbors(username, exclude, dependencies) {
  * @returns {Promise<boolean>} 是否发出
  */
 async function deliverQuery(nodeHash, action, payload, dependencies) {
-	if (dependencies.deliver) return Boolean(await dependencies.deliver(nodeHash, action, payload))
-	return sendToNodeLink(nodeHash, { scope: 'node', action, payload })
+	if (!dependencies.deliver) return false
+	return Boolean(await dependencies.deliver(nodeHash, action, payload))
 }
 
 /**
