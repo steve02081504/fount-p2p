@@ -1,8 +1,7 @@
-import { sha256Hex } from '../crypto/crypto.mjs'
-import { normalizePartQueryCacheMaterial } from '../schemas/part_query.mjs'
-import { createLruMap } from '../utils/lru.mjs'
-
-import partQueryTunables from './part_query.tunables.json' with { type: 'json' }
+import { sha256Hex } from '../../crypto/crypto.mjs'
+import { normalizePartQueryCacheMaterial } from '../../schemas/part_query.mjs'
+import partQueryTunables from '../../schemas/part_query.tunables.json' with { type: 'json' }
+import { createLruMap } from '../../utils/lru.mjs'
 
 /**
  * @typedef {{ rows: unknown[], storedAt: number }} PartQueryCacheEntry
@@ -77,7 +76,7 @@ export function createPartQueryCache(options = {}) {
 		 */
 		set(partpath, kind, query, rows, now = Date.now()) {
 			const key = partQueryCacheKey(partpath, kind, query)
-			// 空 miss 不缓存：mesh 晚就绪 / 超时早查询不应被长 TTL 负缓存粘住（#10）
+			// 空 miss 不缓存：mesh 晚就绪 / 超时早查询不应被长 TTL 负缓存粘住
 			if (!key || !Array.isArray(rows) || rows.length === 0) return
 			sweep(now)
 			map.touch(key, {

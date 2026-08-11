@@ -9,11 +9,6 @@ import { pipeline } from 'node:stream/promises'
 import { withAsyncMutex } from '../utils/async_mutex.mjs'
 import { atomicTemporaryPath, finalizeAtomicRename } from '../utils/atomic_fs.mjs'
 
-/**
- * 原子重命名 finalize（re-export）。
- */
-export { finalizeAtomicRename } from '../utils/atomic_fs.mjs'
-
 /** 流式重写 JSONL 时分块写入的行数上限 */
 const WRITE_JSONL_CHUNK_LINES = 1000
 

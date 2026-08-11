@@ -10,7 +10,7 @@ import {
 	wrapContentKey,
 } from '../crypto/key.mjs'
 
-import { normalizeFileManifest, publicTransferKeyDescriptor } from './manifest.mjs'
+import { normalizeFileManifest, publicTransferKeyDescriptor } from './manifest/normalize.mjs'
 
 /** @type {Record<string, (plain: Buffer) => { contentHash: string, ciphertextHash: string, raw: Buffer, contentKey?: Buffer }>} */
 const ENCRYPTION_STRATEGIES = {
@@ -35,8 +35,8 @@ const ENCRYPTION_STRATEGIES = {
 }
 
 /**
- * @typedef {import('./manifest.mjs').FileManifest} FileManifest
- * @typedef {import('./manifest.mjs').CeMode} CeMode
+ * @typedef {import('./manifest/normalize.mjs').FileManifest} FileManifest
+ * @typedef {import('./manifest/normalize.mjs').CeMode} CeMode
  */
 
 /**
@@ -154,7 +154,7 @@ export async function encryptPlaintextToMultiPartsAsync(plaintext, ceMode = 'con
  * @param {string} [parameters.name] 文件名
  * @param {string} [parameters.mimeType] MIME
  * @param {CeMode} [parameters.ceMode] 加密模式
- * @param {import('./manifest.mjs').TransferKeyDescriptor} [parameters.transferKeyDescriptor] 传递密钥
+ * @param {import('./manifest/normalize.mjs').TransferKeyDescriptor} [parameters.transferKeyDescriptor] 传递密钥
  * @param {object} [parameters.meta] 元数据
  * @returns {FileManifest} manifest（未写盘）
  */
@@ -224,7 +224,7 @@ export function buildFileManifestFromEnc(parameters, enc) {
  * @param {string} fileId 文件 ID
  * @param {Buffer} contentKey 随机密钥
  * @param {Buffer | string} H vault H
- * @returns {import('./manifest.mjs').TransferKeyDescriptor} 传输密钥描述
+ * @returns {import('./manifest/normalize.mjs').TransferKeyDescriptor} 传输密钥描述
  */
 export function vaultWrapDescriptor(entityHash, fileId, contentKey, H) {
 	return {

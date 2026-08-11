@@ -11,15 +11,8 @@ import {
 } from './node_scope.mjs'
 import { USER_ROOM_SCOPE } from './room_scopes.mjs'
 
-/**
- * 经 node scope 向对端发 action。
- * @param {string} peerId 对端 nodeHash
- * @param {string} action 动作名
- * @param {unknown} payload 载荷
- * @returns {Promise<boolean>} 是否发出
- */
-const sendNodeAction = (peerId, action, payload) =>
-	sendToNodeLink(peerId, { scope: 'node', action, payload })
+/** User Room 随机 peer 转发默认上限 */
+const USER_ROOM_PEER_FANOUT_DEFAULT = 6
 
 /** @type {Promise<UserRoomSlot> | null} */
 let userRoomInflight = null
@@ -128,7 +121,7 @@ export async function ensureUserRoom(options = {}) {
 			 * @returns {void}
 			 */
 			sendToPeer(peerId, actionName, payload) {
-				void sendNodeAction(peerId, actionName, payload).catch(() => { })
+				void sendToNodeLink(peerId, { scope: 'node', action: actionName, payload }).catch(() => { })
 			},
 			/**
 			 * @returns {Array<{ peerId: string, remoteNodeHash: string }>} 当前活跃链路 roster
@@ -162,8 +155,6 @@ export async function ensureUserRoom(options = {}) {
  * @returns {Promise<number>} 成功转发的 peer 数
  */
 export async function deliverToUserRoomPeers(username, actionName, payload, exceptPeerId = null, limit) {
-	void username
-	const { USER_ROOM_PEER_FANOUT_DEFAULT } = await import('../wire/part_common.mjs')
 	const fanoutLimit = limit ?? USER_ROOM_PEER_FANOUT_DEFAULT
 	const body = { ...payload, nodeHash: getNodeHash() }
 	let sent = 0
@@ -171,7 +162,7 @@ export async function deliverToUserRoomPeers(username, actionName, payload, exce
 		.filter(({ peerId }) => peerId && peerId !== exceptPeerId))
 	for (const { peerId } of peers)
 		try {
-			if (await sendNodeAction(peerId, actionName, body))
+			if (await sendToNodeLink(peerId, { scope: 'node', action: actionName, payload: body }))
 				sent++
 			if (sent >= fanoutLimit) break
 		}
@@ -179,6 +170,3 @@ export async function deliverToUserRoomPeers(username, actionName, payload, exce
 
 	return sent
 }
-
-/** 再导出：node-scope 订阅与默认 wires（见 `node_scope.mjs`）。 */
-export { attachUserRoomDefaultWires, ensureNodeScope } from './node_scope.mjs'

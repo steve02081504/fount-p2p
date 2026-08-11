@@ -6,7 +6,7 @@ alwaysApply: false
 
 # P2P Sim Harness Guide
 
-In-process co-evolution of **tunables** (`*.tunables.json`) against an **attack genome**, scored by `metrics.mjs`. Search proxy, **not** wire-protocol replay.
+In-process co-evolution of **tunables** (`*.tunables.json`) against an **attack genome**, scored by `metrics.mjs`. Search proxy — **not** wire-protocol replay.
 
 ## Fidelity boundary
 

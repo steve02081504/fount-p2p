@@ -8,13 +8,13 @@ import {
 	parsePartQueryReq,
 	parsePartQueryRes,
 } from '../../schemas/part_query.mjs'
+import { createPartQueryCache, partQueryCacheKey } from '../../federation/part_query/cache.mjs'
 import {
 	createPartQueryNodeState,
 	handleIncomingPartQueryResponse,
 	mergeQueryRows,
 	resolvePartQueryHopTimeoutMs,
-} from '../../wire/part_query.mjs'
-import { createPartQueryCache, partQueryCacheKey } from '../../wire/part_query_cache.mjs'
+} from '../../federation/part_query/runtime.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 
 const NODE_A = 'aa'.repeat(32)

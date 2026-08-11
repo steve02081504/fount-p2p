@@ -1,9 +1,9 @@
-import { attachNodeScopeFedChunkResponder } from '../files/chunk_responder.mjs'
+import { attachNodeScopeFedResponder } from '../files/fed/responder.mjs'
 import { attachMailboxWire } from '../mailbox/wire.mjs'
-import { attachPartWire } from '../wire/part_ingress.mjs'
-import { attachPartQueryWire } from '../wire/part_query.mjs'
+import { attachPartWire } from '../wire/part/ingress.mjs'
+import { attachPartQueryWire } from '../wire/part/query.mjs'
 
-import { sendToNodeLink, subscribeScope } from './link_registry.mjs'
+import { subscribeScope, sendToNodeLink } from './link_registry.mjs'
 
 /** @type {Map<string, Set<(payload: unknown, peerId: string) => void>>} */
 const nodeActionHandlers = new Map()
@@ -38,15 +38,6 @@ const featureAttachRefs = new Map()
  */
 
 /**
- * @param {string} peerId 对端 nodeHash
- * @param {string} action 动作名
- * @param {unknown} payload 载荷
- * @returns {Promise<boolean>} 是否成功发出
- */
-const sendNodeAction = (peerId, action, payload) =>
-	sendToNodeLink(peerId, { scope: 'node', action, payload })
-
-/**
  * @returns {NodeScopeWire} node scope 的 wire 适配器
  */
 function createNodeScopeWire() {
@@ -74,7 +65,7 @@ function createNodeScopeWire() {
 		 */
 		send(name, payload, peerId) {
 			if (!peerId) return
-			void sendNodeAction(peerId, name, payload).catch(() => { })
+			void sendToNodeLink(peerId, { scope: 'node', action: name, payload }).catch(() => { })
 		},
 	}
 }
@@ -250,7 +241,7 @@ export function attachNodeScopePartQuery(options = {}) {
 export function attachNodeScopeChunks(options = {}) {
 	ensureNodeScope(options)
 	return attachFeatureRefCounted('chunks', () =>
-		attachNodeScopeFedChunkResponder(() => nodeScopeContext.replicaUsername, nodeScopeWire))
+		attachNodeScopeFedResponder(nodeScopeWire))
 }
 
 /**

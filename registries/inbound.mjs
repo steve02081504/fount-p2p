@@ -1,4 +1,18 @@
-/** @typedef {import('../wire/part_invoke.mjs').PartInvokeResponse} PartInvokeResponse */
+/**
+ * @typedef {{ message: string, code: string }} PartInvokeError
+ */
+
+/**
+ * @typedef {object} PartInvokeResultResponse
+ * @property {unknown} result
+ */
+
+/**
+ * @typedef {object} PartInvokeErrorResponse
+ * @property {PartInvokeError} error
+ */
+
+/** @typedef {PartInvokeResultResponse | PartInvokeErrorResponse} PartInvokeResponse */
 
 /**
  * @typedef {{
@@ -29,7 +43,7 @@ const deliveryHandlers = new Map()
  * @returns {void}
  */
 export function registerRpcInboundHandler(type, handler) {
-	rpcHandlers.set(String(type || '').trim(), handler)
+	rpcHandlers.set(type, handler)
 }
 
 /**
@@ -38,7 +52,7 @@ export function registerRpcInboundHandler(type, handler) {
  * @returns {void}
  */
 export function registerDeliveryInboundHandler(type, handler) {
-	deliveryHandlers.set(String(type || '').trim(), handler)
+	deliveryHandlers.set(type, handler)
 }
 
 /**
@@ -47,9 +61,7 @@ export function registerDeliveryInboundHandler(type, handler) {
  * @returns {Promise<PartInvokeResponse | null>} 处理器返回值
  */
 export async function dispatchRpcInbound(inboundContext, message) {
-	const type = String(message?.type || '').trim()
-	if (!type) return null
-	const handler = rpcHandlers.get(type)
+	const handler = rpcHandlers.get(message.type)
 	if (!handler) return null
 	return handler(inboundContext, message)
 }
@@ -60,9 +72,7 @@ export async function dispatchRpcInbound(inboundContext, message) {
  * @returns {Promise<void>}
  */
 export async function dispatchDeliveryInbound(inboundContext, message) {
-	const type = String(message?.type || '').trim()
-	if (!type) return
-	const handler = deliveryHandlers.get(type)
+	const handler = deliveryHandlers.get(message.type)
 	if (!handler) return
 	await handler(inboundContext, message)
 }

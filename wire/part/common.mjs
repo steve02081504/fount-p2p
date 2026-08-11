@@ -1,16 +1,14 @@
-import { unwrapPartInvokeResult } from './part_invoke.mjs'
+import { unwrapPartInvokeResult } from './invoke.mjs'
 
 /** 时间线 part_timeline_put fanout 上限 */
 export const TIMELINE_FANOUT_LIMIT = 8
 /** part_invoke RPC collect 默认响应数 */
 export const PART_INVOKE_FANOUT_DEFAULT = 6
-/** User Room 随机 peer 转发默认上限 */
-export const USER_ROOM_PEER_FANOUT_DEFAULT = 6
 
 /**
  * @param {object} fields 载荷字段
  * @param {string} fields.partpath part 路径
- * @param {import('./part_invoke.mjs').PartInvoke} fields.invoke 调用体
+ * @param {import('./invoke.mjs').PartInvoke} fields.invoke 调用体
  * @param {string} [fields.nodeHash] 来源节点
  * @param {string} [fields.requestId] RPC 请求 id
  * @param {string} [fields.groupId] 群上下文（mailbox give ingest）
@@ -27,7 +25,7 @@ export function buildPartInvokePayload({ partpath, invoke, nodeHash, requestId, 
 }
 
 /**
- * @param {import('./part_invoke.mjs').PartInvokeResponse[]} results collect 原始结果
+ * @param {import('./invoke.mjs').PartInvokeResponse[]} results collect 原始结果
  * @returns {object[]} 仅含成功 result 的载荷
  */
 export function partInvokeDataRows(results) {
@@ -41,7 +39,7 @@ export function partInvokeDataRows(results) {
 }
 
 /**
- * @param {import('./part_invoke.mjs').PartInvokeResponse[]} results collect 原始结果
+ * @param {import('./invoke.mjs').PartInvokeResponse[]} results collect 原始结果
  * @returns {string[]} 邻居返回的错误信息
  */
 export function partInvokeErrorMessages(results) {

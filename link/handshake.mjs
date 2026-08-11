@@ -9,9 +9,6 @@ import { ensureNodeSeed, getNodeHash } from '../node/identity.mjs'
 
 import { normalizeDtlsFingerprint } from './sdp_fingerprint.mjs'
 
-/** advert / peer-hint 端口规范化（re-export，调用方可直接从 core/tcp_port 导入） */
-export const normalizeAdvertTcpPort = normalizeTcpPort
-
 /**
  * Link 握手签名域标识符。
  */

@@ -12,7 +12,7 @@ import {
 	LOGICAL_ENTITY_SENTINEL_NODE_HASH,
 } from '../../core/logical_entity.mjs'
 import { encryptPlaintextToParts, buildFileManifest } from '../../files/assemble.mjs'
-import { normalizeFileManifest } from '../../files/manifest.mjs'
+import { normalizeFileManifest } from '../../files/manifest/normalize.mjs'
 import { assembleManifestPlaintext } from '../../files/transfer_key.mjs'
 import { assertEquals, assertThrows } from '../helpers/assert.mjs'
 
@@ -118,7 +118,7 @@ test('parseEvfsRef rejects malformed refs', async () => {
 })
 
 test('manifest acl registry is fail-closed', async () => {
-	const { checkManifestAcl } = await import('../../files/manifest_acl_registry.mjs')
+	const { checkManifestAcl } = await import('../../files/manifest/acl_registry.mjs')
 	assertEquals(await checkManifestAcl('vault-wrap', { replicaUsername: 'u', ownerEntityHash: 'x', manifest: {} }), false)
 	assertEquals(await checkManifestAcl('file-master-key-wrap', { replicaUsername: 'u', ownerEntityHash: 'x', manifest: {} }), false)
 })

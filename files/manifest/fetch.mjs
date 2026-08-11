@@ -1,20 +1,17 @@
-import { randomUUID } from 'node:crypto'
+import { isWritableLocalEntity } from '../../node/identity.mjs'
+import { getEntityStore } from '../../node/instance.mjs'
+import { ms } from '../../utils/duration.mjs'
+import { createInflightTable } from '../../utils/inflight_table.mjs'
 
+import { beginFedFanoutFetch } from '../fed/fetch_shared.mjs'
+import { loadFileManifest, saveFileManifest } from '../evfs.mjs'
+import { normalizeFileManifest } from './normalize.mjs'
 import {
 	manifestFetchExpectedKey,
 	MAX_PENDING_MANIFEST_FETCHES,
 	registerManifestFetchWait,
-} from '../federation/manifest_fetch_pending.mjs'
-import { isWritableLocalEntity } from '../node/identity.mjs'
-import { getEntityStore } from '../node/instance.mjs'
-import { ms } from '../utils/duration.mjs'
-import { createInflightTable } from '../utils/inflight_table.mjs'
-
-import { resolveNodeHash } from './chunk_provider_registry.mjs'
-import { loadFileManifest, saveFileManifest } from './evfs.mjs'
-import { fanoutFedFetch } from './fetch_fanout.mjs'
-import { normalizeFileManifest } from './manifest.mjs'
-import { shouldPreferIncomingPublicManifest } from './public_manifest.mjs'
+} from './pending.mjs'
+import { shouldPreferIncomingPublicManifest } from './public.mjs'
 
 const DEFAULT_MANIFEST_FETCH_TIMEOUT_MS = ms('8s')
 
@@ -29,7 +26,7 @@ const manifestInflight = createInflightTable({
  * 本地已有 publicSig 时立即返回，并后台 fanout；`cache: true` 时按 publishedAt 择新写盘。
  * 冷 miss 仍等 fanout。同 key in-flight 去重；调用方外层超时不 abort，后台继续填缓存。
  * @param {{ username: string, ownerEntityHash: string, logicalPath: string, cache?: boolean, timeoutMs?: number }} context - 拉取上下文
- * @returns {Promise<import('./manifest.mjs').FileManifest | null>} 验签后的 manifest，失败为 null
+ * @returns {Promise<import('./normalize.mjs').FileManifest | null>} 验签后的 manifest，失败为 null
  */
 export async function fetchPublicManifest(context) {
 	const ownerEntityHash = String(context.ownerEntityHash || '').trim().toLowerCase()
@@ -41,27 +38,22 @@ export async function fetchPublicManifest(context) {
 		? Number(context.timeoutMs)
 		: DEFAULT_MANIFEST_FETCH_TIMEOUT_MS
 	const expectedKey = manifestFetchExpectedKey(ownerEntityHash, logicalPath)
-	const inflightKey = `${username}\0${expectedKey}`
 	const wantCache = context.cache === true
 
 	// 先挂 in-flight（同步），再读本地 — 避免并发调用在 await 间隙各自 start
 	const localPromise = loadFileManifest(ownerEntityHash, logicalPath)
-	const shared = manifestInflight.acquire(inflightKey, () => {
-		const requestId = randomUUID()
-		const wait = registerManifestFetchWait(requestId, expectedKey, timeoutMs)
-		void (async () => {
-			try {
-				const { nodeHash } = await resolveNodeHash(username)
-				await fanoutFedFetch(username, 'fed_manifest_get', {
-					requestId,
-					nodeHash,
-					ownerEntityHash,
-					logicalPath,
-				})
-			}
-			catch { /* pending wait 超时/cancel 负责 settle */ }
-		})()
-		return { done: wait.done, cancel: wait.cancel }
+	const shared = beginFedFanoutFetch({
+		inflight: manifestInflight,
+		inflightKey: `${username}\0${expectedKey}`,
+		username,
+		action: 'fed_manifest_get',
+		registerWait: requestId => registerManifestFetchWait(requestId, expectedKey, timeoutMs),
+		buildPayload: (requestId, nodeHash) => ({
+			requestId,
+			nodeHash,
+			ownerEntityHash,
+			logicalPath,
+		}),
 	})
 
 	const local = await localPromise
@@ -69,7 +61,6 @@ export async function fetchPublicManifest(context) {
 	if (!shared) return hasLocalPublic ? local : null
 
 	if (hasLocalPublic) {
-		// SWR：立刻回本地；后台 fanout 择新写盘（需 cache: true）
 		if (wantCache) {
 			void shared.then(async result => {
 				if (result && shouldPreferIncomingPublicManifest(local, result))
@@ -89,37 +80,24 @@ export async function fetchPublicManifest(context) {
  * 将已验签公开 manifest 写入本地缓存（显式 apply；`fetchPublicManifest` 默认不调用）。
  * @param {string} ownerEntityHash owner
  * @param {string} logicalPath 路径
- * @param {import('./manifest.mjs').FileManifest} incoming 已验签入站清单
+ * @param {import('./normalize.mjs').FileManifest} incoming 已验签入站清单
  * @returns {Promise<void>}
  */
 export async function cachePublicManifest(ownerEntityHash, logicalPath, incoming) {
-	await maybeCacheIncomingPublicManifest(ownerEntityHash, logicalPath, incoming)
-}
-
-/**
- * @param {string} ownerEntityHash owner
- * @param {string} logicalPath 路径
- * @param {import('./manifest.mjs').FileManifest} incoming 已验签入站清单
- * @returns {Promise<void>}
- */
-async function maybeCacheIncomingPublicManifest(ownerEntityHash, logicalPath, incoming) {
 	if (isWritableLocalEntity(ownerEntityHash)) return
-	const store = getEntityStore()
-	const existing = await store.readManifest(ownerEntityHash, logicalPath)
+	const existing = await getEntityStore().readManifest(ownerEntityHash, logicalPath)
 	if (existing && !shouldPreferIncomingPublicManifest(existing, incoming)) return
 	await saveFileManifest(incoming)
 }
 
 /**
  * 若本机有已签名公开 manifest 则响应 fed_manifest_get。
- * @param {string} username 用户
  * @param {object} payload 请求
  * @param {(response: object, peerId: string) => void} sendResponse 发送
  * @param {string} peerId 对端
  * @returns {Promise<void>}
  */
-export async function handleIncomingManifestGet(username, payload, sendResponse, peerId) {
-	void username
+export async function handleIncomingManifestGet(payload, sendResponse, peerId) {
 	const ownerEntityHash = String(payload?.ownerEntityHash || '').trim().toLowerCase()
 	const logicalPath = String(payload?.logicalPath || '').trim().replace(/^\/+/, '')
 	const requestId = String(payload?.requestId || '')

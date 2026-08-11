@@ -22,7 +22,7 @@ Callers do **not** choose WebRTC, BLE, ICE, or DataChannels. If a path is unavai
 
 **Public registration only:** `registerLinkProvider` / `registerDiscoveryProvider` from the package facade or `@steve02081504/fount-p2p/link` / `./discovery`. Provider *implementations* under `link/providers/*` remain package-internal — shells must not import them or pick transports.
 
-Public `./transport/*` subpaths: `link_registry`, `user_room`, `group_link_set`, `node_scope`, `room_scopes`, `remote_user_room`. Modules such as `offer_answer`, `runtime_bootstrap`, `advert_ingest` are internal.
+Public `./transport/*` subpaths: `link_registry`, `user_room`, `group_link_set`, `node_scope`, `room_scopes`, `remote_user_room`, `scoped_link`. Modules such as `offer_answer`, `runtime_bootstrap` are internal.
 
 Topic / rendezvous / signal crypto live under `discovery/` (`nostr.mjs`, `internal/signal_crypto.mjs`, `adverts.mjs`) — not in `transport/`, not a package export. Do not export `advertiseTopic` / `subscribeTopic` / `sendSignal(topic)` on the fount-network surface. ICE `.local` host-candidate filtering is `iceLocalHostnamePolicy` only.
 

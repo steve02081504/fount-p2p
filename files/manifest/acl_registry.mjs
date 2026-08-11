@@ -5,14 +5,14 @@
 /** @type {Map<string, { ownerId: string, handler: (context: ManifestAclContext, logicalPath?: string) => Promise<boolean> }>} */
 const handlersByType = new Map()
 
-/** @type {Map<string, { ownerId: string, match: (manifest: import('./manifest.mjs').FileManifest | null | undefined, ownerEntityHash: string) => string | null }>} */
+/** @type {Map<string, { ownerId: string, match: (manifest: import('./normalize.mjs').FileManifest | null | undefined, ownerEntityHash: string) => string | null }>} */
 const matchersByOwner = new Map()
 
 /**
  * @typedef {{
  *   replicaUsername: string,
  *   ownerEntityHash: string,
- *   manifest: import('./manifest.mjs').FileManifest,
+ *   manifest: import('./normalize.mjs').FileManifest,
  * }} ManifestAclContext
  */
 
@@ -23,12 +23,10 @@ const matchersByOwner = new Map()
  * @returns {void}
  */
 export function registerManifestAcl(type, ownerId, handler) {
-	const key = String(type)
-	const owner = String(ownerId)
-	const existing = handlersByType.get(key)
-	if (existing && existing.ownerId !== owner)
-		throw new Error(`manifest acl handler for '${key}' already registered by '${existing.ownerId}'`)
-	handlersByType.set(key, { ownerId: owner, handler })
+	const existing = handlersByType.get(type)
+	if (existing && existing.ownerId !== ownerId)
+		throw new Error(`manifest acl handler for '${type}' already registered by '${existing.ownerId}'`)
+	handlersByType.set(type, { ownerId, handler })
 }
 
 /**
@@ -37,20 +35,19 @@ export function registerManifestAcl(type, ownerId, handler) {
  * @returns {void}
  */
 export function unregisterManifestAcl(type, ownerId) {
-	const key = String(type)
-	const existing = handlersByType.get(key)
+	const existing = handlersByType.get(type)
 	if (!existing) return
-	if (existing.ownerId === String(ownerId))
-		handlersByType.delete(key)
+	if (existing.ownerId === ownerId)
+		handlersByType.delete(type)
 }
 
 /**
  * @param {string} ownerId 注册方
- * @param {(manifest: import('./manifest.mjs').FileManifest | null | undefined, ownerEntityHash: string) => string | null} match ACL 类型匹配
+ * @param {(manifest: import('./normalize.mjs').FileManifest | null | undefined, ownerEntityHash: string) => string | null} match ACL 类型匹配
  * @returns {void}
  */
 export function registerManifestAclMatcher(ownerId, match) {
-	matchersByOwner.set(String(ownerId), { ownerId: String(ownerId), match })
+	matchersByOwner.set(ownerId, { ownerId, match })
 }
 
 /**
@@ -58,11 +55,11 @@ export function registerManifestAclMatcher(ownerId, match) {
  * @returns {void}
  */
 export function unregisterManifestAclMatcher(ownerId) {
-	matchersByOwner.delete(String(ownerId))
+	matchersByOwner.delete(ownerId)
 }
 
 /**
- * @param {import('./manifest.mjs').FileManifest | null | undefined} manifest manifest
+ * @param {import('./normalize.mjs').FileManifest | null | undefined} manifest manifest
  * @param {string} ownerEntityHash 所有者
  * @returns {string | null} ACL 类型
  */
@@ -81,7 +78,7 @@ export function resolveManifestAclType(manifest, ownerEntityHash) {
  * @returns {Promise<boolean>} 是否允许（未注册为 false）
  */
 export async function checkManifestAcl(type, context, logicalPath) {
-	const row = handlersByType.get(String(type))
+	const row = handlersByType.get(type)
 	if (!row?.handler) return false
 	return row.handler(context, logicalPath)
 }

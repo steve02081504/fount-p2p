@@ -3,7 +3,7 @@ import {
 	assertMailboxPubKeyHash,
 	assertMailboxRecordShape,
 } from '../schemas/mailbox.mjs'
-import { isPlainObject } from '../wire/ingress.mjs'
+import { isPlainObject } from '../core/object.mjs'
 
 /**
  * @typedef {import('../schemas/mailbox.mjs').MailboxWireErr} MailboxParseErr

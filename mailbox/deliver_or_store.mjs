@@ -23,7 +23,6 @@ import {
  * @returns {Promise<string | null>} 已验证的 remote nodeHash
  */
 async function resolveRemoteNodeHashForPeer(username, peerId) {
-	void username
 	if (!peerId) return null
 	const entry = activeLinkRoster().find(row => row.peerId === peerId)
 	const remote = entry?.remoteNodeHash?.trim().toLowerCase()
@@ -51,7 +50,6 @@ async function resolveRelayHopForIngress(record) {
  * @returns {Promise<{ maxHop: number, relayFanoutTrusted: number, relayFanoutNormal: number, wantFanout: number, batterySaver: boolean }>} 按在线 peer 数缩放的路由
  */
 async function resolveRouting(username) {
-	void username
 	const { batterySaver, mailbox } = getNodeTransportSettings()
 	const peerCount = activeLinkRoster().length
 	return resolveMailboxRoutingForPeerCount(peerCount, mailbox, batterySaver)

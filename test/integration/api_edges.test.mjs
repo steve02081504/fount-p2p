@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 
-import { cachePublicManifest } from '../../files/manifest_fetch.mjs'
+import { cachePublicManifest } from '../../files/manifest/fetch.mjs'
 import { startNode } from '../../index.mjs'
 import {
 	getNodeLogger,
@@ -204,7 +204,7 @@ test('rep_sync_req responds for allowlisted peer without writing caller table', 
 })
 
 test('fetchPublicManifest returns null on bad input without hanging; cache is opt-in export', async () => {
-	const miss = await (await import('../../files/manifest_fetch.mjs')).fetchPublicManifest({
+	const miss = await (await import('../../files/manifest/fetch.mjs')).fetchPublicManifest({
 		username: '',
 		ownerEntityHash: '',
 		logicalPath: '',

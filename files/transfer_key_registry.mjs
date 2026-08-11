@@ -1,7 +1,7 @@
 /** @type {Map<string, { getGroupFileMasterKey?: (replicaUsername: string, groupId: string, keyGeneration?: number) => Promise<Buffer | string | null>, getVaultMasterKey?: (replicaUsername: string, entityHash: string) => Promise<Buffer | string | null> }>} */
 const transferDependenciesByOwner = new Map()
 
-/** @type {Map<string, (replicaUsername: string, manifest: import('./manifest.mjs').FileManifest) => Promise<Buffer | null>>} */
+/** @type {Map<string, (replicaUsername: string, manifest: import('./manifest/normalize.mjs').FileManifest) => Promise<Buffer | null>>} */
 const dagPlaintextReadersByOwner = new Map()
 
 /**
@@ -17,19 +17,19 @@ export function registerTransferKeyDependencies(ownerId, dependencies) {
 
 /**
  * @param {string} ownerId 注册方
- * @param {(replicaUsername: string, manifest: import('./manifest.mjs').FileManifest) => Promise<Buffer | null>} reader dagParts 明文读取
+ * @param {(replicaUsername: string, manifest: import('./manifest/normalize.mjs').FileManifest) => Promise<Buffer | null>} reader dagParts 明文读取
  * @returns {void}
  */
 export function registerDagManifestPlaintextReader(ownerId, reader) {
 	dagPlaintextReadersByOwner.set(String(ownerId), reader)
 }
 
-/** @type {Array<{ ownerId: string, match: (manifest: import('./manifest.mjs').FileManifest) => boolean }>} */
+/** @type {Array<{ ownerId: string, match: (manifest: import('./manifest/normalize.mjs').FileManifest) => boolean }>} */
 const manifestOwnerMatchers = []
 
 /**
  * @param {string} ownerId 注册方
- * @param {(manifest: import('./manifest.mjs').FileManifest) => boolean} match manifest 匹配谓词
+ * @param {(manifest: import('./manifest/normalize.mjs').FileManifest) => boolean} match manifest 匹配谓词
  * @returns {void}
  */
 export function registerManifestOwnerMatcher(ownerId, match) {
@@ -59,7 +59,7 @@ export function unregisterTransferKeyDependencies(ownerId) {
 
 /**
  * 从 manifest 推断 transfer key 注册方 id（按 registerManifestOwnerMatcher 注册顺序匹配）。
- * @param {import('./manifest.mjs').FileManifest} manifest 清单
+ * @param {import('./manifest/normalize.mjs').FileManifest} manifest 清单
  * @returns {string | null} 所有者 id
  */
 export function resolveManifestTransferOwnerId(manifest) {
@@ -70,7 +70,7 @@ export function resolveManifestTransferOwnerId(manifest) {
 
 /**
  * @param {string} [ownerId] 显式注册方；省略时按 manifest 推断
- * @param {import('./manifest.mjs').FileManifest} [manifest] 用于推断 ownerId
+ * @param {import('./manifest/normalize.mjs').FileManifest} [manifest] 用于推断 ownerId
  * @returns {{ getGroupFileMasterKey?: (replicaUsername: string, groupId: string, keyGeneration?: number) => Promise<Buffer | string | null>, getVaultMasterKey?: (replicaUsername: string, entityHash: string) => Promise<Buffer | string | null> }} 依赖
  */
 export function resolveTransferKeyDependencies(ownerId, manifest) {
@@ -81,7 +81,7 @@ export function resolveTransferKeyDependencies(ownerId, manifest) {
 
 /**
  * @param {string} replicaUsername 副本用户名
- * @param {import('./manifest.mjs').FileManifest} manifest 清单
+ * @param {import('./manifest/normalize.mjs').FileManifest} manifest 清单
  * @returns {Promise<Buffer | null>} 明文；无 reader 或未命中为 null
  */
 export async function readDagManifestPlaintext(replicaUsername, manifest) {

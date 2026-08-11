@@ -12,9 +12,9 @@ import { encryptSignalPacket } from '../../discovery/internal/signal_crypto.mjs'
 import { clearLanPeerHints, getLanPeerHint } from '../../discovery/lan_peer_hints.mjs'
 import { buildFileManifestFromEnc, encryptPlaintextToParts } from '../../files/assemble.mjs'
 import { loadFileManifest } from '../../files/evfs.mjs'
-import { publicTransferKeyDescriptor } from '../../files/manifest.mjs'
-import { cachePublicManifest } from '../../files/manifest_fetch.mjs'
-import { attachPublicManifestSig } from '../../files/public_manifest.mjs'
+import { publicTransferKeyDescriptor } from '../../files/manifest/normalize.mjs'
+import { cachePublicManifest } from '../../files/manifest/fetch.mjs'
+import { attachPublicManifestSig } from '../../files/manifest/public.mjs'
 import { defaultNodeDir, resolveNodeDir } from '../../infra/default_node_dir.mjs'
 import {
 	consumeOverlayRateToken,
@@ -36,7 +36,8 @@ import {
 	attachReputationSyncWire,
 } from '../../node/reputation_sync.mjs'
 import { getRoutingProfile, setRoutingProfile } from '../../node/routing_profile.mjs'
-import { applyAdvertPeerHints, ingestSignedAdvert } from '../../transport/advert_ingest.mjs'
+import { noteAdvertPeerHints } from '../../discovery/advert_peer_hints.mjs'
+import { ingestEncryptedAdvert } from '../../discovery/adverts.mjs'
 import {
 	configureLinkRegistry,
 	getLinkRegistry,
@@ -213,7 +214,7 @@ test('pull success returns JSON without writing local table', async () => {
 	}
 })
 
-test('valid ingestSignedAdvert verifies without writing peer hints', async () => {
+test('valid ingestEncryptedAdvert verifies without writing peer hints', async () => {
 	clearLanPeerHints()
 	const seed = Buffer.alloc(32, 5)
 	const { publicKey, secretKey } = keyPairFromSeed(seed)
@@ -226,19 +227,19 @@ test('valid ingestSignedAdvert verifies without writing peer hints', async () =>
 		tcpPort: 19091,
 	})
 	const bytes = encryptSignalPacket(rendezvousKey, { type: 'advert', body: advert })
-	const ingested = await ingestSignedAdvert(rendezvousKey, bytes, { address: '10.0.0.8' })
+	const ingested = await ingestEncryptedAdvert(rendezvousKey, bytes, { address: '10.0.0.8' })
 	assert.equal(ingested?.verifiedNodeHash, nodeHash)
 	assert.equal(getLanPeerHint(nodeHash), null)
-	applyAdvertPeerHints(ingested.verifiedNodeHash, ingested.body, { address: '10.0.0.8' })
+	noteAdvertPeerHints(ingested.verifiedNodeHash, ingested.body, { address: '10.0.0.8' })
 	assert.deepEqual(getLanPeerHint(nodeHash), { host: '10.0.0.8', port: 19091 })
 })
 
-test('ingestSignedAdvert does not apply peer hints without applyAdvertPeerHints', async () => {
+test('ingestEncryptedAdvert does not apply peer hints without noteAdvertPeerHints', async () => {
 	clearLanPeerHints()
-	const ingested = await ingestSignedAdvert('rdv', new Uint8Array([1, 2, 3]))
+	const ingested = await ingestEncryptedAdvert('rdv', new Uint8Array([1, 2, 3]))
 	assert.equal(ingested, null)
 	assert.equal(getLanPeerHint(HASH_B), null)
-	applyAdvertPeerHints(HASH_B, { tcpPort: 19090 }, { address: '10.0.0.9' })
+	noteAdvertPeerHints(HASH_B, { tcpPort: 19090 }, { address: '10.0.0.9' })
 	assert.deepEqual(getLanPeerHint(HASH_B), { host: '10.0.0.9', port: 19090 })
 })
 

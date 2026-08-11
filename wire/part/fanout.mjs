@@ -1,20 +1,20 @@
 import { randomUUID } from 'node:crypto'
 
-import { getNodeHash } from '../node/identity.mjs'
-import { DEFAULT_TRUST_GRAPH_OWNER, requireTrustGraphProvider } from '../trust_graph/registry.mjs'
+import { getNodeHash } from '../../node/identity.mjs'
+import { DEFAULT_TRUST_GRAPH_OWNER, requireTrustGraphProvider } from '../../trust_graph/registry.mjs'
 
 import {
 	buildPartInvokePayload,
 	PART_INVOKE_FANOUT_DEFAULT,
-} from './part_common.mjs'
-import { pendingPartInvoke } from './part_ingress.mjs'
+} from './common.mjs'
+import { pendingPartInvoke } from './ingress.mjs'
 
-/** @typedef {import('./part_invoke.mjs').PartInvokeResponse} PartInvokeResponse */
+/** @typedef {import('./invoke.mjs').PartInvokeResponse} PartInvokeResponse */
 
 /**
  * @param {string} username 用户（trust graph fanout 上下文）
  * @param {string} partpath part 路径
- * @param {import('./part_invoke.mjs').PartInvoke} invoke 调用体
+ * @param {import('./invoke.mjs').PartInvoke} invoke 调用体
  * @param {number} [timeoutMs=2500] 超时
  * @param {number} [maxResponses=6] 最多响应数
  * @returns {Promise<PartInvokeResponse[]>} 邻居 PartInvokeResponse（含 error）

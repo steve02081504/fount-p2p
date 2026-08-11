@@ -1,16 +1,15 @@
+import { isPlainObject } from '../../core/object.mjs'
+import { parsePartpath } from '../../core/partpath.mjs'
+import { dispatchDeliveryInbound, dispatchRpcInbound } from '../../registries/inbound.mjs'
 
-import { dispatchDeliveryInbound, dispatchRpcInbound } from '../registries/inbound.mjs'
-
-import { isPlainObject } from './ingress.mjs'
-import { buildPartInvokePayload } from './part_common.mjs'
+import { buildPartInvokePayload } from './common.mjs'
 import {
 	isPartInvoke,
 	isPartInvokeResponse,
-	normalizePartpath,
 	unwrapPartInvokeResult,
-} from './part_invoke.mjs'
+} from './invoke.mjs'
 
-/** @typedef {import('./part_invoke.mjs').PartInvokeResponse} PartInvokeResponse */
+/** @typedef {import('./invoke.mjs').PartInvokeResponse} PartInvokeResponse */
 
 /** @type {Map<string, { responses: PartInvokeResponse[], finish: () => void, maxResponses: number, respondedPeers: Set<string> }>} */
 export const pendingPartInvoke = new Map()
@@ -28,7 +27,7 @@ export const pendingPartInvoke = new Map()
 
 /**
  * @param {object} data 入站 part_timeline_put 载荷
- * @param {string} partpath 已规范化 part 路径
+ * @param {string} partpath 已校验 part 路径
  * @returns {object | null} 白名单字段
  */
 function parsePartTimelinePut(data, partpath) {
@@ -50,7 +49,7 @@ function parsePartTimelinePut(data, partpath) {
  * @returns {Promise<PartInvokeResponse | null>} RPC 处理器返回值
  */
 async function dispatchPartInvoke(wireContext, payload) {
-	const partpath = normalizePartpath(payload?.partpath)
+	const partpath = parsePartpath(payload?.partpath)
 	const invoke = payload?.invoke
 	if (!partpath || !isPlainObject(invoke)) return null
 	return dispatchRpcInbound({
@@ -79,7 +78,7 @@ export function attachPartWire(wireContext, wire, options = {}) {
 	const offs = [
 		wire.on('part_timeline_put', data => {
 			if (!isPlainObject(data)) return
-			const partpath = normalizePartpath(data.partpath)
+			const partpath = parsePartpath(data.partpath)
 			if (!partpath) return
 			const message = parsePartTimelinePut(data, partpath)
 			if (!message) return
@@ -116,7 +115,7 @@ export function attachPartWire(wireContext, wire, options = {}) {
  * @returns {Promise<void>}
  */
 export async function handleIncomingPartInvokeRequest(wireContext, payload, wire, peerId) {
-	const partpath = normalizePartpath(payload?.partpath)
+	const partpath = parsePartpath(payload?.partpath)
 	if (!partpath || !payload.requestId) return
 
 	const response = await dispatchPartInvoke(wireContext, { ...payload, peerId })
@@ -140,7 +139,7 @@ export async function handleIncomingPartInvokeRequest(wireContext, payload, wire
  * @returns {Promise<void>}
  */
 export async function handleIncomingPartInvokeFireAndForget(wireContext, payload, wire, peerId) {
-	const partpath = normalizePartpath(payload?.partpath)
+	const partpath = parsePartpath(payload?.partpath)
 	if (!partpath) return
 
 	const response = await dispatchPartInvoke(wireContext, { ...payload, peerId })

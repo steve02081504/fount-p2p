@@ -1,5 +1,5 @@
-import { isEntityHash128 } from '../core/entity_id.mjs'
-import { isHex64 } from '../core/hexIds.mjs'
+import { isEntityHash128 } from '../../core/entity_id.mjs'
+import { isHex64 } from '../../core/hexIds.mjs'
 
 /** @typedef {'plain' | 'convergent' | 'random'} CeMode */
 

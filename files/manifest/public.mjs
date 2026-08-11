@@ -1,13 +1,13 @@
 import { Buffer } from 'node:buffer'
 
-import { canonicalStringify } from '../core/canonical_json.mjs'
-import { hashFromPubKeyHex, parseEntityHash } from '../core/entity_id.mjs'
-import { assertSafeEvfsLogicalPath } from '../core/evfs_logical_path.mjs'
-import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
-import { sign, verify } from '../crypto/crypto.mjs'
+import { canonicalStringify } from '../../core/canonical_json.mjs'
+import { hashFromPubKeyHex, parseEntityHash } from '../../core/entity_id.mjs'
+import { assertSafeEvfsLogicalPath } from '../../core/evfs_logical_path.mjs'
+import { isHex64, normalizeHex64 } from '../../core/hexIds.mjs'
+import { sign, verify } from '../../crypto/crypto.mjs'
 
-import { putFileManifest, saveFileManifest } from './evfs.mjs'
-import { normalizeFileManifest, publicTransferKeyDescriptor } from './manifest.mjs'
+import { putFileManifest, saveFileManifest } from '../evfs.mjs'
+import { normalizeFileManifest, publicTransferKeyDescriptor } from './normalize.mjs'
 
 /** 实体公开 manifest 签名域 */
 export const ENTITY_PUBLIC_MANIFEST_DOMAIN = 'fount-entity-public-manifest'
@@ -32,11 +32,11 @@ export function publicManifestSignBytes(fields) {
 }
 
 /**
- * @param {import('./manifest.mjs').FileManifest} manifest 清单
+ * @param {import('./normalize.mjs').FileManifest} manifest 清单
  * @param {number} publishedAt 发布时间
  * @param {Uint8Array | Buffer} entitySecretKey recovery 私钥种子
  * @param {string} entityPubKeyHex recovery 公钥 hex
- * @returns {Promise<import('./manifest.mjs').FileManifest>} 带 publicSig 的清单
+ * @returns {Promise<import('./normalize.mjs').FileManifest>} 带 publicSig 的清单
  */
 export async function attachPublicManifestSig(manifest, publishedAt, entitySecretKey, entityPubKeyHex) {
 	const pubKeyHex = normalizeHex64(entityPubKeyHex)
@@ -63,7 +63,7 @@ export async function attachPublicManifestSig(manifest, publishedAt, entitySecre
 
 /**
  * @param {unknown} input 原始 manifest
- * @returns {Promise<import('./manifest.mjs').FileManifest | null>} 验签通过的清单；非法为 null
+ * @returns {Promise<import('./normalize.mjs').FileManifest | null>} 验签通过的清单；非法为 null
  */
 export async function verifySignedPublicManifest(input) {
 	const manifest = normalizeFileManifest(input)
@@ -105,7 +105,7 @@ export async function verifySignedPublicManifest(input) {
 
 /**
  * @param {object | null | undefined} localManifest 本地已有清单
- * @param {import('./manifest.mjs').FileManifest} incoming 入站已验签清单
+ * @param {import('./normalize.mjs').FileManifest} incoming 入站已验签清单
  * @returns {boolean} 是否应以 incoming 覆盖本地缓存
  */
 export function shouldPreferIncomingPublicManifest(localManifest, incoming) {
@@ -125,7 +125,7 @@ export function shouldPreferIncomingPublicManifest(localManifest, incoming) {
  * @param {Uint8Array | Buffer} parameters.entitySecretKey recovery 私钥种子
  * @param {string} parameters.entityPubKeyHex recovery 公钥 hex
  * @param {number} [parameters.publishedAt] 发布时间（默认 Date.now）
- * @returns {Promise<import('./manifest.mjs').FileManifest>} 已签名并落盘的公开清单
+ * @returns {Promise<import('./normalize.mjs').FileManifest>} 已签名并落盘的公开清单
  */
 export async function publishPublicFile(parameters) {
 	const {

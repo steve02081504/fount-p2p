@@ -2,9 +2,9 @@ import { Buffer } from 'node:buffer'
 
 import { canonicalStringify } from '../core/canonical_json.mjs'
 import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
-import { isPlainObject } from '../wire/ingress.mjs'
-import { normalizePartpath } from '../wire/part_invoke.mjs'
-import partQueryTunables from '../wire/part_query.tunables.json' with { type: 'json' }
+import { isPlainObject } from '../core/object.mjs'
+import { parsePartpath } from '../core/partpath.mjs'
+import partQueryTunables from './part_query.tunables.json' with { type: 'json' }
 
 /**
  * @typedef {{
@@ -100,7 +100,7 @@ export function parsePartQueryReq(value, tunables = partQueryTunables) {
 	if (!requestId) return null
 	const originNodeHash = normalizeHex64(value.originNodeHash)
 	if (!isHex64(originNodeHash)) return null
-	const partpath = normalizePartpath(value.partpath)
+	const partpath = parsePartpath(value.partpath)
 	if (!partpath) return null
 	const kind = String(value.kind || '').trim()
 	if (!kind) return null
@@ -143,7 +143,7 @@ export function parsePartQueryRes(value, tunables = partQueryTunables) {
  * @returns {string | null} 规范化三元组的缓存材料；非法 null
  */
 export function normalizePartQueryCacheMaterial(partpath, kind, query) {
-	const path = normalizePartpath(partpath)
+	const path = parsePartpath(partpath)
 	const k = String(kind || '').trim()
 	if (!path || !k) return null
 	if (measureJsonBytes(query) > partQueryTunables.maxQueryBytes) return null

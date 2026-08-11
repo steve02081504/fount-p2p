@@ -1,6 +1,4 @@
-import { isPlainObject } from './ingress.mjs'
-
-const PARTPATH_RE = /^[\w-]+(?:\/[\w-]+)*$/
+import { isPlainObject } from '../../core/object.mjs'
 
 /** @typedef {string} PartInvokeKind */
 
@@ -21,16 +19,6 @@ const PARTPATH_RE = /^[\w-]+(?:\/[\w-]+)*$/
  */
 
 /** @typedef {PartInvokeResultResponse | PartInvokeErrorResponse} PartInvokeResponse */
-
-/**
- * @typedef {object} SocialRpcPartInvokeResponse
- * @property {object} result RPC 响应体
- */
-
-/**
- * @typedef {object} TimelinePutPartInvokeResponse
- * @property {{ ok: boolean }} result timeline ingest 结果
- */
 
 /**
  * @param {unknown} value 候选响应
@@ -59,15 +47,6 @@ export function isPartInvokeResponse(value) {
 export function unwrapPartInvokeResult(response) {
 	if (!isPartInvokeResponse(response) || 'error' in response) return null
 	return response.result ?? null
-}
-
-/**
- * @param {unknown} value partpath 字符串
- * @returns {string | null} 规范化 partpath
- */
-export function normalizePartpath(value) {
-	const path = String(value || '').trim().replace(/^\/+|\/+$/g, '')
-	return PARTPATH_RE.test(path) ? path : null
 }
 
 /**

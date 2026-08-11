@@ -73,7 +73,7 @@ Reputation pull/apply is separate: `pullReputationFromNode` → JSON; `setReputa
 | L0 | `core/` | Pure primitives: `hexIds`, `entity_id*`, `canonical_json` |
 | L1 | `crypto/`, `wire/`, `schemas/` | Cryptography, wire protocol, canonical validation |
 | L2 | `node/` | Node runtime: `identity`, `entity_store`, `denylist`, `reputation_store` |
-| L3 | `discovery/`, `link/`, `transport/`, `rooms/` | Discovery + fount-network registry/rooms (`./link` = provider registration only) |
+| L3 | `discovery/`, `link/`, `transport/` | Discovery + fount-network registry/rooms (`./link` = provider registration only) |
 | L4 | `trust_graph/`, `mailbox/`, `dag/`, `federation/`, `files/`, `governance/`, `reputation/` | Federation, store-and-forward, DAG, EVFS, tunables |
 | — | `infra/` | Optional public-good relay (`startInfra` / CLI) |
 | — | `registries/` | Pluggable registries (event type, part path, room provider, …) |
@@ -88,7 +88,7 @@ Facade entry: `index.mjs` (`startNode`, `createGroupLinkSet`, `registerDiscovery
 | `user_room.mjs` / `group_link_set.mjs` / `node_scope.mjs` | rooms + composable node-scope wires |
 | `room_scopes.mjs` / `remote_user_room.mjs` | scope constants / remote user slot |
 
-`runtime_bootstrap`, `offer_answer`, `advert_ingest` are **internal** (transport). Signal crypto / rendezvous live under `discovery/internal/signal_crypto.mjs` (used by discovery `nostr.mjs` / `adverts.mjs`; not a package export). The Nostr **link** provider (`link/providers/nostr.mjs`) reuses the same discovery signal path (`type: 'link'`) as a last-resort duplex pipe. `ensureRuntime` returns after registration and scheduling warm-up; it does not await lan_tcp listen, public relays, or Bluetooth. `setSignalingRuntimeConfig` → `reloadDiscoveryRelays`. See [docs/runtime.md](./docs/runtime.md) and [docs/transports.md](./docs/transports.md).
+`runtime_bootstrap`, `offer_answer` are **internal** (transport). Signal crypto / rendezvous live under `discovery/internal/signal_crypto.mjs` (used by discovery `nostr.mjs` / `adverts.mjs`; not a package export). The Nostr **link** provider (`link/providers/nostr.mjs`) reuses the same discovery signal path (`type: 'link'`) as a last-resort duplex pipe. `ensureRuntime` returns after registration and scheduling warm-up; it does not await lan_tcp listen, public relays, or Bluetooth. `setSignalingRuntimeConfig` → `reloadDiscoveryRelays`. See [docs/runtime.md](./docs/runtime.md) and [docs/transports.md](./docs/transports.md).
 
 Root contains only the facade and package metadata; all modules live in layered subdirectories.
 
@@ -121,3 +121,4 @@ Group chunk remote storage (S3, etc.) is implemented by the shell as `GroupStora
 - Signaling and WebRTC glare: [`docs/signaling.md`](./docs/signaling.md)
 - Runtime bootstrap / BT probe: [`docs/runtime.md`](./docs/runtime.md)
 - Infra relay / node-scope attaches: [`docs/infra.md`](./docs/infra.md)
+- EVFS public manifests / fetch: [`docs/evfs.md`](./docs/evfs.md)

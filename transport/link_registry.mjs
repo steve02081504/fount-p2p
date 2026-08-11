@@ -13,7 +13,7 @@ import { ms } from '../utils/duration.mjs'
 import { emitSafe } from '../utils/emit_safe.mjs'
 import { createLruMap } from '../utils/lru.mjs'
 
-import { applyAdvertPeerHints } from './advert_ingest.mjs'
+import { noteAdvertPeerHints } from '../discovery/advert_peer_hints.mjs'
 import { DEFAULT_ICE_SERVERS } from './ice_servers.mjs'
 import { createMeshKeepalive } from './mesh_keepalive.mjs'
 import { createOfferAnswerDial } from './offer_answer.mjs'
@@ -650,7 +650,7 @@ export function createLinkRegistry(options = {}) {
 		async watchNodeAdvert(nodeHash, onAdvert) {
 			const hash = normalizeHex64(nodeHash)
 			return await watchVerifiedNodeAdvert(hash, async (verifiedNodeHash, body, meta) => {
-				applyAdvertPeerHints(verifiedNodeHash, body, meta)
+				noteAdvertPeerHints(verifiedNodeHash, body, meta)
 				recentAdverts.touch(verifiedNodeHash, Date.now())
 				dialCooldown.delete(verifiedNodeHash)
 				await Promise.resolve(onAdvert(verifiedNodeHash, body))

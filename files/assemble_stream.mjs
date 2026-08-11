@@ -8,7 +8,7 @@ import { encryptSliceToPart } from './assemble.mjs'
 import { decryptPart } from './transfer_key.mjs'
 
 /**
- * @typedef {import('./manifest.mjs').CeMode} CeMode
+ * @typedef {import('./manifest/normalize.mjs').CeMode} CeMode
  * @typedef {{ hash: string, size: number, raw: Buffer, contentHash?: string }} EncryptedPart
  */
 
@@ -113,7 +113,7 @@ function readStreamChunk(stream) {
 
 /**
  * 将 manifest 各密文块按 part.size 拼齐后解密，串联为明文可读流。
- * @param {import('./manifest.mjs').FileManifest} manifest 清单
+ * @param {import('./manifest/normalize.mjs').FileManifest} manifest 清单
  * @param {import('node:stream').Readable[]} partStreams 按序密文流
  * @param {Buffer | null} contentKey 随机密钥
  * @returns {Readable} 明文流

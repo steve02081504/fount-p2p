@@ -3,7 +3,7 @@
  */
 import { isHex64, isSignatureHex128, normalizeHex64 } from '../core/hexIds.mjs'
 import { EVENT_ID_HEX } from '../dag/index.mjs'
-import { isPlainObject } from '../wire/ingress.mjs'
+import { isPlainObject } from '../core/object.mjs'
 
 /** @typedef {{ requesterPubKeyHash: string, groupId: string, requestId: string, timestamp: number, wantIds?: string[], signature: string }} PullAttestation */
 
