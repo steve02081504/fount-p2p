@@ -35,21 +35,22 @@ export function createFetchWaitTable({ maxSize }) {
 		 * @param {string} expectedKey 期望匹配键
 		 * @param {number} timeoutMs 超时
 		 * @param {{ rejectOnTimeout?: boolean }} [options] 超时是否 reject
-		 * @returns {{ done: Promise<T | null>, cancel: () => void }}
+		 * @returns {{ done: Promise<T | null>, cancel: () => void }} 等待句柄
 		 */
 		register(key, expectedKey, timeoutMs, options = {}) {
 			if (!key || pending.size >= maxSize)
-				return { done: Promise.resolve(null), /**
-				 *
-				 */
-					cancel: () => { } }
+				return {
+					done: Promise.resolve(null),
+					/** @returns {void} */
+					cancel: () => { },
+				}
 
 			/** @type {(value: T | null | Error) => void} */
 			let finish
 			const done = new Promise((resolve, reject) => {
 				/**
-				 *
-				 * @param value
+				 * @param {T | null | Error} value 完成值或错误
+				 * @returns {void}
 				 */
 				finish = value => {
 					if (value instanceof Error) reject(value)
@@ -67,9 +68,7 @@ export function createFetchWaitTable({ maxSize }) {
 
 			return {
 				done,
-				/**
-				 *
-				 */
+				/** @returns {void} 取消等待 */
 				cancel: () => settle(key, null),
 			}
 		},
@@ -77,6 +76,7 @@ export function createFetchWaitTable({ maxSize }) {
 		/**
 		 * 只读查看，不移除。
 		 * @param {string} key 等待键
+		 * @returns {{ expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void } | undefined} 等待条目
 		 */
 		peek(key) {
 			return pending.get(key)

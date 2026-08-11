@@ -54,14 +54,14 @@ export async function fetchChunk(context) {
 		username,
 		action: 'fed_chunk_get',
 		/**
-		 *
-		 * @param requestId
+		 * @param {string} requestId 请求 id
+		 * @returns {{ done: Promise<Uint8Array | null>, cancel: () => void }} 等待句柄
 		 */
 		registerWait: requestId => registerChunkFetchWait(requestId, hash, DEFAULT_CHUNK_FETCH_TIMEOUT_MS),
 		/**
-		 *
-		 * @param requestId
-		 * @param nodeHash
+		 * @param {string} requestId 请求 id
+		 * @param {string} nodeHash 目标节点 hash
+		 * @returns {object} fanout 载荷
 		 */
 		buildPayload: (requestId, nodeHash) => ({
 			requestId,

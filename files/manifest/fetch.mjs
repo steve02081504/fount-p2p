@@ -48,14 +48,14 @@ export async function fetchPublicManifest(context) {
 		username,
 		action: 'fed_manifest_get',
 		/**
-		 *
-		 * @param requestId
+		 * @param {string} requestId 请求 id
+		 * @returns {{ done: Promise<import('./normalize.mjs').FileManifest | null>, cancel: () => void }} 等待句柄
 		 */
 		registerWait: requestId => registerManifestFetchWait(requestId, expectedKey, timeoutMs),
 		/**
-		 *
-		 * @param requestId
-		 * @param nodeHash
+		 * @param {string} requestId 请求 id
+		 * @param {string} nodeHash 目标节点 hash
+		 * @returns {object} fanout 载荷
 		 */
 		buildPayload: (requestId, nodeHash) => ({
 			requestId,

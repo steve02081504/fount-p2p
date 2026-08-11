@@ -20,7 +20,7 @@ const BAD_BYTES = new TextEncoder().encode('wrong-payload')
 
 /**
  * @param {string} requestId 请求 id
- * @returns {{ done: Promise<Uint8Array | null>, resolved: () => Uint8Array | null | undefined }}
+ * @returns {{ done: Promise<Uint8Array | null>, resolved: () => Uint8Array | null | undefined }} 等待句柄
  */
 function installChunkFetchWaiter(requestId) {
 	/** @type {Uint8Array | null | undefined} */
@@ -29,9 +29,7 @@ function installChunkFetchWaiter(requestId) {
 	void done.then(data => { resolved = data })
 	return {
 		done,
-		/**
-		 *
-		 */
+		/** @returns {Uint8Array | null | undefined} 已解析值（未完成时为 undefined） */
 		resolved: () => resolved,
 	}
 }
