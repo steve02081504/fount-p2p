@@ -34,9 +34,10 @@ export function filterIceLocalHostnameCandidate(candidate, RTCIceCandidateCtor, 
 	const rewritten = applyIceLocalHostnamePolicy(raw, policy)
 	if (!rewritten) return null
 	if (rewritten === raw) return candidate
-	const init = typeof candidate.toJSON === 'function'
-		? { ...candidate.toJSON(), candidate: rewritten }
-		: { candidate: rewritten, sdpMid: candidate.sdpMid, sdpMLineIndex: candidate.sdpMLineIndex }
+	const init = {
+		...(candidate.toJSON?.() || { sdpMid: candidate.sdpMid, sdpMLineIndex: candidate.sdpMLineIndex }),
+		candidate: rewritten,
+	}
 	return new RTCIceCandidateCtor(init)
 }
 

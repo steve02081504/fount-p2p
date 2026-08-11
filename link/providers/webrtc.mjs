@@ -304,7 +304,7 @@ export async function createWebRtcLink(options) {
 		if (trickleIceOff || !event.candidate) return
 		void sendSignal({
 			type: 'ice',
-			candidate: typeof event.candidate.toJSON === 'function' ? event.candidate.toJSON() : event.candidate,
+			candidate: event.candidate.toJSON?.() || event.candidate,
 		}).catch(error => pipe.close(`signal-send-failed:${formatErrorReason(error)}`))
 	}
 	/**
