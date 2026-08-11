@@ -75,9 +75,7 @@ export async function collectPartInvokeResponses(username, partpath, invoke, tim
 	const responses = []
 
 	const waitForResponses = new Promise(resolve => {
-		/**
-		 *
-		 */
+		/** 超时或收满响应后清理 pending 并完成 Promise。 */
 		const finish = () => {
 			clearTimeout(timer)
 			pendingPartInvoke.delete(requestId)

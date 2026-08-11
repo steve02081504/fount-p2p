@@ -11,7 +11,7 @@ export {
 } from './wire.mjs'
 
 /**
- *
+ * Node scope feature 挂载：mailbox、part、part_query、chunk 等 refcount attach。
  */
 export {
 	attachNodeScopeChunks,

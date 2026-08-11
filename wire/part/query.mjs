@@ -82,7 +82,7 @@ export function queryNetwork(username, partpath, kind, query, options = {}) {
 }
 
 /**
- *
+ * Part query 运行时（state、入站 handler、hop timeout、测试重置）。
  */
 export {
 	createPartQueryNodeState,
