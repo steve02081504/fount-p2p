@@ -1,9 +1,9 @@
+import { noteAdvertPeerHints } from '../discovery/advert_peer_hints.mjs'
 import { listVisibleNodeHashes, startGroupPresence, watchVerifiedGroupAdverts } from '../discovery/index.mjs'
 import { loadPeerPoolView } from '../node/network.mjs'
 import { loadReputation } from '../node/reputation_store.mjs'
 import { emitSafe } from '../utils/emit_safe.mjs'
 
-import { noteAdvertPeerHints } from '../discovery/advert_peer_hints.mjs'
 import { getLinkRegistry } from './link_registry.mjs'
 import { resolveFederationPoolLimits, selectLinkTargetsFromMembers } from './peer_pool.mjs'
 import { loadTransportTunables } from './tunables.mjs'

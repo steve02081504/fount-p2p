@@ -39,11 +39,18 @@ export function createFetchWaitTable({ maxSize }) {
 		 */
 		register(key, expectedKey, timeoutMs, options = {}) {
 			if (!key || pending.size >= maxSize)
-				return { done: Promise.resolve(null), cancel: () => { } }
+				return { done: Promise.resolve(null), /**
+				 *
+				 */
+					cancel: () => { } }
 
 			/** @type {(value: T | null | Error) => void} */
 			let finish
 			const done = new Promise((resolve, reject) => {
+				/**
+				 *
+				 * @param value
+				 */
 				finish = value => {
 					if (value instanceof Error) reject(value)
 					else resolve(value)
@@ -60,6 +67,9 @@ export function createFetchWaitTable({ maxSize }) {
 
 			return {
 				done,
+				/**
+				 *
+				 */
 				cancel: () => settle(key, null),
 			}
 		},

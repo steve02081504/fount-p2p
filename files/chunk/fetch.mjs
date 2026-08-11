@@ -1,8 +1,8 @@
 import { bytesToBase64 } from '../../core/bytes_codec.mjs'
 import { ms } from '../../utils/duration.mjs'
 import { createInflightTable } from '../../utils/inflight_table.mjs'
-
 import { beginFedFanoutFetch } from '../fed/fetch_shared.mjs'
+
 import {
 	MAX_PENDING_CHUNK_FETCHES,
 	registerChunkFetchWait,
@@ -53,7 +53,16 @@ export async function fetchChunk(context) {
 		inflightKey: `${username}\0${hash}`,
 		username,
 		action: 'fed_chunk_get',
+		/**
+		 *
+		 * @param requestId
+		 */
 		registerWait: requestId => registerChunkFetchWait(requestId, hash, DEFAULT_CHUNK_FETCH_TIMEOUT_MS),
+		/**
+		 *
+		 * @param requestId
+		 * @param nodeHash
+		 */
 		buildPayload: (requestId, nodeHash) => ({
 			requestId,
 			nodeHash,

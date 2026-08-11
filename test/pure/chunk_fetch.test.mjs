@@ -29,6 +29,9 @@ function installChunkFetchWaiter(requestId) {
 	void done.then(data => { resolved = data })
 	return {
 		done,
+		/**
+		 *
+		 */
 		resolved: () => resolved,
 	}
 }

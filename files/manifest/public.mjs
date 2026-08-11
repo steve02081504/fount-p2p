@@ -5,8 +5,8 @@ import { hashFromPubKeyHex, parseEntityHash } from '../../core/entity_id.mjs'
 import { assertSafeEvfsLogicalPath } from '../../core/evfs_logical_path.mjs'
 import { isHex64, normalizeHex64 } from '../../core/hexIds.mjs'
 import { sign, verify } from '../../crypto/crypto.mjs'
-
 import { putFileManifest, saveFileManifest } from '../evfs.mjs'
+
 import { normalizeFileManifest, publicTransferKeyDescriptor } from './normalize.mjs'
 
 /** 实体公开 manifest 签名域 */

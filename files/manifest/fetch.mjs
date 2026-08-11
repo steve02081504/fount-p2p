@@ -2,9 +2,9 @@ import { isWritableLocalEntity } from '../../node/identity.mjs'
 import { getEntityStore } from '../../node/instance.mjs'
 import { ms } from '../../utils/duration.mjs'
 import { createInflightTable } from '../../utils/inflight_table.mjs'
-
-import { beginFedFanoutFetch } from '../fed/fetch_shared.mjs'
 import { loadFileManifest, saveFileManifest } from '../evfs.mjs'
+import { beginFedFanoutFetch } from '../fed/fetch_shared.mjs'
+
 import { normalizeFileManifest } from './normalize.mjs'
 import {
 	manifestFetchExpectedKey,
@@ -47,7 +47,16 @@ export async function fetchPublicManifest(context) {
 		inflightKey: `${username}\0${expectedKey}`,
 		username,
 		action: 'fed_manifest_get',
+		/**
+		 *
+		 * @param requestId
+		 */
 		registerWait: requestId => registerManifestFetchWait(requestId, expectedKey, timeoutMs),
+		/**
+		 *
+		 * @param requestId
+		 * @param nodeHash
+		 */
 		buildPayload: (requestId, nodeHash) => ({
 			requestId,
 			nodeHash,
@@ -61,12 +70,12 @@ export async function fetchPublicManifest(context) {
 	if (!shared) return hasLocalPublic ? local : null
 
 	if (hasLocalPublic) {
-		if (wantCache) {
+		if (wantCache) 
 			void shared.then(async result => {
 				if (result && shouldPreferIncomingPublicManifest(local, result))
 					await cachePublicManifest(ownerEntityHash, logicalPath, result)
 			})
-		}
+		
 		return local
 	}
 

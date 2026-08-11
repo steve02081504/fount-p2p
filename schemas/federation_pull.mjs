@@ -2,8 +2,8 @@
  * 联邦补拉 attestation / HPKE 响应 wire 解析（无 attestation/envelope 即丢弃）。
  */
 import { isHex64, isSignatureHex128, normalizeHex64 } from '../core/hexIds.mjs'
-import { EVENT_ID_HEX } from '../dag/index.mjs'
 import { isPlainObject } from '../core/object.mjs'
+import { EVENT_ID_HEX } from '../dag/index.mjs'
 
 /** @typedef {{ requesterPubKeyHash: string, groupId: string, requestId: string, timestamp: number, wantIds?: string[], signature: string }} PullAttestation */
 

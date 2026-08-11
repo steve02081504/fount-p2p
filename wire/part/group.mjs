@@ -1,4 +1,5 @@
 import { isPlainObject } from '../../core/object.mjs'
+
 import { attachPartWire } from './ingress.mjs'
 
 /**

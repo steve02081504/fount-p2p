@@ -1,5 +1,5 @@
-import { resolvePendingChunkFetch } from '../chunk/pending.mjs'
 import { handleIncomingChunkGet } from '../chunk/fetch.mjs'
+import { resolvePendingChunkFetch } from '../chunk/pending.mjs'
 import { handleIncomingManifestGet } from '../manifest/fetch.mjs'
 import { resolvePendingManifestFetch } from '../manifest/pending.mjs'
 

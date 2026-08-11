@@ -4,6 +4,7 @@ import { canonicalStringify } from '../core/canonical_json.mjs'
 import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
 import { isPlainObject } from '../core/object.mjs'
 import { parsePartpath } from '../core/partpath.mjs'
+
 import partQueryTunables from './part_query.tunables.json' with { type: 'json' }
 
 /**

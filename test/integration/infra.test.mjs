@@ -8,12 +8,14 @@ import { test } from 'node:test'
 
 import { entityHashFromRecoveryPubKeyHex } from '../../core/entity_id.mjs'
 import { keyPairFromSeed, pubKeyHash } from '../../crypto/crypto.mjs'
+import { noteAdvertPeerHints } from '../../discovery/advert_peer_hints.mjs'
+import { ingestEncryptedAdvert } from '../../discovery/adverts.mjs'
 import { encryptSignalPacket } from '../../discovery/internal/signal_crypto.mjs'
 import { clearLanPeerHints, getLanPeerHint } from '../../discovery/lan_peer_hints.mjs'
 import { buildFileManifestFromEnc, encryptPlaintextToParts } from '../../files/assemble.mjs'
 import { loadFileManifest } from '../../files/evfs.mjs'
-import { publicTransferKeyDescriptor } from '../../files/manifest/normalize.mjs'
 import { cachePublicManifest } from '../../files/manifest/fetch.mjs'
+import { publicTransferKeyDescriptor } from '../../files/manifest/normalize.mjs'
 import { attachPublicManifestSig } from '../../files/manifest/public.mjs'
 import { defaultNodeDir, resolveNodeDir } from '../../infra/default_node_dir.mjs'
 import {
@@ -36,8 +38,6 @@ import {
 	attachReputationSyncWire,
 } from '../../node/reputation_sync.mjs'
 import { getRoutingProfile, setRoutingProfile } from '../../node/routing_profile.mjs'
-import { noteAdvertPeerHints } from '../../discovery/advert_peer_hints.mjs'
-import { ingestEncryptedAdvert } from '../../discovery/adverts.mjs'
 import {
 	configureLinkRegistry,
 	getLinkRegistry,

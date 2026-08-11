@@ -1,5 +1,12 @@
 import { test } from 'node:test'
 
+import { createPartQueryCache, partQueryCacheKey } from '../../federation/part_query/cache.mjs'
+import {
+	createPartQueryNodeState,
+	handleIncomingPartQueryResponse,
+	mergeQueryRows,
+	resolvePartQueryHopTimeoutMs,
+} from '../../federation/part_query/runtime.mjs'
 import {
 	clampPartQueryBudget,
 	clampPartQueryTtl,
@@ -8,13 +15,6 @@ import {
 	parsePartQueryReq,
 	parsePartQueryRes,
 } from '../../schemas/part_query.mjs'
-import { createPartQueryCache, partQueryCacheKey } from '../../federation/part_query/cache.mjs'
-import {
-	createPartQueryNodeState,
-	handleIncomingPartQueryResponse,
-	mergeQueryRows,
-	resolvePartQueryHopTimeoutMs,
-} from '../../federation/part_query/runtime.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 
 const NODE_A = 'aa'.repeat(32)

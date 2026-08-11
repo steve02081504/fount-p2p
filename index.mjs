@@ -32,7 +32,6 @@ import {
 	unlockReputationMax,
 } from './node/reputation_sync.mjs'
 import { getRoutingProfile, setRoutingProfile } from './node/routing_profile.mjs'
-import { createScopedLinkRoom } from './transport/scoped_link.mjs'
 import { createGroupLinkSet } from './transport/group_link_set.mjs'
 import {
 	configureLinkRegistry,
@@ -46,6 +45,7 @@ import {
 	attachUserRoomDefaultWires,
 	ensureNodeScope,
 } from './transport/node_scope.mjs'
+import { createScopedLinkRoom } from './transport/scoped_link.mjs'
 import {
 	ensureUserRoom,
 	getUserRoomSlot,

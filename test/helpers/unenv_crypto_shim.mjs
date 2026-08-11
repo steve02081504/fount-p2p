@@ -4,10 +4,16 @@
  */
 const real = process.getBuiltinModule('crypto')
 
+/**
+ *
+ */
 export function createHash() {
 	throw new Error('[unenv] crypto.createHash is not implemented yet!')
 }
 
+/**
+ *
+ */
 export const {
 	createCipheriv,
 	createDecipheriv,
@@ -21,6 +27,9 @@ export const {
 	verify,
 } = real
 
+/**
+ *
+ */
 export default {
 	...real,
 	createHash,

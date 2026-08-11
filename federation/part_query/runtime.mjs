@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
 import { compositeKey } from '../../core/composite_key.mjs'
-import { createDedupeSlot } from '../dedupe_slot.mjs'
 import { getNodeHash } from '../../node/identity.mjs'
 import { loadReputation } from '../../node/reputation_store.mjs'
 import { isQuarantinedPure } from '../../reputation/engine.mjs'
@@ -16,6 +15,7 @@ import { pickTopFromGraph } from '../../trust_graph/engine.mjs'
 import { resolveFederationFanoutTopK } from '../../trust_graph/resolve.mjs'
 import trustGraphTunables from '../../trust_graph/tunables.json' with { type: 'json' }
 import { finishMultiWireWaiters, registerMultiWireWait } from '../../wire/wait.mjs'
+import { createDedupeSlot } from '../dedupe_slot.mjs'
 
 import { createPartQueryCache, partQueryCache } from './cache.mjs'
 

@@ -6,16 +6,16 @@ import { test } from 'node:test'
 
 import { entityHashFromRecoveryPubKeyHex } from '../../core/entity_id.mjs'
 import { keyPairFromSeed } from '../../crypto/crypto.mjs'
+import { encryptPlaintextToParts, buildFileManifestFromEnc } from '../../files/assemble.mjs'
+import { loadFileManifest } from '../../files/evfs.mjs'
+import { cachePublicManifest, fetchPublicManifest } from '../../files/manifest/fetch.mjs'
+import { publicTransferKeyDescriptor } from '../../files/manifest/normalize.mjs'
 import {
 	manifestFetchExpectedKey,
 	pendingManifestFetches,
 	registerManifestFetchWait,
 	resolvePendingManifestFetch,
 } from '../../files/manifest/pending.mjs'
-import { encryptPlaintextToParts, buildFileManifestFromEnc } from '../../files/assemble.mjs'
-import { loadFileManifest } from '../../files/evfs.mjs'
-import { publicTransferKeyDescriptor } from '../../files/manifest/normalize.mjs'
-import { cachePublicManifest, fetchPublicManifest } from '../../files/manifest/fetch.mjs'
 import {
 	attachPublicManifestSig,
 	publishPublicFile,
