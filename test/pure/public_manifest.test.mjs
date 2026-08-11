@@ -6,22 +6,22 @@ import { test } from 'node:test'
 
 import { entityHashFromRecoveryPubKeyHex } from '../../core/entity_id.mjs'
 import { keyPairFromSeed } from '../../crypto/crypto.mjs'
+import { encryptPlaintextToParts, buildFileManifestFromEnc } from '../../files/assemble.mjs'
+import { loadFileManifest } from '../../files/evfs.mjs'
+import { cachePublicManifest, fetchPublicManifest } from '../../files/manifest/fetch.mjs'
+import { publicTransferKeyDescriptor } from '../../files/manifest/normalize.mjs'
 import {
 	manifestFetchExpectedKey,
 	pendingManifestFetches,
 	registerManifestFetchWait,
 	resolvePendingManifestFetch,
-} from '../../federation/manifest_fetch_pending.mjs'
-import { encryptPlaintextToParts, buildFileManifestFromEnc } from '../../files/assemble.mjs'
-import { loadFileManifest } from '../../files/evfs.mjs'
-import { publicTransferKeyDescriptor } from '../../files/manifest.mjs'
-import { cachePublicManifest, fetchPublicManifest } from '../../files/manifest_fetch.mjs'
+} from '../../files/manifest/pending.mjs'
 import {
 	attachPublicManifestSig,
 	publishPublicFile,
 	shouldPreferIncomingPublicManifest,
 	verifySignedPublicManifest,
-} from '../../files/public_manifest.mjs'
+} from '../../files/manifest/public.mjs'
 import { getNodeHash } from '../../node/identity.mjs'
 import { ms } from '../../utils/duration.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
@@ -43,8 +43,11 @@ async function waitForPendingManifestRequestId(timeoutMs = ms('2s')) {
 
 /** 结算残留 pending，避免 SWR 提前返回后的 fanout 污染后续用例。 */
 function settleAllPendingManifestFetches() {
-	for (const entry of [...pendingManifestFetches.values()])
-		entry.resolve(null)
+	for (const [key, entry] of [...pendingManifestFetches.entries()]) {
+		clearTimeout(entry.timer)
+		pendingManifestFetches.delete(key)
+		entry.finish(null)
+	}
 }
 
 /**
@@ -209,7 +212,7 @@ test('publishPublicFile writes verifiable public manifest', async () => {
 test('fed_manifest_get refuses vault-wrap private manifest', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'fount-fed-manifest-priv-'))
 	initTestP2pNode({ nodeDir: dir })
-	const { handleIncomingManifestGet } = await import('../../files/manifest_fetch.mjs')
+	const { handleIncomingManifestGet } = await import('../../files/manifest/fetch.mjs')
 	const { getEntityStore } = await import('../../node/instance.mjs')
 	const keys = testRecoveryKeys(10)
 	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), keys.pubKeyHex)
@@ -226,7 +229,7 @@ test('fed_manifest_get refuses vault-wrap private manifest', async () => {
 	}, enc)
 	await getEntityStore().writeManifest(owner, 'vault/secret.bin', manifest)
 	let called = false
-	await handleIncomingManifestGet('u', {
+	await handleIncomingManifestGet({
 		requestId: 'r1',
 		ownerEntityHash: owner,
 		logicalPath: 'vault/secret.bin',
@@ -237,7 +240,7 @@ test('fed_manifest_get refuses vault-wrap private manifest', async () => {
 test('fed_manifest_get refuses public manifest without publicSig', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'fount-fed-manifest-nosig-'))
 	initTestP2pNode({ nodeDir: dir })
-	const { handleIncomingManifestGet } = await import('../../files/manifest_fetch.mjs')
+	const { handleIncomingManifestGet } = await import('../../files/manifest/fetch.mjs')
 	const { getEntityStore } = await import('../../node/instance.mjs')
 	const keys = testRecoveryKeys(11)
 	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), keys.pubKeyHex)
@@ -254,7 +257,7 @@ test('fed_manifest_get refuses public manifest without publicSig', async () => {
 	}, enc)
 	await getEntityStore().writeManifest(owner, 'profile.json', manifest)
 	let called = false
-	await handleIncomingManifestGet('u', {
+	await handleIncomingManifestGet({
 		requestId: 'r2',
 		ownerEntityHash: owner,
 		logicalPath: 'profile.json',
@@ -265,7 +268,7 @@ test('fed_manifest_get refuses public manifest without publicSig', async () => {
 test('fed_manifest_get responds with publicSig-only meta', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'fount-fed-manifest-ok-'))
 	initTestP2pNode({ nodeDir: dir })
-	const { handleIncomingManifestGet } = await import('../../files/manifest_fetch.mjs')
+	const { handleIncomingManifestGet } = await import('../../files/manifest/fetch.mjs')
 	const keys = testRecoveryKeys(12)
 	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), keys.pubKeyHex)
 	const published = await publishPublicFile({
@@ -286,7 +289,7 @@ test('fed_manifest_get responds with publicSig-only meta', async () => {
 	})
 	/** @type {object | null} */
 	let resp = null
-	await handleIncomingManifestGet('u', {
+	await handleIncomingManifestGet({
 		requestId: 'r3',
 		ownerEntityHash: owner,
 		logicalPath: 'profile.json',

@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 
-import { cachePublicManifest, fetchPublicManifest } from '../../files/manifest_fetch.mjs'
+import { cachePublicManifest, fetchPublicManifest } from '../../files/manifest/fetch.mjs'
 import { buildUnverifiedSlashAlert } from '../../node/reputation_store.mjs'
 
 test('buildUnverifiedSlashAlert builds volatile slash alert', () => {

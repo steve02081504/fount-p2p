@@ -1,5 +1,12 @@
 import { test } from 'node:test'
 
+import { createPartQueryCache, partQueryCacheKey } from '../../federation/part_query/cache.mjs'
+import {
+	createPartQueryNodeState,
+	handleIncomingPartQueryResponse,
+	mergeQueryRows,
+	resolvePartQueryHopTimeoutMs,
+} from '../../federation/part_query/runtime.mjs'
 import {
 	clampPartQueryBudget,
 	clampPartQueryTtl,
@@ -8,13 +15,6 @@ import {
 	parsePartQueryReq,
 	parsePartQueryRes,
 } from '../../schemas/part_query.mjs'
-import {
-	createPartQueryNodeState,
-	handleIncomingPartQueryResponse,
-	mergeQueryRows,
-	resolvePartQueryHopTimeoutMs,
-} from '../../wire/part_query.mjs'
-import { createPartQueryCache, partQueryCacheKey } from '../../wire/part_query_cache.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 
 const NODE_A = 'aa'.repeat(32)
@@ -116,6 +116,13 @@ test('part query cache TTL and LRU capacity', () => {
 	assertEquals(cache.get('shells/social', 'entity_search', { q: 'c' }, now)?.[0]?.id, 'c')
 	now += 1001
 	assertEquals(cache.get('shells/social', 'entity_search', { q: 'c' }, now), null)
+})
+
+test('part query cache refuses empty rows', () => {
+	const cache = createPartQueryCache({ maxKeys: 8, ttlMs: 1000 })
+	cache.set('shells/social', 'entity_search', { q: 'miss' }, [], 1000)
+	assertEquals(cache.size, 0)
+	assertEquals(cache.get('shells/social', 'entity_search', { q: 'miss' }, 1000), null)
 })
 
 test('mergeQueryRows dedupes by rowKey and respects maxHits', () => {

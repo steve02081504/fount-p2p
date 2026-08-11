@@ -1,5 +1,5 @@
 import { assertHex64, isHex64, isSignatureHex128, normalizeHex64 } from '../core/hexIds.mjs'
-import { isPlainObject } from '../wire/ingress.mjs'
+import { isPlainObject } from '../core/object.mjs'
 
 const MAX_DISCOVERY_ADS = 64
 

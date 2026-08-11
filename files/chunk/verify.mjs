@@ -1,5 +1,5 @@
-import { isHex64 } from '../core/hexIds.mjs'
-import { sha256Hex } from '../crypto/crypto.mjs'
+import { isHex64 } from '../../core/hexIds.mjs'
+import { sha256Hex } from '../../crypto/crypto.mjs'
 
 /**
  * @param {string} chunkHash 期望的 64 hex 密文哈希

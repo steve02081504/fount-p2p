@@ -8,8 +8,8 @@ import {
 } from '../crypto/key.mjs'
 
 /**
- * @typedef {import('./manifest.mjs').FileManifest} FileManifest
- * @typedef {import('./manifest.mjs').TransferKeyDescriptor} TransferKeyDescriptor
+ * @typedef {import('./manifest/normalize.mjs').FileManifest} FileManifest
+ * @typedef {import('./manifest/normalize.mjs').TransferKeyDescriptor} TransferKeyDescriptor
  */
 
 /**

@@ -28,7 +28,6 @@ registerFederationRoomProvider('remote-user-room', () => {
  * @returns {Promise<RemoteUserRoomSlot>} 房间槽
  */
 export async function ensureRemoteUserRoom(username, targetNodeHash) {
-	void username
 	const key = targetNodeHash.toLowerCase()
 	const existing = slots.get(key)
 	if (existing) return existing

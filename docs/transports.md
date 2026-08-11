@@ -1,6 +1,6 @@
 # fount network vs internal transports
 
-Mesh keep-alive / discovery (list hashes + connect; no topic on the fount-network surface): [mesh.md](mesh.md). WebRTC glare / handshake: [signaling.md](signaling.md). Runtime lifecycle: [runtime.md](runtime.md).
+Mesh keep-alive / discovery: [mesh.md](mesh.md). WebRTC glare / handshake: [signaling.md](signaling.md). Runtime lifecycle: [runtime.md](runtime.md).
 
 ## No versioning
 
@@ -22,7 +22,7 @@ Callers do **not** choose WebRTC, BLE, ICE, or DataChannels. If a path is unavai
 
 **Public registration only:** `registerLinkProvider` / `registerDiscoveryProvider` from the package facade or `@steve02081504/fount-p2p/link` / `./discovery`. Provider *implementations* under `link/providers/*` remain package-internal — shells must not import them or pick transports.
 
-Public `./transport/*` subpaths: `link_registry`, `user_room`, `group_link_set`, `node_scope`, `room_scopes`, `remote_user_room`. Modules such as `offer_answer`, `runtime_bootstrap`, `advert_ingest` are internal.
+Public `./transport/*` subpaths: `link_registry`, `user_room`, `group_link_set`, `node_scope`, `room_scopes`, `remote_user_room`, `scoped_link`. Modules such as `offer_answer`, `runtime_bootstrap` are internal.
 
 Topic / rendezvous / signal crypto live under `discovery/` (`nostr.mjs`, `internal/signal_crypto.mjs`, `adverts.mjs`) — not in `transport/`, not a package export. Do not export `advertiseTopic` / `subscribeTopic` / `sendSignal(topic)` on the fount-network surface. ICE `.local` host-candidate filtering is `iceLocalHostnamePolicy` only.
 
@@ -39,9 +39,9 @@ Topic / rendezvous / signal crypto live under `discovery/` (`nostr.mjs`, `intern
 
 LinkHandle for upper layers: `ready` / `nodeHash` / `send` / `onEnvelope` / `onDown` / `close` / `stats`. Transport-specific fields are for in-package scheduling only.
 
-Provider optional hooks (package-internal): `ensureListening` (inbound accept), `localEndpoint` (e.g. LAN listen port for adverts), `canReach` (hint gate before dial), `caps.probe: 'sync' | 'native'` (`native` = `isAvailable` starts noble/wrtc — skipped on ensureRuntime fast-listen). Discovery `connectToNode` / `sendNodeSignal` may return `false` when the path is unavailable (e.g. BT with no peer hint); fan-out treats that as silent skip. Per-provider throw/false in discovery and link dial fallback are silent; only total failure of the abstraction surfaces to the caller.
+Provider optional hooks (package-internal): `ensureListening`, `localEndpoint`, `canReach`, `caps.probe: 'sync' | 'native'` (`native` = skipped on ensureRuntime fast-listen). Discovery `connectToNode` / `sendNodeSignal` may return `false` when the path is unavailable; fan-out treats that as silent skip. Per-provider throw/false in discovery and link dial fallback are silent; only total failure of the abstraction surfaces to the caller.
 
-Each registry only calls `ensureListening` on **its own** `lan_tcp` / `ble_gatt` instances (unique registry ids like `lan_tcp:ab12cd34`). Never fan out listening to other registries' sockets — that would overwrite `localIdentity` / `onInbound`.
+Each registry only calls `ensureListening` on **its own** `lan_tcp` / `ble_gatt` instances (unique registry ids like `lan_tcp:ab12cd34`). Never fan out listening to other registries' sockets.
 
 Chain `providerId` on the LinkHandle stays the short name (`lan_tcp` / `ble_gatt` / `webrtc` / `nostr`) for scheduling/stats.
 
@@ -65,13 +65,13 @@ Constants: `link/providers/levels.mjs`. Discovery uses ascending **`priority`** 
 
 `caps.needsOfferAnswer` providers use the shared discovery-signal glare path (`dial`/`accept` + signal session) — not hard-coded to `id === 'webrtc'`.
 
-Dial miss / exhausted peers get exponential cooldown (30s → 10m) so mesh ticks do not busy-loop on stale acquaintances with no path. First-seen discovery peer clues (and `watchNodeAdvert` ingest) clear that peer's cooldown so a peer that reappears can be dialed immediately.
+Dial miss / exhausted peers get exponential cooldown so mesh ticks do not busy-loop on stale acquaintances. First-seen discovery peer clues (and `watchNodeAdvert` ingest) clear that peer's cooldown.
 
 ## Providers (internal)
 
 ### `lan_tcp` (80)
 
-Plain TCP on the LAN. Registry schedules listen in the background after `ensureRuntime`; `buildLocalAdvert` waits for local listen so signed adverts include `tcpPort`. Peers learn `{ host, port }` from discovery meta + advert `tcpPort` (`discovery/advert_peer_hints.mjs`). Binding = shared `linkId`; length-prefix framing. No discovery signal / offer-answer. Shells never read `tcpPort`.
+Plain TCP on the LAN. Registry schedules listen in the background after `ensureRuntime`; `buildLocalAdvert` waits for local listen so signed adverts include `tcpPort`. Peers learn `{ host, port }` from discovery meta + advert `tcpPort`. Binding = shared `linkId`; length-prefix framing. No discovery signal / offer-answer. Shells never read `tcpPort`.
 
 ### `webrtc` (70)
 
@@ -79,9 +79,7 @@ Discovery signal + dual DataChannel; DTLS fingerprint as handshake binding; `nee
 
 ### `ble_gatt` (40)
 
-GATT write/notify; binding = shared `linkId`; needs BT peer hint (`peripheralId` in discovery meta); optional noble/bleno. Per-registry instance like `lan_tcp`; `isAvailable` / `canReach` gate dial. On Win32, scan-only stacks cannot accept inbound BLE links. One BLE adapter cannot host two independent peripherals in-process — production is one node per process.
-
-`@stoprocent/bleno` characteristic callbacks take a leading `connection` argument (`onWriteRequest(connection, data, offset, withoutResponse, callback)`). Hardware probe / Windows caveats: [runtime.md](runtime.md).
+GATT write/notify; binding = shared `linkId`; needs BT peer hint (`peripheralId` in discovery meta); optional noble/bleno. Per-registry instance like `lan_tcp`; `isAvailable` / `canReach` gate dial. On Win32, scan-only stacks cannot accept inbound BLE links. One BLE adapter cannot host two independent peripherals in-process — production is one node per process. Hardware probe: [runtime.md](runtime.md).
 
 ### `nostr` (−∞)
 
@@ -91,4 +89,4 @@ Last-resort duplex pipe over discovery signal packets (`type: 'link'`), demuxed 
 
 `discovery/bt` carries short signal blobs on GATT so WebRTC can negotiate near-field when LAN/nostr are unavailable (package-internal).
 
-Discovery peripheral (`…f017`) and `ble_gatt` (`…f019`) both use bleno + name `fount-bt`. On one adapter they contend — last `setServices`/`startAdvertising` wins. Production: one node per process.
+Discovery peripheral and `ble_gatt` both use bleno + name `fount-bt`. On one adapter they contend — last `setServices`/`startAdvertising` wins. Production: one node per process.

@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 
-import { cachePublicManifest } from '../../files/manifest_fetch.mjs'
+import { cachePublicManifest } from '../../files/manifest/fetch.mjs'
 import { startNode } from '../../index.mjs'
 import {
 	getNodeLogger,
@@ -33,12 +33,14 @@ import {
 } from '../../transport/link_registry.mjs'
 import {
 	attachNodeScopeChunks,
+	stopNodeScopeRuntime,
+} from '../../transport/node_scope/features.mjs'
+import {
 	dispatchNodeScopeAction,
 	ensureNodeScope,
 	getNodeScopeContext,
 	hasNodeScopeAction,
-	stopNodeScopeRuntime,
-} from '../../transport/node_scope.mjs'
+} from '../../transport/node_scope/wire.mjs'
 import { ensureUserRoom } from '../../transport/user_room.mjs'
 
 const HASH_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -178,7 +180,7 @@ test('rep_sync_req responds for allowlisted peer without writing caller table', 
 		await setReputationTable({ byNodeHash: { [HASH_A]: { score: 0.77 } } })
 		setReputationExportAllowlist([HASH_B])
 		attachReputationSyncWire()
-		const wire = (await import('../../transport/node_scope.mjs')).getNodeScopeWire()
+		const wire = (await import('../../transport/node_scope/wire.mjs')).getNodeScopeWire()
 		/** @type {unknown} */
 		let sent = null
 		const original = wire.send
@@ -204,7 +206,7 @@ test('rep_sync_req responds for allowlisted peer without writing caller table', 
 })
 
 test('fetchPublicManifest returns null on bad input without hanging; cache is opt-in export', async () => {
-	const miss = await (await import('../../files/manifest_fetch.mjs')).fetchPublicManifest({
+	const miss = await (await import('../../files/manifest/fetch.mjs')).fetchPublicManifest({
 		username: '',
 		ownerEntityHash: '',
 		logicalPath: '',

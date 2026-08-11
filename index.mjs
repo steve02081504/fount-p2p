@@ -32,7 +32,6 @@ import {
 	unlockReputationMax,
 } from './node/reputation_sync.mjs'
 import { getRoutingProfile, setRoutingProfile } from './node/routing_profile.mjs'
-import { createScopedLinkRoom } from './rooms/scoped_link.mjs'
 import { createGroupLinkSet } from './transport/group_link_set.mjs'
 import {
 	configureLinkRegistry,
@@ -42,9 +41,10 @@ import {
 	reloadDiscoveryRelays,
 	sendToNodeLink,
 } from './transport/link_registry.mjs'
+import { attachNodeScopeDefaultFeatures } from './transport/node_scope/features.mjs'
+import { ensureNodeScope } from './transport/node_scope/wire.mjs'
+import { createScopedLinkRoom } from './transport/scoped_link.mjs'
 import {
-	attachUserRoomDefaultWires,
-	ensureNodeScope,
 	ensureUserRoom,
 	getUserRoomSlot,
 } from './transport/user_room.mjs'
@@ -54,7 +54,7 @@ import {
  */
 export {
 	attachReputationSyncWire,
-	attachUserRoomDefaultWires,
+	attachNodeScopeDefaultFeatures,
 	configureLinkRegistry,
 	createGroupLinkSet,
 	createScopedLinkRoom,

@@ -1,13 +1,13 @@
 import { test } from 'node:test'
 
+import { createPartQueryCache } from '../../federation/part_query/cache.mjs'
 import {
 	attachPartQueryWire,
 	createPartQueryNodeState,
 	queryNetwork,
 	registerQueryInboundHandler,
 	resetPartQueryStateForTests,
-} from '../../wire/part_query.mjs'
-import { createPartQueryCache } from '../../wire/part_query_cache.mjs'
+} from '../../wire/part/query.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
 
 const NODE_A = 'aa'.repeat(32)
@@ -318,4 +318,101 @@ test('origin cache hit does not broadcast; relay cache hit does not forward furt
 	assertEquals(rows.map(r => r.id).sort(), ['a', 'b', 'c'])
 	assertEquals(net.forwardCounts.get(NODE_A) || 0, 1)
 	assertEquals(net.forwardCounts.get(NODE_B) || 0, 0)
+})
+
+// issue #10: mesh 晚就绪 / 早 miss 后不应被空结果长 TTL 卡住
+test('empty queryNetwork miss is not sticky when neighbors appear later', async () => {
+	resetPartQueryStateForTests()
+	/** @type {string[]} */
+	let neighborsOfA = []
+	const topology = {
+		[NODE_A]: neighborsOfA,
+		[NODE_B]: [NODE_A],
+	}
+	/** @type {Map<string, object>} */
+	const nodes = new Map()
+	const forwardCounts = new Map()
+
+	for (const nodeHash of Object.keys(topology)) {
+		const state = createPartQueryNodeState({ cache: createPartQueryCache({ ttlMs: 300_000 }) })
+		registerQueryInboundHandler('shells/social', 'entity_search', () =>
+			nodeHash === NODE_B ? [{ id: 'b-late' }] : []
+		, state)
+		/** @type {Map<string, Set<Function>>} */
+		const handlers = new Map()
+		const dependencies = {
+			state,
+			/**
+			 * @returns {string} 本节点 hash
+			 */
+			getNodeHash: () => nodeHash,
+			/**
+			 * @param {Set<string>} exclude 已触达节点
+			 * @returns {Promise<string[]>} 可转发邻居
+			 */
+			selectNeighbors: async exclude => (nodeHash === NODE_A ? neighborsOfA : topology[nodeHash])
+				.filter(n => !exclude.has(n)),
+			/**
+			 * @param {string} target 目标 nodeHash
+			 * @param {string} action wire action
+			 * @param {unknown} payload 帧体
+			 * @returns {Promise<boolean>} 是否投递成功
+			 */
+			deliver: async (target, action, payload) => {
+				forwardCounts.set(nodeHash, (forwardCounts.get(nodeHash) || 0) + 1)
+				const peer = nodes.get(target)
+				for (const handler of peer.handlers.get(action) || []) handler(payload, nodeHash)
+				return true
+			},
+		}
+		const wire = {
+			/**
+			 * @param {string} name action
+			 * @param {Function} handler 回调
+			 * @returns {void}
+			 */
+			on(name, handler) {
+				if (!handlers.has(name)) handlers.set(name, new Set())
+				handlers.get(name).add(handler)
+			},
+			/**
+			 * @param {string} name action
+			 * @param {unknown} payload 载荷
+			 * @param {string | null} peerId 目标
+			 * @returns {void}
+			 */
+			send(name, payload, peerId) {
+				const peer = nodes.get(peerId)
+				for (const handler of peer?.handlers.get(name) || []) handler(payload, nodeHash)
+			},
+		}
+		attachPartQueryWire({ replicaUsername: 'alice' }, wire, dependencies)
+		nodes.set(nodeHash, { state, dependencies, handlers })
+	}
+
+	/**
+	 * @param {{ id: string }} row 命中行
+	 * @returns {string} 去重键
+	 */
+	const rowKey = row => row.id
+	const origin = nodes.get(NODE_A)
+
+	const miss = await queryNetwork('alice', 'shells/social', 'entity_search', { q: 'late' }, {
+		...origin.dependencies,
+		ttl: 1,
+		timeoutMs: 200,
+		rowKey,
+	})
+	assertEquals(miss, [])
+	assertEquals(forwardCounts.get(NODE_A) || 0, 0)
+
+	neighborsOfA = [NODE_B]
+	const hit = await queryNetwork('alice', 'shells/social', 'entity_search', { q: 'late' }, {
+		...origin.dependencies,
+		ttl: 1,
+		timeoutMs: 200,
+		rowKey,
+	})
+	assertEquals(hit.map(r => r.id), ['b-late'])
+	assertEquals((forwardCounts.get(NODE_A) || 0) >= 1, true)
 })

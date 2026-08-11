@@ -1,29 +1,27 @@
 import { randomUUID } from 'node:crypto'
 
-import { createDedupeSlot } from '../federation/dedupe_slot.mjs'
-import { getNodeHash } from '../node/identity.mjs'
-import { loadReputation } from '../node/reputation_store.mjs'
-import { isQuarantinedPure } from '../reputation/engine.mjs'
+import { compositeKey } from '../../core/composite_key.mjs'
+import { getNodeHash } from '../../node/identity.mjs'
+import { loadReputation } from '../../node/reputation_store.mjs'
+import { isQuarantinedPure } from '../../reputation/engine.mjs'
 import {
 	clampPartQueryRows,
 	parsePartQueryReq,
-	parsePartQueryRes,
-} from '../schemas/part_query.mjs'
-import { sendToNodeLink } from '../transport/link_registry.mjs'
-import { buildMergedGraph } from '../trust_graph/build.mjs'
-import { pickTopFromGraph } from '../trust_graph/engine.mjs'
-import { resolveFederationFanoutTopK } from '../trust_graph/resolve.mjs'
-import trustGraphTunables from '../trust_graph/tunables.json' with { type: 'json' }
+} from '../../schemas/part_query.mjs'
+import partQueryTunables from '../../schemas/part_query.tunables.json' with { type: 'json' }
+import { buildMergedGraph } from '../../trust_graph/build.mjs'
+import { pickTopFromGraph } from '../../trust_graph/engine.mjs'
+import { resolveFederationFanoutTopK } from '../../trust_graph/resolve.mjs'
+import trustGraphTunables from '../../trust_graph/tunables.json' with { type: 'json' }
+import { finishMultiWireWaiters, registerMultiWireWait } from '../../wire/wait.mjs'
+import { createDedupeSlot } from '../dedupe_slot.mjs'
 
-import { isPlainObject } from './ingress.mjs'
-import partQueryTunables from './part_query.tunables.json' with { type: 'json' }
-import { createPartQueryCache, partQueryCache } from './part_query_cache.mjs'
-import { consumeWireRateBucket } from './rate_bucket.mjs'
-import { finishMultiWireWaiters, registerMultiWireWait } from './wait.mjs'
+import { createPartQueryCache, partQueryCache } from './cache.mjs'
 
-/** @typedef {import('../schemas/part_query.mjs').PartQueryReq} PartQueryReq */
-/** @typedef {import('../schemas/part_query.mjs').PartQueryRes} PartQueryRes */
-/** @typedef {import('./part_ingress.mjs').PartWireAdapter} PartWireAdapter */
+/** @typedef {import('../../schemas/part_query.mjs').PartQueryReq} PartQueryReq */
+/** @typedef {import('../../schemas/part_query.mjs').PartQueryRes} PartQueryRes */
+
+/** @typedef {import('../../wire/adapter.mjs').WireAdapter} PartQueryWire */
 
 /**
  * @typedef {{
@@ -41,7 +39,7 @@ import { finishMultiWireWaiters, registerMultiWireWait } from './wait.mjs'
  * @typedef {{
  *   takeDedupe: (key: string) => boolean
  *   relayPending: Map<string, RelayPending>
- *   originWaits: Map<string, Map<string, import('./wait.mjs').WireWaiter[]>>
+ *   originWaits: Map<string, Map<string, import('../../wire/wait.mjs').WireWaiter[]>>
  *   originBags: Map<string, { rows: unknown[], maxHits: number, expected: number, received: number, respondedPeers: Set<string>, rowKey?: (row: unknown) => string }>
  *   cache: ReturnType<typeof createPartQueryCache>
  *   handlers: Map<string, QueryInboundHandler>
@@ -61,7 +59,7 @@ import { finishMultiWireWaiters, registerMultiWireWait } from './wait.mjs'
 /**
  * @typedef {{
  *   upstreamPeerId: string
- *   wire: PartWireAdapter
+ *   wire: PartQueryWire
  *   request: PartQueryReq
  *   localRows: unknown[]
  *   remoteRows: unknown[]
@@ -100,7 +98,7 @@ const defaultState = createPartQueryNodeState({ cache: partQueryCache })
  * @param {PartQueryDependencies} [dependencies] 依赖
  * @returns {PartQueryNodeState} 节点状态
  */
-function resolveState(dependencies = {}) {
+export function resolvePartQueryState(dependencies = {}) {
 	return dependencies.state || defaultState
 }
 
@@ -110,7 +108,7 @@ function resolveState(dependencies = {}) {
  * @returns {string} handler 键
  */
 function handlerKey(partpath, kind) {
-	return `${partpath}\0${kind}`
+	return compositeKey(partpath, kind)
 }
 
 /**
@@ -122,7 +120,7 @@ function handlerKey(partpath, kind) {
  * @returns {void}
  */
 export function registerQueryInboundHandler(partpath, kind, handler, state = defaultState) {
-	state.handlers.set(handlerKey(String(partpath || '').trim(), String(kind || '').trim()), handler)
+	state.handlers.set(handlerKey(partpath, kind), handler)
 }
 
 /**
@@ -202,17 +200,15 @@ async function selectQueryNeighbors(username, exclude, dependencies) {
 }
 
 /**
- * @param {string} username 用户
  * @param {string} nodeHash 目标
  * @param {string} action action 名
  * @param {unknown} payload 载荷
  * @param {PartQueryDependencies} dependencies 依赖
  * @returns {Promise<boolean>} 是否发出
  */
-async function deliverQuery(username, nodeHash, action, payload, dependencies) {
-	void username
-	if (dependencies.deliver) return Boolean(await dependencies.deliver(nodeHash, action, payload))
-	return sendToNodeLink(nodeHash, { scope: 'node', action, payload })
+async function deliverQuery(nodeHash, action, payload, dependencies) {
+	if (!dependencies.deliver) return false
+	return Boolean(await dependencies.deliver(nodeHash, action, payload))
 }
 
 /**
@@ -254,14 +250,14 @@ function flushRelayPending(pending) {
 
 /**
  * @param {{ replicaUsername?: string }} wireContext attach 上下文
- * @param {PartWireAdapter} wire wire
+ * @param {PartQueryWire} wire wire
  * @param {PartQueryReq} request 已校验请求
  * @param {string} peerId 来路
  * @param {PartQueryDependencies} dependencies 依赖
  * @returns {Promise<void>}
  */
-async function processIncomingRequest(wireContext, wire, request, peerId, dependencies) {
-	const state = resolveState(dependencies)
+export async function processIncomingPartQueryRequest(wireContext, wire, request, peerId, dependencies) {
+	const state = resolvePartQueryState(dependencies)
 	const nodeHashOf = dependencies.getNodeHash || getNodeHash
 	const now = dependencies.now || Date.now
 	const username = String(wireContext.replicaUsername || '')
@@ -311,7 +307,7 @@ async function processIncomingRequest(wireContext, wire, request, peerId, depend
 
 	let sent = 0
 	for (const target of neighbors)
-		if (await deliverQuery(username, target, 'part_query_req', forwardPayload, dependencies)) sent++
+		if (await deliverQuery(target, 'part_query_req', forwardPayload, dependencies)) sent++
 	pending.expected = sent
 
 	if (sent === 0 || pending.received >= pending.expected) {
@@ -323,47 +319,13 @@ async function processIncomingRequest(wireContext, wire, request, peerId, depend
 }
 
 /**
- * 挂载 part_query_req / part_query_res。
- * @param {{ replicaUsername?: string }} wireContext 入站上下文
- * @param {PartWireAdapter} wire wire
- * @param {PartQueryDependencies} [dependencies] 可注入依赖（含 per-node state）
- * @returns {() => void} 取消挂载的 dispose
- */
-export function attachPartQueryWire(wireContext, wire, dependencies = {}) {
-	const state = resolveState(dependencies)
-	const offs = [
-		wire.on('part_query_req', (data, peerId) => {
-			if (!isPlainObject(data)) return
-			const request = parsePartQueryReq(data)
-			if (!request) return
-			if (!state.takeDedupe(request.requestId)) return
-			const source = String(peerId || request.originNodeHash || '').trim().toLowerCase()
-			if (source && !consumeWireRateBucket(`part_query:${source}`, {
-				maxCount: partQueryTunables.ratePerSourcePerMin,
-			})) return
-			void processIncomingRequest(wireContext, wire, request, String(peerId || ''), dependencies)
-		}),
-		wire.on('part_query_res', (data, peerId) => {
-			const response = parsePartQueryRes(data)
-			if (!response) return
-			handleIncomingPartQueryResponse(response, String(peerId || ''), dependencies)
-		}),
-	]
-	return () => {
-		for (const off of offs)
-			try { off?.() } catch { /* ignore */ }
-	}
-}
-
-/**
  * @param {PartQueryRes} response 响应
  * @param {string} peerId 来路
  * @param {PartQueryDependencies} [dependencies] 依赖
  * @returns {void}
  */
 export function handleIncomingPartQueryResponse(response, peerId = '', dependencies = {}) {
-	const state = resolveState(dependencies)
-	// 同一 peer 只计一次，防重复回包灌水/提早凑齐 expected
+	const state = resolvePartQueryState(dependencies)
 	const responderKey = String(peerId || response.fromNodeHash || '').trim().toLowerCase()
 	const relay = state.relayPending.get(response.requestId)
 	if (relay) {
@@ -405,7 +367,7 @@ export function handleIncomingPartQueryResponse(response, peerId = '', dependenc
  * @returns {Promise<unknown[]>} 合并后的 rows
  */
 export async function queryNetwork(username, partpath, kind, query, options = {}) {
-	const state = resolveState(options)
+	const state = resolvePartQueryState(options)
 	const now = options.now || Date.now
 	const nodeHashOf = options.getNodeHash || getNodeHash
 
@@ -420,7 +382,6 @@ export async function queryNetwork(username, partpath, kind, query, options = {}
 		partQueryTunables.maxHits,
 		Math.max(1, Math.floor(Number(options.maxHits ?? options.budget?.maxHits) || partQueryTunables.maxHits)),
 	)
-	// 第一跳中继等待 hopTimeout(ttl) 才 flush，发起端默认取 ttl+1 档以免先行超时
 	const timeoutMs = Math.max(
 		1,
 		Math.floor(Number(options.timeoutMs) || resolvePartQueryHopTimeoutMs(ttl + 1)),
@@ -435,8 +396,8 @@ export async function queryNetwork(username, partpath, kind, query, options = {}
 	const request = {
 		requestId: randomUUID(),
 		originNodeHash: nodeHashOf(),
-		partpath: String(partpath || '').trim(),
-		kind: String(kind || '').trim(),
+		partpath,
+		kind,
 		query,
 		ttl,
 		budget: { maxHits },
@@ -444,7 +405,6 @@ export async function queryNetwork(username, partpath, kind, query, options = {}
 	const parsed = parsePartQueryReq(request)
 	if (!parsed) return mergeQueryRows([localRows], maxHits, options.rowKey)
 
-	// 预占 dedupe：若查询绕环回流到本机，入站侧直接丢弃
 	state.takeDedupe(parsed.requestId)
 
 	const bag = {
@@ -463,10 +423,9 @@ export async function queryNetwork(username, partpath, kind, query, options = {}
 	const neighbors = await selectQueryNeighbors(username, exclude, options)
 	let sent = 0
 	for (const target of neighbors)
-		if (await deliverQuery(username, target, 'part_query_req', parsed, options)) sent++
+		if (await deliverQuery(target, 'part_query_req', parsed, options)) sent++
 	bag.expected = sent
 
-	// deliver 可能同步回流；在赋值 expected 后再检查是否已齐
 	if (sent === 0 || bag.received >= bag.expected)
 		finishMultiWireWaiters(state.originWaits, parsed.requestId, '')
 	await waitPromise

@@ -32,9 +32,7 @@ Shutdown-exit tests use the production path (default public Nostr + lan). Do not
 
 ## Nostr cleanup
 
-Use the `ws` package (not global `WebSocket`). Subscriptions share one WebSocket per relay URL (signal / network advert / per-node advert / group advert multiplex `REQ`s). Active subscriptions reconnect after drop (`NOSTR_RECONNECT_DELAY_MS`) and re-send `REQ`s. On intentional shutdown: `close()`, then `terminate()` after `NOSTR_CLOSE_GRACE_MS` (1s) if the socket is not yet `CLOSED`. Presence publish still uses short-lived sockets.
-
-Platform `WebSocket` cannot replace `ws` until force-drop / unref exists on both runtimes: Node/undici ([#5570](https://github.com/nodejs/undici/issues/5570) → `process.unref` in [#5578](https://github.com/nodejs/undici/pull/5578)); Deno still open ([denoland/deno#36337](https://github.com/denoland/deno/issues/36337)).
+Use the `ws` package (not global `WebSocket`) — platform WebSocket lacks force-drop / unref needed for clean shutdown. Subscriptions share one WebSocket per relay URL (signal / network advert / per-node advert / group advert multiplex `REQ`s). Active subscriptions reconnect after drop (`NOSTR_RECONNECT_DELAY_MS`) and re-send `REQ`s. On intentional shutdown: `close()`, then `terminate()` after `NOSTR_CLOSE_GRACE_MS` (1s) if the socket is not yet `CLOSED`. Presence publish still uses short-lived sockets.
 
 Self presence echo from relays is filtered (`skipNodeHash`, same idea as LAN) and omitted from `listVisibleNodeHashes`. First-seen peer clues notify the link registry (`noteDiscoveryPeerClue`) so dial cooldown unlocks when a peer reappears.
 
@@ -53,12 +51,12 @@ Recommended Deno one-shot for the published CLI when you want native WebRTC:
 deno run -A --minimum-dependency-age=0 --node-modules-dir=auto --allow-scripts=npm:node-datachannel npm:@steve02081504/fount-p2p
 ```
 
-`deno.json` lists `"allowScripts": ["npm:node-datachannel"]` so project-local `deno install` does not try to compile noble/bleno. Blanket `--allow-scripts` is wrong here: optional BT deps may fail install scripts and Deno then aborts the entire command.
+`deno.json` lists `"allowScripts": ["npm:node-datachannel"]` so project-local `deno install` does not try to compile noble/bleno.
 
 On Android/Termux, `node-datachannel` has no Bionic prebuild — loader skips it and uses `node-rtc-connection` (data-channel only; EventEmitter → W3C bridge in `link/rtc/`; backpressure is weaker than libdatachannel).
 
 ## Bluetooth probe
 
-`canUseBluetoothRuntime` probes in-process: sysfs hint (Linux) → `loadNoble` → `waitPoweredOn` → `stop()`. Requires `@stoprocent/noble>=2.5.9` on Windows (safe teardown after probe; [stoprocent/noble#95](https://github.com/stoprocent/noble/issues/95)). On failure, discovery/link fall back to other paths.
+`canUseBluetoothRuntime` probes in-process: sysfs hint (Linux) → `loadNoble` → `waitPoweredOn` → `stop()`. Requires `@stoprocent/noble>=2.5.9` on Windows (safe teardown after probe). On failure, discovery/link fall back to other paths.
 
 Actual scan/GATT uses the same `loadNoble` / `loadBleno` path. Win defaults to scan-only. Shutdown does not await BT warm; a generation counter invalidates late side effects.

@@ -1,5 +1,3 @@
-import { normalizePartpath } from '../wire/part_invoke.mjs'
-
 /** @type {Map<string, string>} shell 逻辑名 → partpath */
 const shellPartpaths = new Map()
 
@@ -10,10 +8,7 @@ const shellPartpaths = new Map()
  * @returns {void}
  */
 export function registerShellPartpath(shellKey, partpath) {
-	const key = String(shellKey || '').trim()
-	const path = normalizePartpath(partpath)
-	if (!key || !path) throw new Error('invalid_shell_partpath_registration')
-	shellPartpaths.set(key, path)
+	shellPartpaths.set(shellKey, partpath)
 }
 
 /**
@@ -21,7 +16,7 @@ export function registerShellPartpath(shellKey, partpath) {
  * @returns {void}
  */
 export function unregisterShellPartpath(shellKey) {
-	shellPartpaths.delete(String(shellKey || '').trim())
+	shellPartpaths.delete(shellKey)
 }
 
 /**
@@ -29,7 +24,7 @@ export function unregisterShellPartpath(shellKey) {
  * @returns {string} 已注册的 partpath
  */
 export function getShellPartpath(shellKey) {
-	const path = shellPartpaths.get(String(shellKey || '').trim())
+	const path = shellPartpaths.get(shellKey)
 	if (!path) throw new Error(`shell partpath not registered: ${shellKey}`)
 	return path
 }

@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { logicalEntityHash } from '../../core/logical_entity.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'

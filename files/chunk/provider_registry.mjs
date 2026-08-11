@@ -10,7 +10,7 @@ const nodeHashProvidersByOwner = new Map()
  * @returns {void}
  */
 export function registerFederationChunkFetcher(ownerId, fetcher) {
-	federationFetchersByOwner.set(String(ownerId), fetcher)
+	federationFetchersByOwner.set(ownerId, fetcher)
 }
 
 /**
@@ -19,7 +19,7 @@ export function registerFederationChunkFetcher(ownerId, fetcher) {
  * @returns {void}
  */
 export function registerNodeHashProvider(ownerId, provider) {
-	nodeHashProvidersByOwner.set(String(ownerId), provider)
+	nodeHashProvidersByOwner.set(ownerId, provider)
 }
 
 /**
@@ -27,9 +27,8 @@ export function registerNodeHashProvider(ownerId, provider) {
  * @returns {void}
  */
 export function unregisterChunkProviders(ownerId) {
-	const key = String(ownerId)
-	federationFetchersByOwner.delete(key)
-	nodeHashProvidersByOwner.delete(key)
+	federationFetchersByOwner.delete(ownerId)
+	nodeHashProvidersByOwner.delete(ownerId)
 }
 
 /**

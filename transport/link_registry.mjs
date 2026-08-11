@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer'
 
 import { compareHex64Asc, normalizeHex64 } from '../core/hexIds.mjs'
 import { keyPairFromSeed } from '../crypto/crypto.mjs'
+import { noteAdvertPeerHints } from '../discovery/advert_peer_hints.mjs'
 import { watchVerifiedNodeAdvert, setDiscoveryLinkDialer, prepareConnectToNode } from '../discovery/index.mjs'
 import { setDiscoveryPeerClueListener } from '../discovery/peer_clue.mjs'
 import { listLinkProviders } from '../link/providers/index.mjs'
@@ -13,7 +14,6 @@ import { ms } from '../utils/duration.mjs'
 import { emitSafe } from '../utils/emit_safe.mjs'
 import { createLruMap } from '../utils/lru.mjs'
 
-import { applyAdvertPeerHints } from './advert_ingest.mjs'
 import { DEFAULT_ICE_SERVERS } from './ice_servers.mjs'
 import { createMeshKeepalive } from './mesh_keepalive.mjs'
 import { createOfferAnswerDial } from './offer_answer.mjs'
@@ -650,7 +650,7 @@ export function createLinkRegistry(options = {}) {
 		async watchNodeAdvert(nodeHash, onAdvert) {
 			const hash = normalizeHex64(nodeHash)
 			return await watchVerifiedNodeAdvert(hash, async (verifiedNodeHash, body, meta) => {
-				applyAdvertPeerHints(verifiedNodeHash, body, meta)
+				noteAdvertPeerHints(verifiedNodeHash, body, meta)
 				recentAdverts.touch(verifiedNodeHash, Date.now())
 				dialCooldown.delete(verifiedNodeHash)
 				await Promise.resolve(onAdvert(verifiedNodeHash, body))

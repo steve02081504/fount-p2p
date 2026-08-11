@@ -1,12 +1,12 @@
-import { isLogicalEntityHash } from '../core/logical_entity.mjs'
-import { isWritableLocalEntity } from '../node/identity.mjs'
+import { isLogicalEntityHash } from '../../core/logical_entity.mjs'
+import { isWritableLocalEntity } from '../../node/identity.mjs'
 
-import { checkManifestAcl, resolveManifestAclType } from './manifest_acl_registry.mjs'
+import { checkManifestAcl, resolveManifestAclType } from './acl_registry.mjs'
 
 /**
  * @param {string} replicaUsername 请求 replica
  * @param {string} ownerEntityHash 文件 owner
- * @param {import('./manifest.mjs').FileManifest} manifest 清单
+ * @param {import('./normalize.mjs').FileManifest} manifest 清单
  * @returns {Promise<boolean>} 是否允许读
  */
 export async function canReadManifest(replicaUsername, ownerEntityHash, manifest) {

@@ -5,21 +5,12 @@ import { registerFederationRoomProvider } from '../registries/room_provider.mjs'
 import { shuffleInPlace } from '../utils/shuffle.mjs'
 
 import { getLinkRegistry, listLinks, sendToNodeLink } from './link_registry.mjs'
-import {
-	attachUserRoomDefaultWires,
-	ensureNodeScope,
-} from './node_scope.mjs'
+import { attachNodeScopeDefaultFeatures } from './node_scope/features.mjs'
+import { ensureNodeScope } from './node_scope/wire.mjs'
 import { USER_ROOM_SCOPE } from './room_scopes.mjs'
 
-/**
- * 经 node scope 向对端发 action。
- * @param {string} peerId 对端 nodeHash
- * @param {string} action 动作名
- * @param {unknown} payload 载荷
- * @returns {Promise<boolean>} 是否发出
- */
-const sendNodeAction = (peerId, action, payload) =>
-	sendToNodeLink(peerId, { scope: 'node', action, payload })
+/** User Room 随机 peer 转发默认上限 */
+const USER_ROOM_PEER_FANOUT_DEFAULT = 6
 
 /** @type {Promise<UserRoomSlot> | null} */
 let userRoomInflight = null
@@ -50,7 +41,7 @@ export function activeLinkRoster() {
  *   roomId: string
  *   roomSecret: string
  *   room: object | null
- *   sendToPeer: (peerId: string, actionName: string, payload: unknown) => void
+ *   sendToPeer: (peerId: string, actionName: string, payload: unknown) => Promise<boolean>
  *   getRoster: () => Array<{ peerId: string, remoteNodeHash: string | undefined }>
  *   getPeerIdByNodeHash: (nodeHash: string) => string | null
  * }} UserRoomSlot
@@ -74,7 +65,7 @@ registerFederationRoomProvider('user-room', () => {
 		 * @param {string} peerId - 目标 peer
 		 * @param {string} actionName - node scope action 名
 		 * @param {unknown} payload - 载荷
-		 * @returns {void}
+		 * @returns {Promise<boolean>} 是否发出
 		 */
 		sendToPeer: (peerId, actionName, payload) => slot.sendToPeer(peerId, actionName, payload),
 	}]
@@ -95,7 +86,7 @@ export function resolveUserRoomCredentials() {
 }
 
 /**
- * 用户房间槽 + runtime；默认不挂业务 wire（用 `attachUserRoomDefaultWires` / `attachDefaultWires: true`）。
+ * 用户房间槽 + runtime；默认不挂业务 wire（用 `attachNodeScopeDefaultFeatures` / `attachDefaultWires: true`）。
  * @param {{ replicaUsername?: string, attachDefaultWires?: boolean }} [options] - 副本用户名与是否挂载默认 wire
  * @returns {Promise<UserRoomSlot>} 用户房间槽
  */
@@ -105,7 +96,7 @@ export async function ensureUserRoom(options = {}) {
 		ensureNodeScope({ replicaUsername: options.replicaUsername })
 	if (userRoomSlot) {
 		if (attachDefaultWires && !userRoomDefaultWiresDispose)
-			userRoomDefaultWiresDispose = attachUserRoomDefaultWires({ replicaUsername: options.replicaUsername })
+			userRoomDefaultWiresDispose = attachNodeScopeDefaultFeatures({ replicaUsername: options.replicaUsername })
 		return userRoomSlot
 	}
 	if (userRoomInflight) return await userRoomInflight
@@ -115,7 +106,7 @@ export async function ensureUserRoom(options = {}) {
 		await getLinkRegistry().ensureRuntime()
 		ensureNodeScope({ replicaUsername: options.replicaUsername })
 		if (attachDefaultWires && !userRoomDefaultWiresDispose)
-			userRoomDefaultWiresDispose = attachUserRoomDefaultWires({ replicaUsername: options.replicaUsername })
+			userRoomDefaultWiresDispose = attachNodeScopeDefaultFeatures({ replicaUsername: options.replicaUsername })
 		const creds = resolveUserRoomCredentials()
 		userRoomSlot = {
 			roomId: creds.roomId,
@@ -125,10 +116,10 @@ export async function ensureUserRoom(options = {}) {
 			 * @param {string} peerId - 目标 peer
 			 * @param {string} actionName - node scope action 名
 			 * @param {unknown} payload - 载荷
-			 * @returns {void}
+			 * @returns {Promise<boolean>} 是否发出
 			 */
 			sendToPeer(peerId, actionName, payload) {
-				void sendNodeAction(peerId, actionName, payload).catch(() => { })
+				return sendToNodeLink(peerId, { scope: 'node', action: actionName, payload }).catch(() => false)
 			},
 			/**
 			 * @returns {Array<{ peerId: string, remoteNodeHash: string }>} 当前活跃链路 roster
@@ -162,16 +153,15 @@ export async function ensureUserRoom(options = {}) {
  * @returns {Promise<number>} 成功转发的 peer 数
  */
 export async function deliverToUserRoomPeers(username, actionName, payload, exceptPeerId = null, limit) {
-	void username
-	const { USER_ROOM_PEER_FANOUT_DEFAULT } = await import('../wire/part_common.mjs')
 	const fanoutLimit = limit ?? USER_ROOM_PEER_FANOUT_DEFAULT
-	const body = { ...payload, nodeHash: getNodeHash() }
+	if (fanoutLimit <= 0) return 0
+	const slot = await ensureUserRoom({ replicaUsername: username })
 	let sent = 0
-	const peers = shuffleInPlace(activeLinkRoster()
+	const peers = shuffleInPlace(slot.getRoster()
 		.filter(({ peerId }) => peerId && peerId !== exceptPeerId))
 	for (const { peerId } of peers)
 		try {
-			if (await sendNodeAction(peerId, actionName, body))
+			if (await slot.sendToPeer(peerId, actionName, { ...payload, nodeHash: getNodeHash() }))
 				sent++
 			if (sent >= fanoutLimit) break
 		}
@@ -179,6 +169,3 @@ export async function deliverToUserRoomPeers(username, actionName, payload, exce
 
 	return sent
 }
-
-/** 再导出：node-scope 订阅与默认 wires（见 `node_scope.mjs`）。 */
-export { attachUserRoomDefaultWires, ensureNodeScope } from './node_scope.mjs'

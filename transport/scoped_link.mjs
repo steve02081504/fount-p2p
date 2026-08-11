@@ -1,4 +1,4 @@
-import { createGroupLinkSet } from '../transport/group_link_set.mjs'
+import { createGroupLinkSet } from './group_link_set.mjs'
 
 /**
  * scoped 房间：group_link_set 的薄预设（任意 scope + allowNode + 发现即拨）。

@@ -1,9 +1,9 @@
+import { noteAdvertPeerHints } from '../discovery/advert_peer_hints.mjs'
 import { listVisibleNodeHashes, startGroupPresence, watchVerifiedGroupAdverts } from '../discovery/index.mjs'
 import { loadPeerPoolView } from '../node/network.mjs'
 import { loadReputation } from '../node/reputation_store.mjs'
 import { emitSafe } from '../utils/emit_safe.mjs'
 
-import { applyAdvertPeerHints } from './advert_ingest.mjs'
 import { getLinkRegistry } from './link_registry.mjs'
 import { resolveFederationPoolLimits, selectLinkTargetsFromMembers } from './peer_pool.mjs'
 import { loadTransportTunables } from './tunables.mjs'
@@ -208,7 +208,7 @@ export function createGroupLinkSet(options) {
 		registerCleanup(await watchVerifiedGroupAdverts(roomSecret, async (verifiedNodeHash, body, meta) => {
 			if (verifiedNodeHash === selfNodeHash) return
 			if (!allowNode(verifiedNodeHash)) return
-			applyAdvertPeerHints(verifiedNodeHash, body, meta)
+			noteAdvertPeerHints(verifiedNodeHash, body, meta)
 			notePeerCandidate(verifiedNodeHash)
 		}))
 
