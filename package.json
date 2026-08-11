@@ -11,7 +11,7 @@
 	"type": "module",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/steve02081504/fount-p2p.git",
+		"url": "git+https://github.com/steve02081504/fount-p2p.git",
 		"directory": "."
 	},
 	"engines": {
@@ -31,7 +31,7 @@
 		"!scripts/**"
 	],
 	"bin": {
-		"fount-p2p": "./infra/cli.mjs"
+		"fount-p2p": "infra/cli.mjs"
 	},
 	"exports": {
 		".": "./index.mjs",
