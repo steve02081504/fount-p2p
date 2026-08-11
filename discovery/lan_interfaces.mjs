@@ -17,7 +17,7 @@ export function normalizeLanHosts(input) {
 	/** @type {string[]} */
 	const out = []
 	for (const item of arr) {
-		const host = String(item || '').trim()
+		const host = String(item || '')
 		if (!host || !IPV4_RE.test(host) || seen.has(host)) continue
 		seen.add(host)
 		out.push(host)
@@ -68,7 +68,7 @@ export function listMulticastIpv4Addresses() {
 		if (!ifaces) continue
 		for (const iface of ifaces) {
 			if (iface.internal || !isIpv4Family(iface.family)) continue
-			const addr = String(iface.address || '').trim()
+			const addr = String(iface.address || '')
 			if (!addr || seen.has(addr)) continue
 			seen.add(addr)
 			addrs.push(addr)

@@ -22,10 +22,9 @@ export function invalidateTrustGraphCache() {
  * @returns {Promise<Map<string, object>>} 合并后的信任图
  */
 export async function getCachedTrustGraph(username, build, ttlMs = DEFAULT_TTL_MS) {
-	const key = String(username || '')
 	const now = Date.now()
 	const dataRevision = getLocalDataRevision()
-	const cached = cacheByUsername.get(key)
+	const cached = cacheByUsername.get(username)
 	if (
 		cached
 		&& cached.revision === revision
@@ -35,6 +34,6 @@ export async function getCachedTrustGraph(username, build, ttlMs = DEFAULT_TTL_M
 		return cached.graph
 
 	const graph = await build()
-	cacheByUsername.set(key, { graph, builtAt: now, revision, dataRevision })
+	cacheByUsername.set(username, { graph, builtAt: now, revision, dataRevision })
 	return graph
 }

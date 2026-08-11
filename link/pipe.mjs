@@ -299,8 +299,7 @@ export function createLinkPipe(options) {
 		}))
 		for (const frame of encodeFrames(frameId, bytes)) {
 			const sent = options.sendFrame(envelope.action, frame)
-			if (sent != null && typeof /** @type {{ then?: unknown }} */ sent.then === 'function')
-				await sent
+			if (sent?.then) await sent
 			sentFrames++
 		}
 		lastOutboundAt = Date.now()

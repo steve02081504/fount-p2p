@@ -34,8 +34,7 @@ const chunkInflight = createInflightTable({
  * @returns {Promise<Uint8Array | null>} 密文块
  */
 export async function fetchChunk(context) {
-	const hash = String(context.ciphertextHash || '').trim().toLowerCase()
-	const { username } = context
+	const { username, ciphertextHash: hash } = context
 	if (!hash || !username) return null
 
 	if (await hasChunk(hash))

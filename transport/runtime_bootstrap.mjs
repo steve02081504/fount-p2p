@@ -41,14 +41,14 @@ export function collectFastListenProviders(ownedLanTcp) {
 	const listenProviders = []
 	if (ownedLanTcp) listenProviders.push(ownedLanTcp)
 	for (const provider of listLinkProviders()) {
-		const id = String(provider.id)
+		const id = provider.id
 		if (id.startsWith('lan_tcp') || id.startsWith('ble_gatt')) continue
-		if (typeof provider.ensureListening !== 'function') continue
+		if (!provider.ensureListening) continue
 		if (providerHasNativeProbe(provider)) continue
-		if (typeof provider.isAvailable === 'function')
+		if (provider.isAvailable)
 			try {
 				const available = provider.isAvailable()
-				if (available && typeof available.then === 'function') continue
+				if (available?.then) continue
 				if (!available) continue
 			}
 			catch { continue }
@@ -166,7 +166,7 @@ export function createRuntimeBootstrap(deps) {
 	 * @returns {number | null} 本机 lan_tcp 监听端口，未就绪为 null
 	 */
 	function lanTcpPort() {
-		const endpoint = typeof ownedLanTcp?.localEndpoint === 'function' ? ownedLanTcp.localEndpoint() : null
+		const endpoint = ownedLanTcp?.localEndpoint ? ownedLanTcp.localEndpoint() : null
 		return normalizeTcpPort(endpoint?.port)
 	}
 
@@ -199,13 +199,13 @@ export function createRuntimeBootstrap(deps) {
 	 * @returns {Promise<void>}
 	 */
 	async function startProviderListening(provider) {
-		if (typeof provider.ensureListening !== 'function') return
+		if (!provider.ensureListening) return
 		try {
 			const stop = await provider.ensureListening({
 				localIdentity,
 				onInbound: onInboundLink,
 			})
-			if (typeof stop === 'function') stopLinkListeners.push(stop)
+			if (stop) stopLinkListeners.push(stop)
 		}
 		catch { /* provider listen unavailable */ }
 	}
@@ -228,18 +228,18 @@ export function createRuntimeBootstrap(deps) {
 			if (!providerIds.has('bt')) {
 				const bt = await import('../discovery/bt/index.mjs').catch(() => null)
 				if (generation !== gen || !isLive()) return
-				if (await bt?.canUseBluetoothDiscovery?.()) {
+				if (await bt?.canUseBluetoothRuntime?.()) {
 					if (generation !== gen || !isLive()) return
 					const provider = bt.createBluetoothDiscoveryProvider()
 					registerDiscoveryProvider(provider)
 					if (generation !== gen || !isLive()) return
-					if (typeof provider.startPresence === 'function')
+					if (provider.startPresence)
 						try {
 							const stop = await provider.startPresence(async () => ({
 								nodeHash: localIdentity.nodeHash,
 								advertBytes: await buildNetworkAdvertBytes(),
 							}))
-							if (typeof stop === 'function' && generation === gen && isLive()) {
+							if (stop && generation === gen && isLive()) {
 								const prev = stopPresence
 								/**
 								 * 停止 presence 广播并链式调用上一轮清理。
@@ -248,12 +248,12 @@ export function createRuntimeBootstrap(deps) {
 							}
 						}
 						catch { /* ignore */ }
-					if (provider.caps?.canSignal && typeof provider.listenNodeSignals === 'function')
+					if (provider.caps?.canSignal && provider.listenNodeSignals)
 						try {
 							const stop = await provider.listenNodeSignals(localIdentity.nodeHash, bytes => {
 								void handleIncomingSignal(bytes).catch(() => { })
 							})
-							if (typeof stop === 'function' && generation === gen && isLive()) {
+							if (stop && generation === gen && isLive()) {
 								const prev = stopSignalListener
 								/**
 								 * 停止信令监听并链式调用上一轮清理。

@@ -21,7 +21,7 @@ const INTENTIONAL_CLOSE = new Set([
  * @returns {boolean} 是否为本机主动关链（不重拨）
  */
 export function isMeshIntentionalClose(reason) {
-	return INTENTIONAL_CLOSE.has(String(reason || ''))
+	return INTENTIONAL_CLOSE.has(reason || '')
 }
 
 /**

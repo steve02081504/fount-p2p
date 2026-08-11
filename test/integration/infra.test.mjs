@@ -30,13 +30,13 @@ import { buildSignedAdvert } from '../../link/handshake.mjs'
 import { initNode, resetNodeForTests } from '../../node/instance.mjs'
 import { loadNetwork, replaceNetworkPeerPools } from '../../node/network.mjs'
 import {
-	getReputationTable,
 	pullReputationFromNode,
 	resetReputationSyncForTests,
 	setReputationTable,
 	setTrustSyncDonors,
 	attachReputationSyncWire,
 } from '../../node/reputation_sync.mjs'
+import { loadReputation } from '../../node/reputation_store.mjs'
 import { getRoutingProfile, setRoutingProfile } from '../../node/routing_profile.mjs'
 import {
 	configureLinkRegistry,
@@ -168,12 +168,12 @@ test('pull≠set: pull failure does not write; setReputationTable writes', async
 	try {
 		resetAll()
 		initNode({ nodeDir })
-		const beforeKeys = Object.keys(getReputationTable().byNodeHash || {})
+		const beforeKeys = Object.keys(loadReputation().byNodeHash || {})
 		setTrustSyncDonors([HASH_A])
 		await assert.rejects(() => pullReputationFromNode(HASH_A), /rep_sync/)
-		assert.deepEqual(Object.keys(getReputationTable().byNodeHash || {}), beforeKeys)
+		assert.deepEqual(Object.keys(loadReputation().byNodeHash || {}), beforeKeys)
 		await setReputationTable({ byNodeHash: { [HASH_A]: { score: 0.9 } } })
-		assert.equal(getReputationTable().byNodeHash[HASH_A].score, 0.9)
+		assert.equal(loadReputation().byNodeHash[HASH_A].score, 0.9)
 	}
 	finally {
 		resetAll()
@@ -204,10 +204,10 @@ test('pull success returns JSON without writing local table', async () => {
 			return true
 		}
 		setTrustSyncDonors([HASH_A])
-		const before = structuredClone(getReputationTable())
+		const before = structuredClone(loadReputation())
 		const pulled = await pullReputationFromNode(HASH_A)
 		assert.equal(pulled.byNodeHash[HASH_B].score, 0.55)
-		assert.deepEqual(getReputationTable(), before)
+		assert.deepEqual(loadReputation(), before)
 		registry.sendToNodeLink = originalSend
 	}
 	finally {
@@ -229,7 +229,7 @@ test('valid ingestEncryptedAdvert verifies without writing peer hints', async ()
 		tcpPort: 19091,
 	})
 	const bytes = encryptSignalPacket(rendezvousKey, { type: 'advert', body: advert })
-	const ingested = await ingestEncryptedAdvert(rendezvousKey, bytes, { address: '10.0.0.8' })
+	const ingested = await ingestEncryptedAdvert(rendezvousKey, bytes)
 	assert.equal(ingested?.verifiedNodeHash, nodeHash)
 	assert.equal(getLanPeerHint(nodeHash), null)
 	noteAdvertPeerHints(ingested.verifiedNodeHash, ingested.body, { address: '10.0.0.8' })

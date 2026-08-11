@@ -59,7 +59,7 @@ export function clearLanVisibleNodes() {
  */
 export async function acceptLanPresenceAdvert(advertBytes, meta = {}) {
 	if (!advertBytes?.byteLength) return null
-	const ingested = await ingestNetworkAdvert(advertBytes, meta)
+	const ingested = await ingestNetworkAdvert(advertBytes)
 	if (!ingested) return null
 	const skipHash = meta.skipNodeHash ? normalizeHex64(meta.skipNodeHash) : null
 	if (skipHash && ingested.verifiedNodeHash === skipHash) return ingested
@@ -68,7 +68,7 @@ export async function acceptLanPresenceAdvert(advertBytes, meta = {}) {
 	noteAdvertPeerHints(ingested.verifiedNodeHash, ingested.body, meta)
 	if (firstSeen) {
 		noteDiscoveryPeerClue(ingested.verifiedNodeHash)
-		const host = String(meta.address || '').trim()
+		const host = String(meta.address || '')
 		nodeDebug('p2p:lan peer visible', {
 			peer: shortHash(ingested.verifiedNodeHash),
 			host: host || undefined,
@@ -85,7 +85,7 @@ export async function acceptLanPresenceAdvert(advertBytes, meta = {}) {
  */
 export function createLanDiscoveryProvider(options = {}) {
 	const port = Number(options.port) || DEFAULT_PORT
-	const group = String(options.group || DEFAULT_GROUP)
+	const group = options.group || DEFAULT_GROUP
 	/** @type {import('node:dgram').Socket | null} */
 	let socket = null
 	let bound = false

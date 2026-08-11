@@ -9,8 +9,7 @@ import { noteDiscoveryPeerClue } from '../peer_clue.mjs'
 import { getBtPeerHint } from './peer_hints.mjs'
 import { canUseBluetoothRuntime, loadBleno, loadNoble, resolveBtRole, waitPoweredOn } from './runtime.mjs'
 
-/** 重导出 waitPoweredOn，供 discovery 调用方使用。 */
-export { waitPoweredOn } from './runtime.mjs'
+export { canUseBluetoothRuntime, waitPoweredOn }
 
 const BT_SERVICE_UUID = 'f017f017f017f017f017f017f017f017'
 const BT_CHARACTERISTIC_UUID = 'f017f017f017f017f017f017f017f018'
@@ -54,13 +53,6 @@ export function clearBtVisibleNodes() {
 }
 
 /**
- * @returns {Promise<boolean>} 可用为 true
- */
-export async function canUseBluetoothDiscovery() {
-	return canUseBluetoothRuntime()
-}
-
-/**
  * @param {Map<string, Uint8Array>} presence nodeHash → encrypted advert
  * @returns {Buffer} JSON blob
  */
@@ -100,9 +92,9 @@ function parsePresenceBlob(raw) {
  * @returns {Promise<{ verifiedNodeHash: string, body: object } | null>} 验签结果
  */
 export async function acceptBtScannedPresence(bytes, meta) {
-	const peripheralId = String(meta?.peripheralId || '').trim()
+	const peripheralId = String(meta?.peripheralId || '')
 	if (!peripheralId || !bytes?.byteLength) return null
-	const ingested = await ingestNetworkAdvert(bytes, meta)
+	const ingested = await ingestNetworkAdvert(bytes)
 	if (!ingested) return null
 	const firstSeen = !visibleByHash.has(ingested.verifiedNodeHash)
 	noteBtVisibleNode(ingested.verifiedNodeHash)

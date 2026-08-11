@@ -81,11 +81,3 @@ export function pubKeyHash(publicKey) {
 export function sha256Hex(data) {
 	return bytesToHex(sha256(inputBytes(data)))
 }
-
-/**
- * @param {string} text 文本
- * @returns {string} 64 字符 hex
- */
-export function sha256TextHex(text) {
-	return sha256Hex(String(text ?? ''))
-}

@@ -48,9 +48,7 @@ async function publishLinkPacket(remoteNodeHash, packet) {
  * @returns {import('./index.mjs').LinkProvider & { deliverPacket: (packet: object) => void }} provider
  */
 export function createNostrLinkProvider(options = {}) {
-	const resolveRelayUrls = typeof options.getRelayUrls === 'function'
-		? options.getRelayUrls
-		: resolveDefaultRelayUrls
+	const resolveRelayUrls = options.getRelayUrls || resolveDefaultRelayUrls
 
 	/** @type {((link: import('./index.mjs').LinkHandle) => void) | null} */
 	let onInbound = null

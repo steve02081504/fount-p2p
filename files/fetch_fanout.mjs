@@ -10,12 +10,12 @@ function fetchPeerTargets() {
 	/** @type {Set<string>} */
 	const targets = new Set()
 	for (const { nodeHash } of listLinks())
-		if (nodeHash) targets.add(String(nodeHash).toLowerCase())
+		if (nodeHash) targets.add(nodeHash)
 	const net = loadNetwork()
 	for (const nodeHash of [...net.trustedPeers || [], ...net.explorePeers || []])
-		if (nodeHash) targets.add(String(nodeHash).toLowerCase())
+		if (nodeHash) targets.add(nodeHash)
 	for (const hint of net.hints || [])
-		if (hint?.nodeHash) targets.add(String(hint.nodeHash).toLowerCase())
+		if (hint?.nodeHash) targets.add(hint.nodeHash)
 	return [...targets]
 }
 

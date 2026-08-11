@@ -123,3 +123,4 @@ Group chunk remote storage (S3, etc.) is implemented by the shell as `GroupStora
 - Infra relay / node-scope attaches: [`docs/infra.md`](./docs/infra.md)
 - Wire part / fanout attaches: [`docs/wire.md`](./docs/wire.md)
 - EVFS public manifests / fetch: [`docs/evfs.md`](./docs/evfs.md)
+- Subjective reputation: [`docs/reputation.md`](./docs/reputation.md)

@@ -64,7 +64,7 @@ export function parseMailboxGive(payload) {
 			return { ok: false, code: shape.code, field: `records[${i}].${shape.field}` }
 		if (!record.envelope || typeof record.envelope !== 'object')
 			return { ok: false, code: 'required', field: `records[${i}].envelope` }
-		const app = String(record.app || '').trim()
+		const app = String(record.app || '')
 		if (!app)
 			return { ok: false, code: 'required', field: `records[${i}].app` }
 		records.push(record)

@@ -171,7 +171,7 @@ export function buildFileManifest(parameters) {
 	} = parameters
 	const enc = encryptPlaintextToParts(plaintext, ceMode)
 	const manifest = normalizeFileManifest({
-		ownerEntityHash: ownerEntityHash.toLowerCase(),
+		ownerEntityHash,
 		logicalPath: logicalPath.replace(/^\/+/, ''),
 		name: name || logicalPath.split('/').pop() || 'file',
 		mimeType,
@@ -204,7 +204,7 @@ export function buildFileManifestFromEnc(parameters, enc) {
 		meta,
 	} = parameters
 	const manifest = normalizeFileManifest({
-		ownerEntityHash: ownerEntityHash.toLowerCase(),
+		ownerEntityHash,
 		logicalPath: logicalPath.replace(/^\/+/, ''),
 		name: name || logicalPath.split('/').pop() || 'file',
 		mimeType,
@@ -229,7 +229,7 @@ export function buildFileManifestFromEnc(parameters, enc) {
 export function vaultWrapDescriptor(entityHash, fileId, contentKey, H) {
 	return {
 		type: 'vault-wrap',
-		entityHash: entityHash.toLowerCase(),
+		entityHash,
 		fileId,
 		wrappedKey: wrapContentKey(contentKey, H, fileId),
 	}

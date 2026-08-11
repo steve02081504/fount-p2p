@@ -3,7 +3,7 @@ import { Buffer } from 'node:buffer'
 import { canonicalStringify } from '../../core/canonical_json.mjs'
 import { hashFromPubKeyHex, parseEntityHash } from '../../core/entity_id.mjs'
 import { assertSafeEvfsLogicalPath } from '../../core/evfs_logical_path.mjs'
-import { isHex64, normalizeHex64 } from '../../core/hexIds.mjs'
+import { isHex64, isSignatureHex128, normalizeHex64 } from '../../core/hexIds.mjs'
 import { sign, verify } from '../../crypto/crypto.mjs'
 import { putFileManifest, saveFileManifest } from '../evfs.mjs'
 
@@ -19,14 +19,14 @@ export const ENTITY_PUBLIC_MANIFEST_DOMAIN = 'fount-entity-public-manifest'
 export function publicManifestSignBytes(fields) {
 	return Buffer.from(canonicalStringify([
 		ENTITY_PUBLIC_MANIFEST_DOMAIN,
-		String(fields.ownerEntityHash || '').trim().toLowerCase(),
+		fields.ownerEntityHash || '',
 		assertSafeEvfsLogicalPath(fields.logicalPath),
 		Number(fields.publishedAt) || 0,
-		String(fields.contentHash || '').trim().toLowerCase(),
+		fields.contentHash || '',
 		Number(fields.size) || 0,
-		String(fields.mimeType || ''),
-		String(fields.name || ''),
-		String(fields.ceMode || ''),
+		fields.mimeType || '',
+		fields.name || '',
+		fields.ceMode || '',
 		fields.parts || [],
 	]), 'utf8')
 }
@@ -74,8 +74,8 @@ export async function verifySignedPublicManifest(input) {
 	if (!publicSig || typeof publicSig !== 'object') return null
 	const publishedAt = Number(publicSig.publishedAt) || 0
 	const pubKeyHex = normalizeHex64(publicSig.pubKeyHex)
-	const sigHex = String(publicSig.sigHex || '').trim().toLowerCase()
-	if (!isHex64(pubKeyHex) || !/^[\da-f]{128}$/u.test(sigHex) || publishedAt <= 0) return null
+	const sigHex = String(publicSig.sigHex || '')
+	if (!isHex64(pubKeyHex) || !isSignatureHex128(sigHex) || publishedAt <= 0) return null
 
 	const parsed = parseEntityHash(manifest.ownerEntityHash)
 	if (!parsed) return null

@@ -21,15 +21,15 @@ import { handleIncomingPartInvokeResponse } from './pending.mjs'
  * @returns {object | null} 白名单字段
  */
 function parsePartTimelinePut(data, partpath) {
-	const timelineEntityHash = String(data.timelineEntityHash || '').trim().toLowerCase()
+	const timelineEntityHash = String(data.timelineEntityHash || '')
 	if (!timelineEntityHash || !isPlainObject(data.event)) return null
 	return {
 		type: 'part_timeline_put',
 		partpath,
 		timelineEntityHash,
 		event: data.event,
-		...data.nodeHash ? { nodeHash: String(data.nodeHash).trim() } : {},
-		...data.groupId ? { groupId: String(data.groupId).trim() } : {},
+		...data.nodeHash ? { nodeHash: String(data.nodeHash) } : {},
+		...data.groupId ? { groupId: String(data.groupId) } : {},
 	}
 }
 
@@ -60,8 +60,8 @@ async function dispatchPartInvoke(wireContext, payload) {
 	if (!partpath || !isPlainObject(invoke)) return null
 	return dispatchRpcInbound({
 		replicaUsername: wireContext.replicaUsername,
-		requesterNodeHash: payload.peerId ? String(payload.peerId).trim() : null,
-		groupId: payload.groupId ? String(payload.groupId).trim() : undefined,
+		requesterNodeHash: payload.peerId || null,
+		groupId: payload.groupId || undefined,
 		peerId: payload.peerId,
 	}, {
 		type: 'part_invoke',
@@ -93,7 +93,7 @@ export function attachPartWire(wireContext, wire, options = {}) {
 			if (!message) return
 			void dispatchDeliveryInbound({
 				replicaUsername: wireContext.replicaUsername,
-				requesterNodeHash: peerId ? String(peerId).trim() : null,
+				requesterNodeHash: peerId || null,
 			}, message)
 		},
 		/**

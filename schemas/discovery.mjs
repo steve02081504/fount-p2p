@@ -9,9 +9,9 @@ const MAX_DISCOVERY_ADS = 64
  */
 function sanitizeDiscoveryAdvertisement(ad) {
 	if (!isPlainObject(ad)) return null
-	const groupId = String(ad.groupId || '').trim()
+	const groupId = String(ad.groupId || '')
 	const advertiserPubKeyHash = normalizeHex64(ad.advertiserPubKeyHash)
-	const signature = String(ad.signature || '').trim().toLowerCase()
+	const signature = String(ad.signature || '')
 	if (!groupId || !isHex64(advertiserPubKeyHash) || !isSignatureHex128(signature)) return null
 	const advertiserNodeHash = normalizeHex64(ad.advertiserNodeHash)
 	const body = {
@@ -19,7 +19,7 @@ function sanitizeDiscoveryAdvertisement(ad) {
 		title: String(ad.title || '').slice(0, 200),
 		blurb: String(ad.blurb || '').slice(0, 500),
 		advertiserPubKeyHash,
-		advertiserNodeHash: isHex64(advertiserNodeHash) ? advertiserNodeHash : String(ad.advertiserNodeHash || '').trim(),
+		advertiserNodeHash: isHex64(advertiserNodeHash) ? advertiserNodeHash : String(ad.advertiserNodeHash || ''),
 		observedAt: Number(ad.observedAt) || 0,
 		signature,
 	}
@@ -47,10 +47,10 @@ export function assertDiscoveryNodeHash(nodeHash) {
 
 /**
  * @param {unknown} requestId 请求 id
- * @returns {string} 非空 trimmed 字符串
+ * @returns {string} 非空字符串
  */
 export function assertDiscoveryRequestId(requestId) {
-	const id = String(requestId ?? '').trim()
+	const id = String(requestId ?? '')
 	if (!id) throw new Error('discovery.requestId required')
 	return id
 }

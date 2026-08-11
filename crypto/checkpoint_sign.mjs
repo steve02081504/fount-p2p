@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer'
 
 import { canonicalStringify } from '../core/canonical_json.mjs'
+import { isHex64, isSignatureHex128 } from '../core/hexIds.mjs'
 import { merkleRoot } from '../dag/index.mjs'
 
 import { sign, verify } from './crypto.mjs'
@@ -26,8 +27,8 @@ export async function signCheckpoint(payload, secretKey) {
  * @returns {Promise<boolean>} 合法为 true
  */
 export async function verifyCheckpointSignature(checkpoint, ownerPublicKey) {
-	const raw = checkpoint.checkpoint_signature.trim()
-	if (!/^[\da-f]{128}$/iu.test(raw)) return false
+	const raw = String(checkpoint.checkpoint_signature || '')
+	if (!isSignatureHex128(raw)) return false
 	const body = { ...checkpoint }
 	delete body.checkpoint_signature
 	const messageBytes = Buffer.from(canonicalStringify(body), 'utf8')
@@ -40,7 +41,7 @@ export async function verifyCheckpointSignature(checkpoint, ownerPublicKey) {
  * @returns {boolean} 签名格式合法为 true
  */
 export function isSignedCheckpoint(checkpoint) {
-	return /^[\da-f]{128}$/iu.test(String(checkpoint?.checkpoint_signature || '').trim())
+	return isSignatureHex128(String(checkpoint?.checkpoint_signature || ''))
 }
 
 /**
@@ -59,7 +60,7 @@ export async function verifyRemoteCheckpoint(checkpoint) {
 	const ownerHash = checkpoint.members_record?.delegatedOwnerPubKeyHash
 	const owner = checkpoint.members_record?.members?.[ownerHash]
 	const pubHex = owner?.pubKeyHex
-	if (!pubHex || !/^[\da-f]{64}$/iu.test(pubHex))
+	if (!pubHex || !isHex64(pubHex))
 		return { valid: false, reason: 'delegated owner pubkey missing' }
 	if (!await verifyCheckpointSignature(checkpoint, Buffer.from(pubHex, 'hex')))
 		return { valid: false, reason: 'checkpoint signature invalid' }

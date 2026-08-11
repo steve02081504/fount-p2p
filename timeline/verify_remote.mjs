@@ -3,7 +3,7 @@
  */
 import { Buffer } from 'node:buffer'
 
-import { isHex64, isSignatureHex128 } from '../core/hexIds.mjs'
+import { isHex64, isSignatureHex128, normalizeHex64 } from '../core/hexIds.mjs'
 import { pubKeyHash, verify } from '../crypto/crypto.mjs'
 import { eventBodyForSign, signPayloadBytes } from '../dag/index.mjs'
 
@@ -12,11 +12,11 @@ import { eventBodyForSign, signPayloadBytes } from '../dag/index.mjs'
  * @returns {Promise<boolean>} 验签是否通过
  */
 export async function verifyTimelineRemoteSignature(event) {
-	const sender = String(event?.sender || '').trim().toLowerCase()
+	const sender = normalizeHex64(event?.sender)
 	if (!isHex64(sender)) return false
-	const signatureHex = String(event?.signature || '').trim()
+	const signatureHex = String(event?.signature || '')
 	if (!isSignatureHex128(signatureHex)) return false
-	const pubKeyHex = String(event?.senderPubKey || '').trim().toLowerCase()
+	const pubKeyHex = normalizeHex64(event?.senderPubKey)
 	if (!isHex64(pubKeyHex)) return false
 	const publicKeyBytes = new Uint8Array(Buffer.from(pubKeyHex, 'hex'))
 	if (pubKeyHash(publicKeyBytes) !== sender) return false

@@ -21,7 +21,7 @@ export function noteAdvertPeerHints(verifiedNodeHash, body, meta) {
 	// lanHosts 先写（差→优，unshift 后优在前），再写观测 address，使 address 最优先
 	for (const host of normalizeLanHosts(body?.lanHosts).toReversed())
 		noteLanPeerHint(verifiedNodeHash, { host, port: tcpPort })
-	const address = String(meta?.address || '').trim()
+	const address = String(meta?.address || '')
 	if (address)
 		noteLanPeerHint(verifiedNodeHash, { host: address, port: tcpPort })
 }

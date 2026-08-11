@@ -15,9 +15,8 @@ const hints = createTtlMap(BT_PEER_HINT_TTL_MS)
  */
 export function noteBtPeerHint(nodeHash, peripheralId) {
 	const hash = normalizeHex64(nodeHash)
-	const id = String(peripheralId || '').trim()
-	if (!hash || !id) return
-	hints.set(hash, { peripheralId: id })
+	if (!hash || !peripheralId) return
+	hints.set(hash, { peripheralId })
 }
 
 /**

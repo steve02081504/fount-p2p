@@ -27,7 +27,7 @@ export function setDiscoveryLinkDialer(dialer) {
  */
 export function registerDiscoveryProvider(provider) {
 	if (!provider?.id) throw new Error('p2p: discovery provider requires id')
-	providers.set(String(provider.id), provider)
+	providers.set(provider.id, provider)
 	return () => unregisterDiscoveryProvider(provider.id)
 }
 
@@ -36,8 +36,8 @@ export function registerDiscoveryProvider(provider) {
  * @returns {void}
  */
 export function unregisterDiscoveryProvider(id) {
-	const provider = providers.get(String(id))
-	providers.delete(String(id))
+	const provider = providers.get(id)
+	providers.delete(id)
 	try { provider?.dispose?.() } catch { /* ignore */ }
 }
 
@@ -59,7 +59,7 @@ export function listDiscoveryProviders() {
  * @returns {DiscoveryProvider | undefined} 对应 id 的提供者，未注册为 undefined
  */
 export function getDiscoveryProvider(id) {
-	return providers.get(String(id))
+	return providers.get(id)
 }
 
 /**
@@ -67,17 +67,17 @@ export function getDiscoveryProvider(id) {
  * @returns {DiscoveryProvider[]} 实现了指定方法的提供者列表
  */
 function providersWith(method) {
-	return listDiscoveryProviders().filter(provider => typeof provider[method] === 'function')
+	return listDiscoveryProviders().filter(provider => provider[method])
 }
 
 /**
- * @param {Array<(() => void) | null | undefined>} cleanups 清理函数
+ * @param {Array<() => void>} cleanups 清理函数
  * @returns {() => void} 调用时依次执行各 cleanup
  */
 function composeCleanups(cleanups) {
 	return () => {
 		for (const stop of cleanups)
-			if (typeof stop === 'function') try { stop() } catch { /* ignore */ }
+			try { stop() } catch { /* ignore */ }
 	}
 }
 
@@ -92,15 +92,15 @@ async function fanInProviderMethod(method, methodArguments, options = {}) {
 	const requireAny = options.requireAny !== false
 	const capable = providersWith(method)
 	if (requireAny && !capable.length) throw new Error(options.errorLabel || `p2p: ${method} unavailable`)
-	const cleanups = await Promise.all(capable.map(async provider => {
+	const cleanups = (await Promise.all(capable.map(async provider => {
 		try {
 			return await provider[method](...methodArguments)
 		}
 		catch {
 			return null
 		}
-	}))
-	if (requireAny && !cleanups.some(stop => typeof stop === 'function'))
+	}))).filter(Boolean)
+	if (requireAny && !cleanups.length)
 		throw new Error(options.errorLabel || `p2p: ${method} unavailable`)
 	return composeCleanups(cleanups)
 }
@@ -116,7 +116,7 @@ export async function listVisibleNodeHashes(options = {}) {
 	/** @type {Record<string, string[]>} */
 	const byProvider = {}
 	for (const provider of listDiscoveryProviders()) {
-		if (typeof provider.listVisibleNodeHashes !== 'function') continue
+		if (!provider.listVisibleNodeHashes) continue
 		try {
 			const hashes = await provider.listVisibleNodeHashes(options)
 			byProvider[provider.id] = hashes.map(hash => shortHash(hash))
@@ -151,7 +151,7 @@ export async function listVisibleNodeHashes(options = {}) {
 export async function prepareConnectToNode(nodeHash, options = {}) {
 	const hash = normalizeHex64(nodeHash)
 	for (const provider of listDiscoveryProviders()) {
-		if (typeof provider.connectToNode !== 'function') continue
+		if (!provider.connectToNode) continue
 		try { await provider.connectToNode(hash, options) }
 		catch { /* prepare next medium */ }
 	}
@@ -304,7 +304,7 @@ export function noteVisibleNodeFromAdvert(verifiedNodeHash, options = {}) {
  */
 export async function watchVerifiedNodeAdvert(nodeHash, onAdvert) {
 	return await watchNodeAdvert(nodeHash, async (bytes, meta) => {
-		const ingested = await ingestNodeAdvert(nodeHash, bytes, meta)
+		const ingested = await ingestNodeAdvert(nodeHash, bytes)
 		if (!ingested) return
 		noteVisibleNodeFromAdvert(ingested.verifiedNodeHash)
 		await Promise.resolve(onAdvert(ingested.verifiedNodeHash, ingested.body, meta))
@@ -319,7 +319,7 @@ export async function watchVerifiedNodeAdvert(nodeHash, onAdvert) {
  */
 export async function watchVerifiedGroupAdverts(roomSecret, onAdvert) {
 	return await watchGroupAdverts(roomSecret, async (bytes, meta) => {
-		const ingested = await ingestGroupAdvert(roomSecret, bytes, meta)
+		const ingested = await ingestGroupAdvert(roomSecret, bytes)
 		if (!ingested) return
 		noteVisibleNodeFromAdvert(ingested.verifiedNodeHash, { roomSecret })
 		await Promise.resolve(onAdvert(ingested.verifiedNodeHash, ingested.body, meta))

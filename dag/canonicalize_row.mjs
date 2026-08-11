@@ -28,7 +28,7 @@ export function canonicalizeRowContent(content, hexKeys, entityHashKeys = new Se
 		canonicalizeHexField(out, key)
 	for (const key of entityHashKeys) {
 		if (!out[key]) continue
-		const entityHash = String(out[key]).toLowerCase()
+		const entityHash = String(out[key] || '')
 		if (!isEntityHash128(entityHash))
 			throw new Error(`${key} must be 128 hex characters`)
 		out[key] = entityHash

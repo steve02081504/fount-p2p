@@ -20,7 +20,7 @@ const hints = createTtlMap(LAN_PEER_HINT_TTL_MS)
  */
 export function noteLanPeerHint(nodeHash, endpoint) {
 	const hash = normalizeHex64(nodeHash)
-	const host = String(endpoint?.host || '').trim()
+	const host = String(endpoint?.host || '')
 	const port = normalizeTcpPort(endpoint?.port)
 	if (!hash || !host || !port) return
 	const existing = hints.get(hash)?.endpoints ?? []

@@ -96,7 +96,7 @@ export async function loadBleno() {
 	if (probeBluetoothHardware() === false)
 		throw new Error('p2p: no bluetooth adapter')
 	const mod = await import('@stoprocent/bleno')
-	if (typeof mod.withBindings === 'function') return mod.withBindings('default')
+	if (mod.withBindings) return mod.withBindings('default')
 	return mod.default ?? mod
 }
 

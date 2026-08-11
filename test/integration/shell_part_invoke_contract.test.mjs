@@ -49,9 +49,13 @@ const SHELL_CONTRACT = [
 	{
 		subpath: './files/chunk/responder',
 		exports: [
-			'handleFedChunkGetIngress',
-			'handleFedChunkDataIngress',
 			'attachTrustGraphFedChunkResponder',
+		],
+	},
+	{
+		subpath: './files/chunk/fetch',
+		exports: [
+			'handleIncomingChunkGet',
 		],
 	},
 	{

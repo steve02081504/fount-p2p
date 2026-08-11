@@ -7,9 +7,8 @@ import { sha256Hex } from '../../crypto/crypto.mjs'
  * @returns {boolean} 是否与 hash 一致
  */
 export function chunkBytesMatchHash(chunkHash, data) {
-	const hash = String(chunkHash || '').trim().toLowerCase()
-	if (!isHex64(hash) || !data?.byteLength) return false
-	return sha256Hex(data) === hash
+	if (!isHex64(chunkHash) || !data?.byteLength) return false
+	return sha256Hex(data) === chunkHash
 }
 
 /**

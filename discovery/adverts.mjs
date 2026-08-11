@@ -69,11 +69,9 @@ export function encryptAdvertForScope(scope, localIdentity, advertBody) {
  * Untrusted ingress：解密并验签 advert；失败返回 null，不抛。不写入可见池 / peer hints。
  * @param {string} rendezvousKey rendezvous 键
  * @param {Uint8Array} bytes 加密 advert
- * @param {object} [meta] 元数据
  * @returns {Promise<{ verifiedNodeHash: string, body: object } | null>} 验签成功返回 nodeHash 与 advert body，否则 null
  */
-export async function ingestEncryptedAdvert(rendezvousKey, bytes, meta) {
-	void meta
+export async function ingestEncryptedAdvert(rendezvousKey, bytes) {
 	const packet = decryptSignalPacket(rendezvousKey, bytes)
 	if (packet?.type !== 'advert' || !packet.body) return null
 	const verifiedNodeHash = await verifySignedAdvert(rendezvousKey, packet.body)
@@ -84,31 +82,28 @@ export async function ingestEncryptedAdvert(rendezvousKey, bytes, meta) {
 /**
  * Untrusted ingress：验签 network-scope advert；失败返回 null。不写盘 / 不写 hints。
  * @param {Uint8Array} bytes 加密 advert
- * @param {object} [meta] 元数据
  * @returns {Promise<{ verifiedNodeHash: string, body: object } | null>} 验签成功返回 nodeHash 与 advert body，否则 null
  */
-export async function ingestNetworkAdvert(bytes, meta) {
-	return ingestEncryptedAdvert(networkRendezvousKey(), bytes, meta)
+export async function ingestNetworkAdvert(bytes) {
+	return ingestEncryptedAdvert(networkRendezvousKey(), bytes)
 }
 
 /**
  * Untrusted ingress：验签 node-scope advert；失败返回 null。不写盘 / 不写 hints。
  * @param {string} nodeHash 目标 nodeHash
  * @param {Uint8Array} bytes 加密 advert
- * @param {object} [meta] 元数据
  * @returns {Promise<{ verifiedNodeHash: string, body: object } | null>} 验签成功返回 nodeHash 与 advert body，否则 null
  */
-export async function ingestNodeAdvert(nodeHash, bytes, meta) {
-	return ingestEncryptedAdvert(nodeRendezvousKey(normalizeHex64(nodeHash)), bytes, meta)
+export async function ingestNodeAdvert(nodeHash, bytes) {
+	return ingestEncryptedAdvert(nodeRendezvousKey(normalizeHex64(nodeHash)), bytes)
 }
 
 /**
  * Untrusted ingress：验签 group-scope advert；失败返回 null。不写盘 / 不写 hints。
  * @param {string} roomSecret 房间密钥
  * @param {Uint8Array} bytes 加密 advert
- * @param {object} [meta] 元数据
  * @returns {Promise<{ verifiedNodeHash: string, body: object } | null>} 验签成功返回 nodeHash 与 advert body，否则 null
  */
-export async function ingestGroupAdvert(roomSecret, bytes, meta) {
-	return ingestEncryptedAdvert(groupRendezvousKey(roomSecret), bytes, meta)
+export async function ingestGroupAdvert(roomSecret, bytes) {
+	return ingestEncryptedAdvert(groupRendezvousKey(roomSecret), bytes)
 }

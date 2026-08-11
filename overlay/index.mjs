@@ -15,7 +15,7 @@ let overlayRateGate = null
  * @returns {void}
  */
 export function setOverlayRateGate(rateGate) {
-	overlayRateGate = typeof rateGate === 'function' ? rateGate : null
+	overlayRateGate = rateGate || null
 }
 
 /**

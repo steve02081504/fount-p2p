@@ -36,7 +36,7 @@ function defineEmitterHandler(target, property, eventName, adapt = payload => pa
  * @returns {RTCDataChannel} 已挂 W3C handler 的通道
  */
 export function bridgeDataChannel(channel) {
-	if (bridgedChannels.has(channel) || typeof channel.on !== 'function') return channel
+	if (bridgedChannels.has(channel) || !channel.on) return channel
 	bridgedChannels.add(channel)
 	defineEmitterHandler(channel, 'onmessage', 'message')
 	defineEmitterHandler(channel, 'onopen', 'open')

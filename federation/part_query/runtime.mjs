@@ -103,15 +103,6 @@ export function resolvePartQueryState(dependencies = {}) {
 }
 
 /**
- * @param {string} partpath part 路径
- * @param {string} kind 查询标签
- * @returns {string} handler 键
- */
-function handlerKey(partpath, kind) {
-	return compositeKey(partpath, kind)
-}
-
-/**
  * Shell 注册 kind 语义处理器（怎么匹配、返回什么）。
  * @param {string} partpath part 路径
  * @param {string} kind 查询标签（如 entity_search）
@@ -120,7 +111,7 @@ function handlerKey(partpath, kind) {
  * @returns {void}
  */
 export function registerQueryInboundHandler(partpath, kind, handler, state = defaultState) {
-	state.handlers.set(handlerKey(partpath, kind), handler)
+	state.handlers.set(compositeKey(partpath, kind), handler)
 }
 
 /**
@@ -144,12 +135,10 @@ export function resolvePartQueryHopTimeoutMs(ttl, tunables = partQueryTunables) 
 export function mergeQueryRows(lists, maxHits, rowKey) {
 	const out = []
 	const seen = new Set()
-	const keyOf = typeof rowKey === 'function'
-		? rowKey
-		: row => {
-			try { return JSON.stringify(row) }
-			catch { return `\0${out.length}` }
-		}
+	const keyOf = rowKey || (row => {
+		try { return JSON.stringify(row) }
+		catch { return `\0${out.length}` }
+	})
 	for (const list of lists) {
 		if (!Array.isArray(list)) continue
 		for (const row of list) {
@@ -172,7 +161,7 @@ export function mergeQueryRows(lists, maxHits, rowKey) {
  * @returns {Promise<unknown[]>} 本地 rows
  */
 async function runLocalHandler(state, queryContext, partpath, kind, query) {
-	const handler = state.handlers.get(handlerKey(partpath, kind))
+	const handler = state.handlers.get(compositeKey(partpath, kind))
 	if (!handler) return []
 	return await handler(queryContext, query) || []
 }
@@ -260,7 +249,7 @@ export async function processIncomingPartQueryRequest(wireContext, wire, request
 	const state = resolvePartQueryState(dependencies)
 	const nodeHashOf = dependencies.getNodeHash || getNodeHash
 	const now = dependencies.now || Date.now
-	const username = String(wireContext.replicaUsername || '')
+	const username = wireContext.replicaUsername || ''
 
 	const cached = state.cache.get(request.partpath, request.kind, request.query, now())
 	if (cached) {
@@ -284,7 +273,7 @@ export async function processIncomingPartQueryRequest(wireContext, wire, request
 	}
 
 	const selfHash = nodeHashOf()
-	const exclude = new Set([selfHash, request.originNodeHash, String(peerId || '').trim().toLowerCase()].filter(Boolean))
+	const exclude = new Set([selfHash, request.originNodeHash, peerId].filter(Boolean))
 	const forwardPayload = { ...request, ttl: nextTtl }
 
 	/** @type {RelayPending} */
@@ -332,7 +321,7 @@ export async function processIncomingPartQueryRequest(wireContext, wire, request
  */
 export function handleIncomingPartQueryResponse(response, peerId = '', dependencies = {}) {
 	const state = resolvePartQueryState(dependencies)
-	const responderKey = String(peerId || response.fromNodeHash || '').trim().toLowerCase()
+	const responderKey = peerId || response.fromNodeHash
 	const relay = state.relayPending.get(response.requestId)
 	if (relay) {
 		if (responderKey) {

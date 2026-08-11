@@ -16,14 +16,6 @@ export const BLE_DATA_CHAR_UUID = 'f017f017f017f017f017f017f017f01a'
 const BT_DEVICE_NAME = 'fount-bt'
 
 /**
- * 探测 BLE GATT 数据链路是否可用；失败则回落其它 link provider。
- * @returns {Promise<boolean>} 可用为 true
- */
-export async function canUseBleGattLink() {
-	return canUseBluetoothRuntime()
-}
-
-/**
  * 在 GATT write/notify 上建立 pipe。
  * @param {object} options 配置
  * @returns {Promise<import('./index.mjs').LinkHandle>} 已启动握手的 link
@@ -279,7 +271,7 @@ export function createBleGattLinkProvider() {
 		id: instanceId,
 		level: LINK_LEVEL_BLE_GATT,
 		caps: { needsOfferAnswer: false, needsDiscoverySignal: false, probe: 'native' },
-		isAvailable: canUseBleGattLink,
+		isAvailable: canUseBluetoothRuntime,
 		/**
 		 * @param {{ nodeHash: string }} remote 远端
 		 * @returns {boolean} 是否有 BT peer hint

@@ -5,12 +5,8 @@
 import { Buffer } from 'node:buffer'
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto'
 
-import { unwrapKeyEcies, wrapKeyEcies } from './key.mjs'
-
 /** @type {'channel-key'} 频道消息 content 加密 scheme */
 export const CHANNEL_KEY_SCHEME = 'channel-key'
-
-/** @typedef {{ ephemPub: string, iv: string, ciphertext: string, authTag: string }} EciesWrapBlob */
 
 /**
  * 生成随机 32 字节频道密钥（hex）。
@@ -18,25 +14,6 @@ export const CHANNEL_KEY_SCHEME = 'channel-key'
  */
 export function generateChannelKey() {
 	return randomBytes(32).toString('hex')
-}
-
-/**
- * X25519 ECIES 包装 K_ch 给成员 Ed25519 公钥。
- * @param {string} channelKeyHex 32 字节 hex
- * @param {string} memberEdPubKeyHex 64 位十六进制
- * @returns {EciesWrapBlob} ECIES 包装结果
- */
-export function wrapChannelKey(channelKeyHex, memberEdPubKeyHex) {
-	return wrapKeyEcies(channelKeyHex, memberEdPubKeyHex)
-}
-
-/**
- * @param {EciesWrapBlob} wrap ECIES 密文
- * @param {Uint8Array} myEdPrivKeySeed 32 字节 Ed25519 种子
- * @returns {string | null} K_ch hex
- */
-export function unwrapChannelKey(wrap, myEdPrivKeySeed) {
-	return unwrapKeyEcies(wrap, myEdPrivKeySeed)
 }
 
 /**
@@ -49,7 +26,7 @@ function messageAesKey(channelKeyHex, channelId, generation) {
 	return Buffer.from(hkdfSync(
 		'sha256',
 		Buffer.from(channelKeyHex, 'hex'),
-		`${CHANNEL_KEY_SCHEME}:${String(channelId)}:${String(generation)}`,
+		`${CHANNEL_KEY_SCHEME}:${channelId}:${generation}`,
 		'',
 		32,
 	))
@@ -71,7 +48,7 @@ export function encryptWithChannelKey(plaintext, channelKeyHex, channelId, gener
 	const authTag = cipher.getAuthTag()
 	return {
 		scheme: CHANNEL_KEY_SCHEME,
-		channelId: String(channelId),
+		channelId,
 		generation: Number(generation) || 0,
 		payload: `${iv.toString('base64')}.${ciphertext.toString('base64')}.${authTag.toString('base64')}`,
 	}

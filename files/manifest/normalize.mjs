@@ -40,9 +40,9 @@ const TRANSFER_TYPES = new Set(['public', 'file-master-key-wrap', 'vault-wrap', 
  */
 export function normalizeFileManifest(input) {
 	if (!input || typeof input !== 'object') return null
-	const ownerEntityHash = String(input.ownerEntityHash || '').trim().toLowerCase()
+	const ownerEntityHash = String(input.ownerEntityHash || '')
 	if (!isEntityHash128(ownerEntityHash)) return null
-	const logicalPath = String(input.logicalPath || '').trim().replace(/^\/+/, '').replace(/\\/g, '/')
+	const logicalPath = String(input.logicalPath || '').replace(/^\/+/, '').replace(/\\/g, '/')
 	if (!logicalPath) return null
 	const ceMode = String(input.ceMode || 'convergent')
 	if (!CE_MODES.has(ceMode)) return null
@@ -51,10 +51,10 @@ export function normalizeFileManifest(input) {
 			.map(part => {
 				/** @type {ManifestPart} */
 				const out = {
-					hash: String(part?.hash || '').trim().toLowerCase(),
+					hash: String(part?.hash || ''),
 					size: Number(part?.size) || 0,
 				}
-				const partContentHash = String(part?.contentHash || '').trim().toLowerCase()
+				const partContentHash = String(part?.contentHash || '')
 				if (isHex64(partContentHash)) out.contentHash = partContentHash
 				return out
 			})
@@ -69,7 +69,7 @@ export function normalizeFileManifest(input) {
 		name: String(input.name || logicalPath.split('/').pop() || 'file'),
 		mimeType: String(input.mimeType || 'application/octet-stream'),
 		size: Number(input.size) || 0,
-		contentHash: String(input.contentHash || '').trim().toLowerCase(),
+		contentHash: String(input.contentHash || ''),
 		ceMode: /** @type {CeMode} */ ceMode,
 		parts,
 		transferKeyDescriptor,
@@ -83,7 +83,7 @@ export function normalizeFileManifest(input) {
  */
 export function normalizeTransferKeyDescriptor(input) {
 	if (!input || typeof input !== 'object') return null
-	const type = String(input.type || '').trim()
+	const type = String(input.type || '')
 	if (!TRANSFER_TYPES.has(type)) return null
 	/** @type {TransferKeyDescriptor} */
 	const out = { type: /** @type {TransferKeyDescriptor['type']} */ type }
@@ -93,9 +93,9 @@ export function normalizeTransferKeyDescriptor(input) {
 			ciphertext: String(input.wrappedKey.ciphertext || ''),
 			authTag: String(input.wrappedKey.authTag || ''),
 		}
-	if (input.groupId) out.groupId = String(input.groupId).trim()
-	if (input.fileId) out.fileId = String(input.fileId).trim()
-	if (input.entityHash) out.entityHash = String(input.entityHash).trim().toLowerCase()
+	if (input.groupId) out.groupId = String(input.groupId)
+	if (input.fileId) out.fileId = String(input.fileId)
+	if (input.entityHash) out.entityHash = String(input.entityHash)
 	if (input.keyGeneration != null) out.keyGeneration = Number(input.keyGeneration) || 0
 	return out
 }

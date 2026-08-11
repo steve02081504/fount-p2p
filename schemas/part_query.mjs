@@ -82,10 +82,10 @@ const REQUEST_ID_MAX_LENGTH = 128
 
 /**
  * @param {unknown} value 原始 requestId
- * @returns {string | null} 修剪后的 requestId；非法 null
+ * @returns {string | null} 合法 requestId；非法 null
  */
 function normalizeRequestId(value) {
-	const requestId = String(value || '').trim()
+	const requestId = String(value || '')
 	if (!requestId || requestId.length > REQUEST_ID_MAX_LENGTH) return null
 	return requestId
 }
@@ -103,7 +103,7 @@ export function parsePartQueryReq(value, tunables = partQueryTunables) {
 	if (!isHex64(originNodeHash)) return null
 	const partpath = parsePartpath(value.partpath)
 	if (!partpath) return null
-	const kind = String(value.kind || '').trim()
+	const kind = String(value.kind || '')
 	if (!kind) return null
 	if (!Object.prototype.hasOwnProperty.call(value, 'query')) return null
 	if (measureJsonBytes(value.query) > (tunables.maxQueryBytes ?? 2048)) return null
@@ -145,7 +145,7 @@ export function parsePartQueryRes(value, tunables = partQueryTunables) {
  */
 export function normalizePartQueryCacheMaterial(partpath, kind, query) {
 	const path = parsePartpath(partpath)
-	const k = String(kind || '').trim()
+	const k = String(kind || '')
 	if (!path || !k) return null
 	if (measureJsonBytes(query) > partQueryTunables.maxQueryBytes) return null
 	try {

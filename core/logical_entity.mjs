@@ -1,4 +1,4 @@
-import { sha256TextHex } from '../crypto/crypto.mjs'
+import { sha256Hex } from '../crypto/crypto.mjs'
 
 import { encodeEntityHash, parseEntityHash } from './entity_id_parse.mjs'
 
@@ -10,9 +10,8 @@ export const LOGICAL_ENTITY_SENTINEL_NODE_HASH = '0'.repeat(64)
  * @returns {string} 128 位 logical entityHash
  */
 export function logicalEntityHash(subject) {
-	const s = String(subject || '').trim()
-	if (!s) throw new Error('subject required')
-	return encodeEntityHash(LOGICAL_ENTITY_SENTINEL_NODE_HASH, sha256TextHex(s))
+	if (!subject) throw new Error('subject required')
+	return encodeEntityHash(LOGICAL_ENTITY_SENTINEL_NODE_HASH, sha256Hex(subject))
 }
 
 /**

@@ -29,16 +29,15 @@ export function bytesToHex(bytes) {
 }
 
 /**
- * @param {string} hex hex 文本（可含空白；大小写不敏感）
+ * @param {string} hex hex 文本（偶数字符；大小写均可）
  * @returns {Uint8Array} 解码后的字节
  */
 export function hexToBytes(hex) {
-	const text = hex.trim().toLowerCase()
-	if (text.length % 2) throw new Error('p2p: hex length must be even')
-	const out = new Uint8Array(text.length / 2)
+	if (hex.length % 2) throw new Error('p2p: hex length must be even')
+	const out = new Uint8Array(hex.length / 2)
 	for (let index = 0; index < out.length; index++) {
-		const high = hexNibble(text.charCodeAt(index * 2))
-		const low = hexNibble(text.charCodeAt(index * 2 + 1))
+		const high = hexNibble(hex.charCodeAt(index * 2))
+		const low = hexNibble(hex.charCodeAt(index * 2 + 1))
 		if (high < 0 || low < 0) throw new Error('p2p: invalid hex')
 		out[index] = (high << 4) | low
 	}

@@ -17,10 +17,7 @@ export const pendingManifestFetches = table.pending
  * @returns {string} 期望键
  */
 export function manifestFetchExpectedKey(ownerEntityHash, logicalPath) {
-	return compositeKey(
-		String(ownerEntityHash || '').trim().toLowerCase(),
-		String(logicalPath || '').trim().replace(/^\/+/, ''),
-	)
+	return compositeKey(ownerEntityHash, logicalPath.replace(/^\/+/, ''))
 }
 
 /**

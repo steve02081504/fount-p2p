@@ -165,7 +165,7 @@ export function createManifestPlaintextStream(manifest, partStreams, contentKey)
 				}
 				if (manifest.contentHash) {
 					const got = digest.digest('hex')
-					if (got !== String(manifest.contentHash).toLowerCase()) {
+					if (got !== manifest.contentHash) {
 						this.destroy(new Error('contentHash mismatch'))
 						return
 					}

@@ -73,7 +73,7 @@ export function mailboxTierFromHop(hop) {
  */
 export function isDeliverableMailboxRecord(row) {
 	if (!row?.envelope || typeof row.envelope !== 'object') return false
-	if (!String(row.app || '').trim()) return false
+	if (!String(row.app || '')) return false
 	return row.tier === 'trusted' || row.tier === 'normal'
 }
 
@@ -139,7 +139,7 @@ async function writeAll(rows) {
  * @returns {string} 稳定信封 id
  */
 export function mailboxEnvelopeId(envelope) {
-	const id = String(envelope?.id || '').trim().toLowerCase()
+	const id = String(envelope?.id || '')
 	if (!id) throw new Error('mailbox envelope id required')
 	return id
 }
@@ -155,7 +155,7 @@ export async function storeMailboxRecord(record) {
 	const hop = normalizeMailboxHop(record.hop)
 	const { tier } = record
 	if (!['trusted', 'normal', 'quarantine'].includes(tier)) return false
-	const app = String(record.app || '').trim()
+	const app = String(record.app || '')
 	if (!app) return false
 	let id
 	try {
@@ -172,13 +172,13 @@ export async function storeMailboxRecord(record) {
 			id,
 			app,
 			toPubKeyHash,
-			dmSessionTag: record.dmSessionTag?.trim().toLowerCase() || undefined,
+			dmSessionTag: record.dmSessionTag ? String(record.dmSessionTag) : undefined,
 			groupId: record.groupId || undefined,
 			channelId: record.channelId || undefined,
 			envelope: record.envelope,
 			storedAt: Date.now(),
 			expiresAt: Date.now() + ttlMs,
-			fromNodeHash: String(record.fromNodeHash || '').trim(),
+			fromNodeHash: normalizeHex64(record.fromNodeHash),
 			hop,
 			tier,
 			importance: Number.isFinite(Number(record.importance)) ? Number(record.importance) : undefined,
@@ -204,7 +204,7 @@ export async function listMailboxIdsForRecipient(toPubKeyHash) {
  * @returns {Promise<MailboxRecord[]>} 匹配记录
  */
 export async function getMailboxRecords(ids) {
-	const want = new Set(ids.map(id => String(id).trim().toLowerCase()))
+	const want = new Set(ids.map(id => String(id)))
 	return (await readAll()).filter(record => want.has(record.id))
 }
 
@@ -213,7 +213,7 @@ export async function getMailboxRecords(ids) {
  * @returns {Promise<void>}
  */
 export async function deleteMailboxRecords(ids) {
-	const drop = new Set(ids.map(id => String(id).trim().toLowerCase()))
+	const drop = new Set(ids.map(id => String(id)))
 	return withAsyncMutex(mailboxStoreMutexKey(), async () => {
 		await writeAll((await readAll()).filter(record => !drop.has(record.id)))
 	})

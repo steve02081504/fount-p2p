@@ -89,7 +89,7 @@ export function mergeGraph(inputs, tunables = trustGraphTunables) {
 		const rawWeight = Number(hint.weight ?? tunables.hintDefaultWeight)
 		if (Number.isFinite(rawWeight) && rawWeight > 0)
 			ev.hintWeightSum += rawWeight
-		ev.hintSources.add(String(hint.source ?? 'unknown'))
+		ev.hintSources.add(hint.source ?? 'unknown')
 	}
 
 	for (const room of inputs.roomRosters || [])

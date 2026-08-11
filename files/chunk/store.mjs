@@ -19,9 +19,8 @@ export function chunkStoreRoot() {
  * @returns {string} 块文件绝对路径
  */
 export function chunkStorePath(hash) {
-	const chunkHash = String(hash).trim().toLowerCase()
-	if (!isHex64(chunkHash)) throw new Error('invalid chunk hash')
-	return join(chunkStoreRoot(), chunkHash.slice(0, 2), `${chunkHash}.bin`)
+	if (!isHex64(hash)) throw new Error('invalid chunk hash')
+	return join(chunkStoreRoot(), hash.slice(0, 2), `${hash}.bin`)
 }
 
 /**

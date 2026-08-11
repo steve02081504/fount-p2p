@@ -25,7 +25,7 @@ import {
 async function resolveRemoteNodeHashForPeer(username, peerId) {
 	if (!peerId) return null
 	const entry = activeLinkRoster().find(row => row.peerId === peerId)
-	const remote = entry?.remoteNodeHash?.trim().toLowerCase()
+	const remote = normalizeHex64(entry?.remoteNodeHash)
 	return remote || null
 }
 
@@ -76,7 +76,7 @@ export async function deliverOrStoreMailboxPut(username, options) {
 		fromNodeHash: options.record?.fromNodeHash || nodeHash,
 	}
 	const stored = await storeMailboxRecord(record)
-	const toNodeHash = options.toNodeHash?.trim().toLowerCase()
+	const toNodeHash = normalizeHex64(options.toNodeHash)
 	const delivered = toNodeHash && isMailboxRecordWithinSizeLimit(record)
 		? await requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER).sendToNode(username, toNodeHash, 'mailbox_put', { nodeHash, record })
 		: false
@@ -116,7 +116,7 @@ export async function ingestMailboxPut(wireContext, put, peerId = '') {
 	if (!record?.envelope || !record?.toPubKeyHash) return
 	const fromNode = normalizeHex64(put.nodeHash)
 	if (!fromNode || !takeIncomingMailboxPutSlot(fromNode)) return
-	const username = String(wireContext.replicaUsername || '').trim()
+	const username = wireContext.replicaUsername || ''
 	if (!username) return
 	if (peerId) {
 		const remote = await resolveRemoteNodeHashForPeer(username, peerId)
@@ -162,7 +162,7 @@ export async function respondMailboxWant(want, sendGive, peerId) {
 export async function ingestMailboxGive(wireContext, give) {
 	const records = (give.records || []).filter(isDeliverableMailboxRecord)
 	if (!records.length) return 0
-	const username = String(wireContext.replicaUsername || '').trim()
+	const username = wireContext.replicaUsername || ''
 	if (!username) return 0
 	const { dispatchMailboxRecordsToConsumers } = await import('./consumer_registry.mjs')
 	const { deleteMailboxRecords } = await import('./store.mjs')

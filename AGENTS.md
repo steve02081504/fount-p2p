@@ -12,9 +12,9 @@
 
 **Outside the package** (shell / frontend; p2p must not import): chat/social semantics, mention rendering, entity identity provisioning, etc. Standalone clients: `import { startNode } from '@steve02081504/fount-p2p'`.
 
-**Facade:** `index.mjs`; subpath exports mirror directories. Public transport surface: [transports.md](docs/transports.md).
+**Facade:** `index.mjs`; subpath exports mirror directories.
 
-Detail docs: [transports](docs/transports.md) · [mesh](docs/mesh.md) · [signaling](docs/signaling.md) · [runtime](docs/runtime.md) · [infra](docs/infra.md) · [wire](docs/wire.md) · [evfs](docs/evfs.md)
+Detail docs: [transports](docs/transports.md) · [mesh](docs/mesh.md) · [signaling](docs/signaling.md) · [runtime](docs/runtime.md) · [infra](docs/infra.md) · [wire](docs/wire.md) · [evfs](docs/evfs.md) · [reputation](docs/reputation.md)
 
 ### Runtime: isomorphic vs Node
 
@@ -24,14 +24,18 @@ Detail docs: [transports](docs/transports.md) · [mesh](docs/mesh.md) · [signal
 | `crypto/crypto.mjs` | Node + browser | `@noble/hashes` + `@noble/curves` only — never `node:crypto` |
 | `crypto/key.mjs` / `crypto/channel.mjs`, disk I/O, LAN/BT, `ws`, CLI / `startNode` | Node (+ Deno bridge) | Do not load the whole package via esm.sh in the browser |
 
-Deno / native / BT details: [runtime.md](docs/runtime.md).
+Deno / native / BT: [runtime.md](docs/runtime.md).
 
 ## Conventions
 
 - Prefer shared helpers under `utils/`, `core/`, `wire/subscribe`, `wire/adapter` — do not reimplement LRU/TTL/inflight/atomic-fs/shuffle.
+- **No pure-forward aliases:** do not add `fooText`/`fooAlias` that only `return foo(sameArgs)` when the callee already accepts those types (e.g. never wrap `sha256Hex` as `sha256TextHex`). Domain names must add logic or type narrowing, not just rename.
 - **Heterogeneous backends:** normalize at the load boundary (e.g. `link/rtc/w3c_bridge.mjs`); call sites speak one contract.
 - **File naming:** parent directory is scope — short child names. Tunables default `<dir>/tunables.json` (exception: `schemas/part_query.tunables.json`). Subpath `package.json` exports mirror filenames.
 - **Import boundary:** `test/integration/p2p_shell_import_guard.test.mjs`.
+- **No scattered `trim` / `toLowerCase`:** hex IDs must already be lowercase; `normalizeHex64` strips an optional `0x` only — mixed case / whitespace is rejected. Exceptions: JSONL blank lines, SDP fingerprint, CLI/`scripts` parsing.
+- **No `String(x)` / `x || ''` on typed `string`:** if `@param {string}`, use it directly; `String(...)` / `|| ''` / `?? ''` only at optional / `unknown` / disk / inbound boundaries, or number→string.
+- **Optional methods:** `if (fn) return await fn(...)` / `if (fn) …` — never `typeof x === 'function'`.
 
 ## Tests / tools
 
@@ -51,8 +55,7 @@ Deno / native / BT details: [runtime.md](docs/runtime.md).
 
 - **Untrusted ingress only:** discovery adverts/signals, link/overlay envelopes, group federation frames, `remoteIngest`, `part_timeline_*` / `part_invoke`, `part_query_*`, public manifest (`fed_manifest_data`). Validate / `canonicalize*` / `verifySignedPublicManifest` **only** here.
 - **Trusted after disk:** from `events.jsonl`, only `stripDagEventLocalExtensions` — no re-canonicalization upstream.
-- **Fanout vs targeted:** timeline/chunk exploration → `fanoutToTopNodes`; Mailbox / targeted packets → `sendToNode` / User Room, never fanout. Wire attach inventory: [wire.md](docs/wire.md).
-- **Timed collect:** APIs with `timeoutMs` (e.g. `collectPartInvokeResponses`) must register the wait first and must not `await` fanout/send on the return path — otherwise a stuck `discoverRoute` / `link.send` defeats the timeout (#13). Pattern: `beginFedFanoutFetch` / fire-and-forget fanout + `sent === 0 → finish()`.
+- **Fanout vs targeted / timed collect:** [wire.md](docs/wire.md).
 - **Channel encryption:** per-channel `K_ch`, scheme `channel-key` (`CHANNEL_KEY_SCHEME`); decrypted payloads are untrusted outside DAG Ed25519 context.
 - **Denylist vs personal lists:** node `denylist.json` vs per-entity `personal_block.json` / `personal_hide.json`.
 - **Manifest ACL / transfer owner:** shells register matchers; core does not hard-code chat/social types.
@@ -64,19 +67,7 @@ Deno / native / BT details: [runtime.md](docs/runtime.md).
 - **Link `level` vs discovery `priority`:** descending `level` picks data transport (`nostr` = −∞ last resort); ascending `priority` orders handshake/presence media only. [transports.md](docs/transports.md)
 - **Mesh first / no versioning:** ≥N links (K acquaintances + N−K explore); discovery API is `listVisibleNodeHashes` + `connectToNode` only; no topic on the fount-network surface; no version/compat fields. [mesh.md](docs/mesh.md)
 - **Room / registry:** `configureLinkRegistry(opts)` before first `getLinkRegistry`. `startNode` does not take registry options. `createGroupLinkSet` is the kernel; `createScopedLinkRoom` is a dial-all preset. Rooms call `registry.ensureRuntime()` before subscribe/advertise — [runtime.md](docs/runtime.md)
-- **Fetch ≠ apply:** `ingestEncryptedAdvert` vs `noteAdvertPeerHints`; `pullReputationFromNode` never writes. Public-manifest cache/fanout: [evfs.md](docs/evfs.md). Node-scope attaches: [infra.md](docs/infra.md).
-
-### Subjective reputation (`reputation.json`)
-
-- One global score per peer at `{nodeDir}/reputation.json`.
-- **Subjective slash:** `subjectiveSlashPenalty` — influence scales with sender trust.
-- **Anti-Sybil:** `applyDecayCollusionAfterSlash` after slash/kick/ban.
-- **Safe penalties:** self-observed attributable signals only.
-- **Do not add:** penalties for merely relaying invalid events; RPC timeouts or empty responses.
-
-### Entity files (EVFS)
-
-Ciphertext chunks CAS + per-entity manifests. Public fetch / ACL: [evfs.md](docs/evfs.md). Profile/avatar semantics live in the shell.
+- **Fetch ≠ apply:** `ingestEncryptedAdvert` vs `noteAdvertPeerHints`; reputation pull never writes — [reputation.md](docs/reputation.md). Public-manifest cache/fanout: [evfs.md](docs/evfs.md). Node-scope attaches: [infra.md](docs/infra.md).
 
 ## Tunables JSON
 

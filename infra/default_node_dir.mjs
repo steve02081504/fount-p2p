@@ -17,6 +17,6 @@ export function defaultNodeDir() {
  * @returns {string} 解析后的绝对 node 目录
  */
 export function resolveNodeDir(override) {
-	const trimmed = String(override || '').trim()
-	return trimmed ? path.resolve(trimmed) : defaultNodeDir()
+	const value = override || ''
+	return value ? path.resolve(value) : defaultNodeDir()
 }

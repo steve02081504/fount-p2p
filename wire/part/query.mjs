@@ -48,11 +48,11 @@ export function attachPartQueryWire(wireContext, wire, dependencies = {}) {
 			const request = parsePartQueryReq(data)
 			if (!request) return
 			if (!state.takeDedupe(request.requestId)) return
-			const source = String(peerId || request.originNodeHash || '').trim().toLowerCase()
+			const source = peerId || request.originNodeHash
 			if (source && !consumeWireRateBucket(`part_query:${source}`, {
 				maxCount: partQueryTunables.ratePerSourcePerMin,
 			})) return
-			void processIncomingPartQueryRequest(wireContext, wire, request, String(peerId || ''), deps)
+			void processIncomingPartQueryRequest(wireContext, wire, request, peerId, deps)
 		},
 		/**
 		 * @param {unknown} data part_query_res 载荷
@@ -61,7 +61,7 @@ export function attachPartQueryWire(wireContext, wire, dependencies = {}) {
 		part_query_res(data, peerId) {
 			const response = parsePartQueryRes(data)
 			if (!response) return
-			handleIncomingPartQueryResponse(response, String(peerId || ''), deps)
+			handleIncomingPartQueryResponse(response, peerId, deps)
 		},
 	})
 }

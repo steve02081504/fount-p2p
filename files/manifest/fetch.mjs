@@ -31,9 +31,8 @@ const manifestInflight = createInflightTable({
  * @returns {Promise<import('./normalize.mjs').FileManifest | null>} 验签后的 manifest，失败为 null
  */
 export async function fetchPublicManifest(context) {
-	const ownerEntityHash = String(context.ownerEntityHash || '').trim().toLowerCase()
-	const logicalPath = String(context.logicalPath || '').trim().replace(/^\/+/, '')
-	const { username } = context
+	const { ownerEntityHash, username } = context
+	const logicalPath = context.logicalPath.replace(/^\/+/, '')
 	if (!ownerEntityHash || !logicalPath || !username) return null
 
 	const timeoutMs = Number(context.timeoutMs) > 0

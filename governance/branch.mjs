@@ -1,3 +1,4 @@
+import { normalizeHex64 } from '../core/hexIds.mjs'
 import { sortedPrevEventIds } from '../dag/index.mjs'
 import { getGovernanceAuthzTypes } from '../registries/event_type.mjs'
 
@@ -104,7 +105,7 @@ function governanceAuthzScoreForTip(tipId, byId, reputationBySender) {
 	for (const eventId of ancestorClosureFromTip(tipId, byId)) {
 		const event = byId.get(eventId)
 		if (!event || !getGovernanceAuthzTypes().has(event.type)) continue
-		const sender = String(event.sender).trim().toLowerCase()
+		const sender = normalizeHex64(event.sender)
 		if (sender) score += Number(reputationBySender[sender] ?? 0)
 	}
 	return score

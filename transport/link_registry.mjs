@@ -293,14 +293,14 @@ export function createLinkRegistry(options = {}) {
 			const providers = listLinkProviders()
 			for (const provider of providers)
 				try {
-					if (typeof provider.canReach === 'function') {
+					if (provider.canReach) {
 						const reachable = await Promise.resolve(provider.canReach({ nodeHash: normalized }))
 						if (!reachable) {
 							nodeDebug('p2p:dial skip', { peer: shortHash(normalized), provider: provider.id, reason: 'canReach=false' })
 							continue
 						}
 					}
-					if (typeof provider.isAvailable === 'function') {
+					if (provider.isAvailable) {
 						const available = await Promise.resolve(provider.isAvailable())
 						if (!available) {
 							nodeDebug('p2p:dial skip', { peer: shortHash(normalized), provider: provider.id, reason: 'isAvailable=false' })
@@ -471,17 +471,6 @@ export function createLinkRegistry(options = {}) {
 	}
 
 	/**
-	 * 同步结果直接返回；thenable 才 await（避免每条 envelope 造 microtask）。
-	 * @param {unknown} value 可能为 Promise 的返回值
-	 * @returns {Promise<unknown>} 已 resolve 的值
-	 */
-	async function maybeAwait(value) {
-		if (value != null && typeof /** @type {{ then?: unknown }} */ value.then === 'function')
-			return await value
-		return value
-	}
-
-	/**
 	 * 将入站 envelope 派发到 scope 监听器（经 authorizer 校验）。
 	 * @param {string} senderNodeHash 发送方节点 64 hex
 	 * @param {{ scope: string, action: string, payload: unknown }} envelope 信封
@@ -489,16 +478,15 @@ export function createLinkRegistry(options = {}) {
 	 * @returns {Promise<void>}
 	 */
 	async function dispatchEnvelope(senderNodeHash, envelope, link) {
-		const scope = envelope.scope || ''
+		const { scope } = envelope
 		for (const [prefix, authorizer] of scopeAuthorizers.entries())
 			if (scope.startsWith(prefix)) {
-				const allowed = await maybeAwait(authorizer(scope, senderNodeHash, envelope, link))
-				if (!allowed) return
+				if (!await authorizer(scope, senderNodeHash, envelope, link)) return
 			}
 		for (const [prefix, listeners] of scopeListeners.entries())
 			if (scope.startsWith(prefix))
 				for (const listener of listeners)
-					await maybeAwait(listener(senderNodeHash, envelope, link))
+					await listener(senderNodeHash, envelope, link)
 	}
 
 	/**
@@ -567,7 +555,7 @@ export function createLinkRegistry(options = {}) {
 		 * @returns {void}
 		 */
 		setPriorityWeightFunction(weightFunction) {
-			priorityWeightFunction = typeof weightFunction === 'function' ? weightFunction : null
+			priorityWeightFunction = weightFunction || null
 		},
 		/**
 		 * @param {string} nodeHash - 节点 64-hex hash

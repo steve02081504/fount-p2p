@@ -20,7 +20,7 @@ import trustGraphTunables from './tunables.json' with { type: 'json' }
  * @returns {Promise<boolean>} 是否已发送
  */
 export async function sendToNode(username, targetNodeHash, actionName, payload, graph) {
-	const target = normalizeHex64(targetNodeHash) || String(targetNodeHash || '').trim().toLowerCase()
+	const target = normalizeHex64(targetNodeHash)
 	if (!isHex64(target)) return false
 
 	// 已直连 peer 不经 trust-graph scope 也应能收发 node scope action（非成员 CAS chunk / follow hint 等）

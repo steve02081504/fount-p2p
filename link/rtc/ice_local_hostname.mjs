@@ -11,7 +11,7 @@
  * @returns {string | null} 处理后的 SDP；drop 策略下不可用时返回 null
  */
 export function applyIceLocalHostnamePolicy(candidateSdp, policy) {
-	const sdp = String(candidateSdp || '').trim()
+	const sdp = candidateSdp || ''
 	if (!sdp || !/\.local/i.test(sdp)) return sdp || null
 	if (!/\btyp host\b/i.test(sdp)) return sdp
 	if (policy === 'drop') return null
@@ -34,9 +34,10 @@ export function filterIceLocalHostnameCandidate(candidate, RTCIceCandidateCtor, 
 	const rewritten = applyIceLocalHostnamePolicy(raw, policy)
 	if (!rewritten) return null
 	if (rewritten === raw) return candidate
-	const init = typeof candidate.toJSON === 'function'
-		? { ...candidate.toJSON(), candidate: rewritten }
-		: { candidate: rewritten, sdpMid: candidate.sdpMid, sdpMLineIndex: candidate.sdpMLineIndex }
+	const init = {
+		...(candidate.toJSON?.() || { sdpMid: candidate.sdpMid, sdpMLineIndex: candidate.sdpMLineIndex }),
+		candidate: rewritten,
+	}
 	return new RTCIceCandidateCtor(init)
 }
 
@@ -49,7 +50,7 @@ export function filterIceLocalHostnameCandidate(candidate, RTCIceCandidateCtor, 
 export function wrapRtcPeerConnectionForIceLocalHostname(BaseRTC, RTCIceCandidate, policy = 'drop') {
 	if (policy === 'none') return BaseRTC
 
-	const baseRoutesIce = typeof BaseRTC.prototype.prepareIceCandidateEvent === 'function'
+	const baseRoutesIce = !!BaseRTC.prototype.prepareIceCandidateEvent
 
 	return class IceLocalHostnameFilteredRTCPeerConnection extends BaseRTC {
 		/** @type {((event: RTCPeerConnectionIceEvent) => void) | null} */

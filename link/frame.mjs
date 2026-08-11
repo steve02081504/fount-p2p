@@ -25,11 +25,10 @@ function normalizeFrameIdBytes(frameId) {
 			throw new Error(`p2p: frameId must be ${FRAME_ID_BYTES} bytes`)
 		return frameId
 	}
-	const text = frameId.trim().toLowerCase()
-	if (text.length !== FRAME_ID_BYTES * 2)
+	if (frameId.length !== FRAME_ID_BYTES * 2)
 		throw new Error('p2p: frameId must be 32 hex characters')
 	try {
-		return hexToBytes(text)
+		return hexToBytes(frameId)
 	}
 	catch {
 		throw new Error('p2p: frameId must be 32 hex characters')

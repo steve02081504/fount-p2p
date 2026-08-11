@@ -48,7 +48,7 @@ function bucketFor(roomKey, limits = {}) {
 		budgets.set(roomKey, bucket)
 	}
 	for (const id of resolveRtcBudgetLimits(limits).trustedPeers || [])
-		bucket.trustedPeers.add(String(id))
+		bucket.trustedPeers.add(id)
 	return bucket
 }
 
@@ -89,7 +89,7 @@ export function takeRtcJoinSlot(roomKey, peerId, limits = {}, sourceId = 'peer')
 	for (const id of bucket.active)
 		if (!bucket.trustedPeers.has(id)) nonTrustedCount++
 	if (!isTrusted) {
-		const source = String(sourceId || 'peer')
+		const source = sourceId || 'peer'
 		let sameSource = 0
 		for (const peerSource of bucket.sourceByPeer.values())
 			if (peerSource === source) sameSource++
@@ -108,7 +108,7 @@ export function takeRtcJoinSlot(roomKey, peerId, limits = {}, sourceId = 'peer')
 	bucket.joinTimestamps.push(now)
 	if (peerId) {
 		bucket.active.add(peerId)
-		bucket.sourceByPeer.set(peerId, String(sourceId || 'peer'))
+		bucket.sourceByPeer.set(peerId, sourceId || 'peer')
 	}
 	return true
 }
@@ -123,9 +123,9 @@ export function takeRtcJoinSlot(roomKey, peerId, limits = {}, sourceId = 'peer')
 export function annotateRtcPeerNodeHash(roomKey, peerId, nodeHash, limits = {}) {
 	const bucket = budgets.get(roomKey)
 	if (!bucket || !peerId || !nodeHash) return
-	bucket.peerNodeHash.set(peerId, String(nodeHash).trim())
+	bucket.peerNodeHash.set(peerId, nodeHash)
 	for (const trusted of resolveRtcBudgetLimits(limits).trustedPeers || [])
-		if (String(trusted).trim() === String(nodeHash).trim())
+		if (trusted === nodeHash)
 			bucket.trustedPeers.add(peerId)
 
 }
@@ -139,7 +139,7 @@ export function annotateRtcPeerNodeHash(roomKey, peerId, nodeHash, limits = {}) 
 export function setRtcPeerSource(roomKey, peerId, sourceId) {
 	const bucket = budgets.get(roomKey)
 	if (!bucket || !peerId) return
-	bucket.sourceByPeer.set(peerId, String(sourceId || 'peer'))
+	bucket.sourceByPeer.set(peerId, sourceId || 'peer')
 }
 
 /**

@@ -14,9 +14,9 @@ const NODE_A = `${'a'.repeat(64)}`
 const NODE_B = `${'b'.repeat(64)}`
 const ENTITY = placeholderEntityHash('c')
 
-test('normalizeNetwork dedupes peers and trims hints', () => {
+test('normalizeNetwork dedupes peers and drops invalid hints', () => {
 	const net = normalizeNetwork({
-		trustedPeers: [NODE_A, NODE_A.toUpperCase()],
+		trustedPeers: [NODE_A, NODE_A, NODE_A.toUpperCase()],
 		explorePeers: [NODE_B],
 		hints: [
 			{ nodeHash: NODE_B, source: 'social', kind: 'mention', expiresAt: Date.now() + 1e6 },

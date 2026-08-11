@@ -4,7 +4,7 @@
 import { Buffer } from 'node:buffer'
 
 import { canonicalStringify } from '../core/canonical_json.mjs'
-import { isHex64, isSignatureHex128 } from '../core/hexIds.mjs'
+import { isHex64, isSignatureHex128, normalizeHex64 } from '../core/hexIds.mjs'
 import { pubKeyHash, verify } from '../crypto/crypto.mjs'
 
 const BALLOT_DOMAIN = 'fount-owner-succession'
@@ -15,9 +15,9 @@ const BALLOT_DOMAIN = 'fount-owner-succession'
  */
 export function ownerSuccessionBallotSignBytes(ballot) {
 	const body = {
-		proposedOwnerPubKeyHash: String(ballot.proposedOwnerPubKeyHash ?? '').trim().toLowerCase(),
-		groupId: String(ballot.groupId ?? '').trim(),
-		ballotId: String(ballot.ballotId ?? '').trim(),
+		proposedOwnerPubKeyHash: normalizeHex64(ballot.proposedOwnerPubKeyHash),
+		groupId: ballot.groupId,
+		ballotId: ballot.ballotId,
 	}
 	return Buffer.from(`${BALLOT_DOMAIN}\0${canonicalStringify(body)}`, 'utf8')
 }
@@ -42,8 +42,8 @@ export async function verifyOwnerSuccessionThreshold(ballot, adminPubKeyHashes, 
 	let valid = 0
 
 	for (const entry of ballot.adminSignatures || []) {
-		const pubKeyHex = String(entry?.pubKeyHex ?? '').trim().toLowerCase()
-		const signatureHex = String(entry?.signature ?? '').trim().toLowerCase()
+		const pubKeyHex = normalizeHex64(entry.pubKeyHex)
+		const signatureHex = entry.signature
 		if (!isHex64(pubKeyHex) || !isSignatureHex128(signatureHex)) continue
 
 		const hash = pubKeyHash(Buffer.from(pubKeyHex, 'hex'))

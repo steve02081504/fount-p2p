@@ -46,7 +46,7 @@ function buildDenylistIndex(blocked) {
 	/** @type {DenylistIndex} */
 	const index = { blocked, keys: new Set() }
 	for (const entry of blocked) {
-		const gid = String(entry.groupId || '').trim() || '*'
+		const gid = entry.groupId || '*'
 		if (entry.scope === 'entity') {
 			index.keys.add(denyKey('entity', '*', entry.value))
 			continue
@@ -75,19 +75,20 @@ export function normalizeDenylist(raw) {
 	/** @type {Array<{ scope: DenyScope, value: string, groupId?: string }>} */
 	const blocked = []
 	for (const entry of raw?.blocked || []) {
-		const scope = String(entry?.scope || '').trim().toLowerCase()
-		const value = String(entry?.value || '').trim().toLowerCase()
-		const groupId = String(entry.groupId || '').trim()
-		if (!scope || !value) continue
+		const scope = String(entry?.scope || '')
+		const groupId = String(entry.groupId || '')
+		if (!scope) continue
 		if (scope === 'entity') {
+			const value = String(entry?.value || '')
 			if (isEntityHash128(value))
 				blocked.push({ scope: 'entity', value })
 			continue
 		}
-		if (scope === 'node' && isHex64(normalizeHex64(value)))
-			blocked.push({ scope: 'node', value: normalizeHex64(value), ...groupId ? { groupId } : {} })
-		else if (scope === 'subject' && isHex64(normalizeHex64(value)))
-			blocked.push({ scope: 'subject', value: normalizeHex64(value), ...groupId ? { groupId } : {} })
+		const value = normalizeHex64(entry?.value)
+		if (scope === 'node' && isHex64(value))
+			blocked.push({ scope: 'node', value, ...groupId ? { groupId } : {} })
+		else if (scope === 'subject' && isHex64(value))
+			blocked.push({ scope: 'subject', value, ...groupId ? { groupId } : {} })
 	}
 	return { blocked }
 }
@@ -117,7 +118,7 @@ export function saveDenylist(list) {
 export function isSubjectBannedByState(state, subject) {
 	const pk = normalizeHex64(subject?.pubKeyHash)
 	if (isHex64(pk) && state?.bannedMembers?.has?.(pk)) return true
-	const entity = String(subject?.entityHash || '').trim().toLowerCase()
+	const entity = String(subject?.entityHash || '')
 	if (isEntityHash128(entity) && state?.bannedEntities?.has?.(entity)) return true
 	const node = normalizeHex64(subject?.nodeHash)
 	if (isHex64(node) && state?.bannedNodes?.has?.(node)) return true
@@ -132,17 +133,16 @@ export function isSubjectBannedByState(state, subject) {
  */
 function matchesDenylistIndex(index, subject, groupId = '') {
 	const pk = normalizeHex64(subject?.pubKeyHash)
-	const entity = String(subject?.entityHash || '').trim().toLowerCase()
+	const entity = String(subject?.entityHash || '')
 	const node = normalizeHex64(subject?.nodeHash)
-	const gid = String(groupId || '').trim()
 	const { keys } = index
 
 	if (entity && keys.has(denyKey('entity', '*', entity))) return true
 	if (isHex64(node) && keys.has(denyKey('node', '*', node))) return true
 	if (isHex64(pk) && keys.has(denyKey('subject', '*', pk))) return true
-	if (!gid) return false
-	if (isHex64(pk) && keys.has(denyKey('subject', gid, pk))) return true
-	if (isHex64(node) && keys.has(denyKey('node', gid, node))) return true
+	if (!groupId) return false
+	if (isHex64(pk) && keys.has(denyKey('subject', groupId, pk))) return true
+	if (isHex64(node) && keys.has(denyKey('node', groupId, node))) return true
 	return false
 }
 
@@ -164,13 +164,12 @@ export function isPeerKeyBlocked(groupId, peerKey) {
 	const key = normalizeHex64(peerKey)
 	if (!isHex64(key)) return false
 	const index = getDenylistIndex()
-	const gid = String(groupId || '').trim()
 	const { keys } = index
 	if (keys.has(denyKey('subject', '*', key))) return true
 	if (keys.has(denyKey('node', '*', key))) return true
-	if (!gid) return false
-	if (keys.has(denyKey('subject', gid, key))) return true
-	if (keys.has(denyKey('node', gid, key))) return true
+	if (!groupId) return false
+	if (keys.has(denyKey('subject', groupId, key))) return true
+	if (keys.has(denyKey('node', groupId, key))) return true
 	return false
 }
 
@@ -196,21 +195,24 @@ export function isEntityHashBlocked(entityHash) {
  * @returns {Promise<void>}
  */
 export function addDenylistEntry(entry) {
-	const scope = String(entry?.scope || '').trim().toLowerCase()
-	const value = String(entry?.value || '').trim().toLowerCase()
-	if (!scope || !value)
+	const { scope } = entry
+	if (!scope)
 		throw new Error('scope and value required')
 	if (scope === 'entity' && entry.groupId)
 		throw new Error('entity scope does not use groupId')
-	if (scope === 'subject' && !isHex64(normalizeHex64(value)))
+	const normValue = scope === 'node' || scope === 'subject'
+		? normalizeHex64(entry.value)
+		: entry.value
+	if (!normValue)
+		throw new Error('scope and value required')
+	if (scope === 'subject' && !isHex64(normValue))
 		throw new Error('invalid pubKeyHash')
-	if (scope === 'entity' && !isEntityHash128(value))
+	if (scope === 'entity' && !isEntityHash128(normValue))
 		throw new Error('invalid entityHash')
-	if (scope === 'node' && !isHex64(normalizeHex64(value)))
+	if (scope === 'node' && !isHex64(normValue))
 		throw new Error('invalid nodeHash')
 
-	const normValue = scope === 'node' || scope === 'subject' ? normalizeHex64(value) : value
-	const groupId = entry.groupId ? String(entry.groupId).trim() : undefined
+	const groupId = entry.groupId || undefined
 	return mutateDenylist(() => {
 		const list = loadDenylist()
 		if (list.blocked.some(row => row.scope === scope && row.value === normValue && row.groupId === groupId))
@@ -226,8 +228,8 @@ export function addDenylistEntry(entry) {
  * @returns {Promise<void>}
  */
 export async function addDenylistFromBanContent(banContent, groupId) {
-	const scope = String(banContent?.banScope || 'entity').trim().toLowerCase()
-	const sourceGroupId = String(groupId || '').trim()
+	const scope = String(banContent?.banScope || 'entity')
+	const sourceGroupId = groupId || ''
 	if (scope === 'entity' && banContent?.targetEntityHash)
 		await addDenylistEntry({ scope: 'entity', value: banContent.targetEntityHash })
 	if (scope === 'node' && banContent?.targetNodeHash)
@@ -245,10 +247,9 @@ export async function addDenylistFromBanContent(banContent, groupId) {
  * @returns {Promise<void>}
  */
 export function addGroupBlockedPeer(groupId, scope, value) {
-	const normScope = String(scope || '').trim().toLowerCase()
-	if (normScope === 'entity')
-		return addDenylistEntry({ scope: normScope, value })
-	return addDenylistEntry({ scope: normScope, value, groupId })
+	if (scope === 'entity')
+		return addDenylistEntry({ scope, value })
+	return addDenylistEntry({ scope, value, groupId })
 }
 
 /**
@@ -258,14 +259,13 @@ export function addGroupBlockedPeer(groupId, scope, value) {
  * @returns {Promise<void>}
  */
 export function removeGroupBlockedPeer(groupId, scope, value) {
-	const normScope = String(scope || '').trim().toLowerCase()
-	const id = String(value || '').trim().toLowerCase()
-	if (!normScope || !id) return Promise.resolve()
+	const id = scope === 'entity' ? value : normalizeHex64(value)
+	if (!scope || !id) return Promise.resolve()
 	return mutateDenylist(() => {
 		const list = loadDenylist()
 		list.blocked = list.blocked.filter(entry => {
-			if (entry.scope !== normScope || entry.value !== id) return true
-			if (normScope === 'entity') return false
+			if (entry.scope !== scope || entry.value !== id) return true
+			if (scope === 'entity') return false
 			return entry.groupId !== groupId
 		})
 		saveDenylist(list)

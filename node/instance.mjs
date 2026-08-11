@@ -40,7 +40,7 @@ export function initNode(options) {
 	if (runtime) throw new Error('p2p: initNode already called — use setNodeLogger / setSignalingRuntimeConfig or resetNodeForTests')
 	if (options?.logger !== undefined || options?.signaling !== undefined)
 		throw new Error('p2p: initNode only accepts nodeDir/entityStore — use setNodeLogger / setSignalingRuntimeConfig')
-	const nodeDir = path.resolve(String(options.nodeDir || '').trim())
+	const nodeDir = path.resolve(options.nodeDir)
 	if (!nodeDir) throw new Error('p2p: initNode requires nodeDir')
 	const entityStore = options.entityStore ?? createFsEntityStore(path.join(nodeDir, 'entities'))
 	runtime = {

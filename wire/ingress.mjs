@@ -46,6 +46,6 @@ export function isSignedDagEventRow(event) {
  */
 export function extractInboundSignedEvent(payload, groupId) {
 	if (!isSignedDagEventRow(payload)) return null
-	if (payload.groupId && String(payload.groupId) !== groupId) return null
+	if (payload.groupId && payload.groupId !== groupId) return null
 	return payload
 }

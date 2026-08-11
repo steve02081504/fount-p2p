@@ -32,8 +32,8 @@ export function mailboxRecordBytes(record) {
  */
 export function mailboxBucketKey(record) {
 	const to = normalizeHex64(record.toPubKeyHash) || ''
-	const from = record.fromNodeHash?.trim().toLowerCase()
-		|| record.envelope?.sender?.trim().toLowerCase()
+	const from = normalizeHex64(record.fromNodeHash)
+		|| normalizeHex64(record.envelope?.sender)
 		|| 'unknown'
 	return `${to}\0${from}`
 }

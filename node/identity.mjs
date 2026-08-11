@@ -2,14 +2,13 @@ import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 
 import { entityHashFromRecoveryPubKeyHex, parseEntityHash } from '../core/entity_id.mjs'
-import { isHex64 } from '../core/hexIds.mjs'
+import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
 import { keyPairFromSeed, pubKeyHash } from '../crypto/crypto.mjs'
 import { normalizeMailboxSettings } from '../mailbox/settings.mjs'
 
 import { emitNodeChange } from './instance.mjs'
 import { readNodeJsonSync, writeNodeJsonSync } from './storage.mjs'
 
-const NODE_SEED_HEX_RE = /^[\da-f]{64}$/iu
 const NODE_JSON = 'node'
 
 /**
@@ -18,7 +17,7 @@ const NODE_JSON = 'node'
  * @returns {string} 节点哈希
  */
 export function nodeHashFromSeed(seedHex) {
-	const seed = Buffer.from(String(seedHex).trim(), 'hex')
+	const seed = Buffer.from(normalizeHex64(seedHex), 'hex')
 	if (seed.length !== 32) throw new Error('invalid node seed')
 	const { publicKey } = keyPairFromSeed(seed)
 	return pubKeyHash(publicKey)
@@ -47,8 +46,8 @@ function saveNodeFile(patch) {
  */
 export function ensureNodeSeed() {
 	const data = loadNodeFile()
-	const existing = String(data.nodeSeedHex || '').trim().toLowerCase()
-	if (NODE_SEED_HEX_RE.test(existing)) return existing
+	const existing = normalizeHex64(data.nodeSeedHex)
+	if (isHex64(existing)) return existing
 	const nodeSeedHex = randomBytes(32).toString('hex')
 	saveNodeFile({ nodeSeedHex })
 	return nodeSeedHex
@@ -67,7 +66,7 @@ export function getNodeHash() {
 export function getNodeTransportSettings() {
 	const data = loadNodeFile()
 	const relayUrls = (data.relayUrls || [])
-		.map(url => url.trim())
+		.map(url => String(url || ''))
 		.filter(url => url.startsWith('wss://'))
 	const batterySaver = !!data.batterySaver
 	const mailbox = normalizeMailboxSettings(data.mailbox || {})
@@ -82,7 +81,7 @@ export function saveNodeTransportSettings(patch) {
 	const data = loadNodeFile()
 	if (patch.batterySaver != null) data.batterySaver = !!patch.batterySaver
 	if (patch.relayUrls)
-		data.relayUrls = patch.relayUrls.map(url => url.trim()).filter(url => url.startsWith('wss://'))
+		data.relayUrls = patch.relayUrls.map(url => String(url || '')).filter(url => url.startsWith('wss://'))
 	if (patch.mailbox)
 		data.mailbox = normalizeMailboxSettings({ ...data.mailbox, ...patch.mailbox })
 	saveNodeFile(data)
@@ -106,7 +105,7 @@ export function ensureNodeDefaults() {
  * @returns {string | null} entityHash（非法 hex 时 null）
  */
 export function entityHashFromKeys(nodeHash, recoveryPubKeyHex) {
-	const pub = String(recoveryPubKeyHex || '').trim().toLowerCase().replace(/^0x/iu, '')
+	const pub = normalizeHex64(recoveryPubKeyHex)
 	if (!isHex64(nodeHash) || !isHex64(pub)) return null
 	return entityHashFromRecoveryPubKeyHex(nodeHash, pub)
 }

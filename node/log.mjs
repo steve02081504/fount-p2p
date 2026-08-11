@@ -29,7 +29,7 @@ export function isConnectivityDebug() {
  * @returns {string} 短 hash
  */
 export function shortHash(hash, n = 8) {
-	const value = String(hash || '')
+	const value = hash || ''
 	return value.length <= n ? value : value.slice(0, n)
 }
 

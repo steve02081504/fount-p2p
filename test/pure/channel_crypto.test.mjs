@@ -6,10 +6,9 @@ import {
 	decryptWithChannelKey,
 	encryptWithChannelKey,
 	generateChannelKey,
-	unwrapChannelKey,
-	wrapChannelKey,
 } from '../../crypto/channel.mjs'
 import { publicKeyFromSeed } from '../../crypto/crypto.mjs'
+import { unwrapKeyEcies, wrapKeyEcies } from '../../crypto/key.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 
 test('channel key HPKE wrap roundtrip', () => {
@@ -17,8 +16,8 @@ test('channel key HPKE wrap roundtrip', () => {
 	crypto.getRandomValues(seed)
 	const pubHex = Buffer.from(publicKeyFromSeed(seed)).toString('hex')
 	const kch = generateChannelKey()
-	const wrap = wrapChannelKey(kch, pubHex)
-	const unwrapped = unwrapChannelKey(wrap, seed)
+	const wrap = wrapKeyEcies(kch, pubHex)
+	const unwrapped = unwrapKeyEcies(wrap, seed)
 	assertEquals(unwrapped, kch)
 })
 

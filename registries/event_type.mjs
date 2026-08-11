@@ -15,7 +15,7 @@ const defsByOwner = new Map()
  * @returns {void}
  */
 export function registerEventTypeDefs(ownerId, defs) {
-	defsByOwner.set(String(ownerId), defs)
+	defsByOwner.set(ownerId, defs)
 }
 
 /**
@@ -23,7 +23,7 @@ export function registerEventTypeDefs(ownerId, defs) {
  * @returns {void}
  */
 export function unregisterEventTypeDefs(ownerId) {
-	defsByOwner.delete(String(ownerId))
+	defsByOwner.delete(ownerId)
 }
 
 /** @returns {void} */

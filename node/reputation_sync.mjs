@@ -86,13 +86,6 @@ function persistSyncConfig() {
 }
 
 /**
- * @returns {object} 当前 reputation 表（byNodeHash）
- */
-export function getReputationTable() {
-	return loadReputation()
-}
-
-/**
  * @param {object} table - 含 byNodeHash 的信誉表或裸 byNodeHash 对象
  * @returns {void}
  */

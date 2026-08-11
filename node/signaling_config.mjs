@@ -41,7 +41,7 @@ export function resolveSignalingRuntimeConfig(patch = {}) {
 		relayOverride = patch.relayOverride == null
 			? null
 			: [...new Set((Array.isArray(patch.relayOverride) ? patch.relayOverride : [])
-				.map(url => String(url || '').trim())
+				.map(url => String(url || ''))
 				.filter(url => url.startsWith('wss://')))]
 	return {
 		relayOverride,

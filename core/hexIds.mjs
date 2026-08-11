@@ -12,15 +12,15 @@ export const LOCAL_CHUNK_FILE_RE = /^local:[^/]+\/chunks\/([\da-f]{64})\.bin$/u
 
 /**
  * @param {unknown} value 原始字符串
- * @returns {string} trim + 去 0x + 小写
+ * @returns {string} 去可选 0x 前缀后的字符串（不修大小写/空白）
  */
 export function normalizeHex64(value) {
-	return String(value ?? '').trim().toLowerCase().replace(/^0x/iu, '')
+	return String(value ?? '').replace(/^0x/iu, '')
 }
 
 /**
  * @param {unknown} value 待校验值
- * @returns {boolean} 是否为 64 位 hex
+ * @returns {boolean} 是否为 64 位小写 hex
  */
 export function isHex64(value) {
 	return HEX_ID_64.test(normalizeHex64(value))
@@ -39,7 +39,7 @@ export function compareHex64Asc(a, b) {
 }
 
 /**
- * 外部入站专用：规范化并断言 64 位 hex。
+ * 外部入站专用：规范化并断言 64 位小写 hex。
  * @param {unknown} value 原始值
  * @param {string} [label='hex64'] 字段名（错误信息）
  * @returns {string} 小写 64 位 hex
@@ -56,5 +56,5 @@ export function assertHex64(value, label = 'hex64') {
  * @returns {boolean} 是否为 128 位签名 hex
  */
 export function isSignatureHex128(value) {
-	return SIGNATURE_HEX_128.test(String(value ?? '').trim())
+	return SIGNATURE_HEX_128.test(String(value ?? ''))
 }

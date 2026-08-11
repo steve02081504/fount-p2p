@@ -3,6 +3,8 @@
  */
 import { createHash } from 'node:crypto'
 
+import { normalizeHex64 } from '../core/hexIds.mjs'
+
 import admissionTunables from './tunables.json' with { type: 'json' }
 
 /** 默认 epoch 窗口（1 小时） */
@@ -21,7 +23,7 @@ export const JOIN_POW_DEFAULT_EPOCH_SKEW = 1
  * @returns {string} SHA-256 十六进制
  */
 export function computeJoinPowHash({ groupId, anchorRef, joinerNodeHash, epoch, nonce }) {
-	const preimage = `${String(groupId)}:${String(anchorRef)}:${String(joinerNodeHash)}:${String(epoch)}:${String(nonce)}`
+	const preimage = `${groupId}:${anchorRef}:${joinerNodeHash}:${String(epoch)}:${String(nonce)}`
 	return createHash('sha256').update(preimage, 'utf8').digest('hex')
 }
 
@@ -100,16 +102,16 @@ export function verifyJoinPow(powSolution, options) {
 	if (floorBits <= 0) return { ok: true, achievedBits: 0 }
 	if (!powSolution || typeof powSolution !== 'object') return { ok: false, achievedBits: 0 }
 
-	const anchorRef = String(powSolution.anchorRef ?? '').trim()
+	const anchorRef = String(powSolution.anchorRef ?? '')
 	const { nonce } = powSolution
 	const epoch = Number(powSolution.epoch)
-	const joinerNodeHash = String(powSolution.joinerNodeHash ?? options.senderNodeHash ?? '').trim().toLowerCase()
-	const senderNodeHash = String(options.senderNodeHash ?? '').trim().toLowerCase()
+	const joinerNodeHash = normalizeHex64(powSolution.joinerNodeHash ?? options.senderNodeHash)
+	const senderNodeHash = normalizeHex64(options.senderNodeHash)
 
 	if (!anchorRef || nonce == null || !Number.isFinite(epoch)) return { ok: false, achievedBits: 0 }
 	if (!joinerNodeHash || joinerNodeHash !== senderNodeHash) return { ok: false, achievedBits: 0 }
 
-	const anchors = (options.knownAnchors ?? []).map(a => String(a).trim()).filter(Boolean)
+	const anchors = (options.knownAnchors ?? []).filter(Boolean)
 	if (!anchors.length || !anchors.includes(anchorRef)) return { ok: false, achievedBits: 0 }
 
 	const epochMs = Math.max(60_000, Number(options.epochMs) || JOIN_POW_DEFAULT_EPOCH_MS)

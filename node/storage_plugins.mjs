@@ -47,7 +47,7 @@ export function createLocalStoragePlugin(baseDir) {
 		 * @returns {Promise<Uint8Array>} 文件内容
 		 */
 		async getChunk(locator) {
-			const localLocatorMatch = String(locator).match(/^local:([^/]+)\/chunks\/(.+)$/)
+			const localLocatorMatch = locator.match(/^local:([^/]+)\/chunks\/(.+)$/)
 			if (!localLocatorMatch) throw new Error('Invalid local locator')
 			const chunkPath = join(baseDir, 'groups', localLocatorMatch[1], 'chunks', localLocatorMatch[2])
 			return new Uint8Array(await readFile(chunkPath))
@@ -57,7 +57,7 @@ export function createLocalStoragePlugin(baseDir) {
 		 * @returns {Promise<void>}
 		 */
 		async deleteChunk(locator) {
-			const localLocatorMatch = String(locator).match(/^local:([^/]+)\/chunks\/(.+)$/)
+			const localLocatorMatch = locator.match(/^local:([^/]+)\/chunks\/(.+)$/)
 			if (!localLocatorMatch) return
 			const chunkPath = join(baseDir, 'groups', localLocatorMatch[1], 'chunks', localLocatorMatch[2])
 			try {

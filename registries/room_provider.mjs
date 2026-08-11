@@ -21,7 +21,7 @@ const providers = new Map()
  * @returns {void}
  */
 export function registerFederationRoomProvider(ownerId, enumerateRooms) {
-	providers.set(String(ownerId), enumerateRooms)
+	providers.set(ownerId, enumerateRooms)
 }
 
 /**
@@ -29,7 +29,7 @@ export function registerFederationRoomProvider(ownerId, enumerateRooms) {
  * @returns {void}
  */
 export function unregisterFederationRoomProvider(ownerId) {
-	providers.delete(String(ownerId))
+	providers.delete(ownerId)
 }
 
 /**

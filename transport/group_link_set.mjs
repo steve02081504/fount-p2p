@@ -59,7 +59,7 @@ export function createGroupLinkSet(options) {
 	 * @returns {void}
 	 */
 	function registerCleanup(cleanup) {
-		if (typeof cleanup !== 'function') return
+		if (!cleanup) return
 		cleanups.add(cleanup)
 	}
 
@@ -182,7 +182,7 @@ export function createGroupLinkSet(options) {
 		}
 		started = true
 		active = true
-		if (typeof registry.ensureRuntime === 'function')
+		if (registry.ensureRuntime)
 			await registry.ensureRuntime()
 		registry.registerScopeInterest(scope, [...members])
 		registerCleanup(registry.subscribeScope(scope, (senderNodeHash, envelope) => {

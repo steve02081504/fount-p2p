@@ -26,7 +26,7 @@ export async function resolveContentKey(descriptor, manifest, dependencies = {})
 	if (type === 'file-master-key-wrap') {
 		const { groupId, fileId } = descriptor
 		if (!groupId || !fileId || !descriptor.wrappedKey || !dependencies.getGroupFileMasterKey) return null
-		const groupKey = await dependencies.getGroupFileMasterKey(String(groupId), descriptor.keyGeneration)
+		const groupKey = await dependencies.getGroupFileMasterKey(groupId, descriptor.keyGeneration)
 		if (!groupKey) return null
 		return unwrapContentKey(descriptor.wrappedKey, groupKey, fileId)
 	}
@@ -34,7 +34,7 @@ export async function resolveContentKey(descriptor, manifest, dependencies = {})
 	if (type === 'vault-wrap') {
 		const { entityHash, fileId } = descriptor
 		if (!entityHash || !fileId || !descriptor.wrappedKey || !dependencies.getVaultMasterKey) return null
-		const vaultKey = await dependencies.getVaultMasterKey(String(entityHash))
+		const vaultKey = await dependencies.getVaultMasterKey(entityHash)
 		if (!vaultKey) return null
 		return unwrapContentKey(descriptor.wrappedKey, vaultKey, fileId)
 	}
@@ -85,7 +85,7 @@ export async function assembleManifestPlaintext(manifest, partBytes, dependencie
 	}
 	const merged = Buffer.concat(plains)
 	if (manifest.contentHash)
-		if (createHash('sha256').update(merged).digest('hex') !== manifest.contentHash.toLowerCase()) return null
+		if (createHash('sha256').update(merged).digest('hex') !== manifest.contentHash) return null
 
 	return merged
 }

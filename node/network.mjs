@@ -54,17 +54,17 @@ export function normalizeNetwork(raw) {
 	 */
 	const pickIds = key => [...new Set(
 		(file[key] || [])
-			.map(id => normalizeHex64(id) || id.trim())
+			.map(id => normalizeHex64(id))
 			.filter(id => isHex64(id)),
 	)]
 	const hints = (file.hints || [])
 		.map(hint => ({
 			nodeHash: normalizeHex64(hint.nodeHash) || '',
-			source: hint.source?.trim() || '',
-			kind: hint.kind?.trim() || '',
+			source: String(hint.source || ''),
+			kind: String(hint.kind || ''),
 			weight: Number.isFinite(Number(hint.weight)) ? Number(hint.weight) : 0.1,
 			expiresAt: Number(hint.expiresAt) || 0,
-			...hint.groupId ? { groupId: hint.groupId.trim() } : {},
+			...hint.groupId ? { groupId: String(hint.groupId) } : {},
 		}))
 		.filter(hint => isHex64(hint.nodeHash))
 	return {
@@ -98,7 +98,7 @@ export function capHintsBySource(hints, maxPerSource = MAX_HINTS_PER_SOURCE) {
 	const counts = new Map()
 	const out = []
 	for (const hint of [...hints].reverse()) {
-		const source = String(hint.source || 'unknown')
+		const source = hint.source || 'unknown'
 		const n = counts.get(source) ?? 0
 		if (n >= maxPerSource) continue
 		counts.set(source, n + 1)
@@ -134,8 +134,8 @@ export function applyNetworkHint(hint) {
 	const now = Date.now()
 	const ttlMs = Number.isFinite(hint.ttlMs) ? hint.ttlMs : DEFAULT_EXPLORE_TTL_MS
 	const expiresAt = Number.isFinite(hint.expiresAt) ? hint.expiresAt : now + ttlMs
-	const source = String(hint.source || 'unknown')
-	const priorSources = new Set(net.hints.filter(h => h.nodeHash === nodeHash).map(h => String(h.source || 'unknown')))
+	const source = hint.source || 'unknown'
+	const priorSources = new Set(net.hints.filter(h => h.nodeHash === nodeHash).map(h => h.source || 'unknown'))
 	priorSources.add(source)
 	const multiSourceBoost = priorSources.size >= 2 ? 1.2 : 1
 	const baseWeight = Number.isFinite(hint.weight) ? hint.weight : 0.1
@@ -145,10 +145,10 @@ export function applyNetworkHint(hint) {
 	net.hints.push({
 		nodeHash,
 		source,
-		kind: String(hint.kind || 'hint'),
+		kind: hint.kind || 'hint',
 		weight: baseWeight * multiSourceBoost,
 		expiresAt,
-		...hint.groupId ? { groupId: String(hint.groupId).trim() } : {},
+		...hint.groupId ? { groupId: hint.groupId } : {},
 	})
 	saveNetwork(net)
 }
@@ -234,11 +234,10 @@ export function replaceNetworkPeerPools(pools = {}) {
  * @returns {string[]} 规范化 value 列表
  */
 function denyValuesForScope(groupId, scope) {
-	const gid = String(groupId || '').trim()
 	return [...new Set(
 		loadDenylist().blocked
 			.filter(entry => entry.scope === scope)
-			.filter(entry => scope === 'entity' || !entry.groupId || !gid || entry.groupId === gid)
+			.filter(entry => scope === 'entity' || !entry.groupId || !groupId || entry.groupId === groupId)
 			.map(entry => entry.value),
 	)]
 }
@@ -278,10 +277,9 @@ export function loadPeerPoolView(groupId = '') {
  * @returns {boolean} 是否命中 denylist（按 scope 匹配）
  */
 export function isPeerPoolKeyBlocked(view, key) {
-	const normalized = String(key || '').trim().toLowerCase()
-	if (!normalized) return false
-	if (view.deniedNodes.includes(normalized)) return true
-	if (view.deniedSubjects.includes(normalized)) return true
-	if (isEntityHash128(normalized) && view.deniedEntities.includes(normalized)) return true
+	if (!key) return false
+	if (view.deniedNodes.includes(key)) return true
+	if (view.deniedSubjects.includes(key)) return true
+	if (isEntityHash128(key) && view.deniedEntities.includes(key)) return true
 	return false
 }

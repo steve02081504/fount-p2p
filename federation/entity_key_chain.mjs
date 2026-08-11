@@ -23,28 +23,11 @@ export const ENTITY_KEY_REVOKE_DOMAIN = 'fount-entity-key-revoke'
  */
 
 /**
- * @param {unknown} recoveryPubKeyHex 64 位十六进制 recovery 公钥
- * @returns {string} 稳定 subjectHash（entityHash 后半）
- */
-export function recoverySubjectHashFromPubKeyHex(recoveryPubKeyHex) {
-	return hashFromPubKeyHex(recoveryPubKeyHex)
-}
-
-/**
- * @param {unknown} activePubKeyHex 64 位十六进制 活跃公钥
- * @returns {string} 时间线 sender（pubKeyHash）
- */
-export function activeSenderHashFromPubKeyHex(activePubKeyHex) {
-	return hashFromPubKeyHex(activePubKeyHex)
-}
-
-/**
- * @param {string} recoveryPubKeyHex recovery 公钥
  * @param {string} activePubKeyHex 初始活跃公钥
  * @param {number} [validFrom] 生效时间
  * @returns {EntityKeyHistoryEntry[]} 创世链
  */
-export function createGenesisKeyHistory(recoveryPubKeyHex, activePubKeyHex, validFrom = Date.now()) {
+export function createGenesisKeyHistory(activePubKeyHex, validFrom = Date.now()) {
 	return [{
 		generation: 0,
 		activePubKeyHex: normalizeHex64(activePubKeyHex),
@@ -76,17 +59,15 @@ export function isActiveGenerationRevoked(keyHistory, generation) {
 
 /**
  * @param {EntityKeyHistoryEntry[]} keyHistory 密钥历史
- * @param {string} recoveryPubKeyHex recovery 公钥
  * @param {string} senderPubKeyHash 事件 sender（64 hex pubKeyHash）
  * @returns {boolean} sender 是否为未吊销的活跃钥
  */
-export function isValidActiveSender(keyHistory, recoveryPubKeyHex, senderPubKeyHash) {
+export function isValidActiveSender(keyHistory, senderPubKeyHash) {
 	const sender = normalizeHex64(senderPubKeyHash)
 	if (!isHex64(sender)) return false
-	void recoveryPubKeyHex
 	for (const entry of keyHistory || []) {
 		if (isActiveGenerationRevoked(keyHistory, entry.generation)) continue
-		if (activeSenderHashFromPubKeyHex(entry.activePubKeyHex) === sender)
+		if (hashFromPubKeyHex(entry.activePubKeyHex) === sender)
 			return true
 	}
 	return false
@@ -98,7 +79,7 @@ export function isValidActiveSender(keyHistory, recoveryPubKeyHex, senderPubKeyH
  * @returns {boolean} 是否为 recovery 钥签名
  */
 export function isRecoverySender(recoveryPubKeyHex, senderPubKeyHash) {
-	return recoverySubjectHashFromPubKeyHex(recoveryPubKeyHex) === normalizeHex64(senderPubKeyHash)
+	return hashFromPubKeyHex(recoveryPubKeyHex) === normalizeHex64(senderPubKeyHash)
 }
 
 /**
@@ -183,7 +164,7 @@ export function entityKeyRevokeSignBytes(revokeBody) {
 		revokeGenerations: (revokeBody.revokeGenerations || []).map(Number),
 		newGeneration: Number(revokeBody.newGeneration),
 		activePubKeyHex: normalizeHex64(revokeBody.activePubKeyHex || ''),
-		entityHash: String(revokeBody.entityHash || '').trim().toLowerCase(),
+		entityHash: String(revokeBody.entityHash || ''),
 	}
 	return Buffer.from(`${ENTITY_KEY_REVOKE_DOMAIN}\0${canonicalStringify(body)}`, 'utf8')
 }

@@ -8,8 +8,7 @@ export const ENTITY_HASH_RE = /^[\da-f]{128}$/u
  * @returns {boolean} 是否为合法 128 位 hex
  */
 export function isEntityHash128(value) {
-	const raw = String(value ?? '').trim().toLowerCase().replace(/^0x/iu, '')
-	return ENTITY_HASH_RE.test(raw)
+	return ENTITY_HASH_RE.test(String(value ?? '').replace(/^0x/iu, ''))
 }
 
 /**
@@ -17,7 +16,7 @@ export function isEntityHash128(value) {
  * @returns {{ entityHash: string, nodeHash: string, subjectHash: string } | null} 解析结果；非法时 null
  */
 export function parseEntityHash(entityHash) {
-	const raw = String(entityHash ?? '').trim().toLowerCase().replace(/^0x/iu, '')
+	const raw = String(entityHash ?? '').replace(/^0x/iu, '')
 	if (!ENTITY_HASH_RE.test(raw)) return null
 	return {
 		entityHash: raw,

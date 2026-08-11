@@ -197,7 +197,7 @@ export async function putFileManifestFromStream(parameters) {
 	const enc = await encryptReadableToParts(readable, ceMode, async part =>
 		putChunk(part.hash, part.raw), plainSize)
 	const manifest = normalizeFileManifest({
-		ownerEntityHash: ownerEntityHash.toLowerCase(),
+		ownerEntityHash,
 		logicalPath: logicalPath.replace(/^\/+/, ''),
 		name: name || logicalPath.split('/').pop() || 'file',
 		mimeType: mimeType || 'application/octet-stream',

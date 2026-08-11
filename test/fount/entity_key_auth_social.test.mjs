@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto'
 import { test } from 'node:test'
 
 import { keyPairFromSeed } from '../../crypto/crypto.mjs'
-import { activeSenderHashFromPubKeyHex } from '../../federation/entity_key_chain.mjs'
+import { hashFromPubKeyHex } from '../../core/entity_id.mjs'
 import { fountBridgeSkipReason, importSocialModule } from '../helpers/fount_paths.mjs'
 
 const skip = await fountBridgeSkipReason('federation/entity_key_auth.mjs')
@@ -24,7 +24,7 @@ test('social foldEntityKeyHistoryFromEvents tracks social_meta and rotate', { sk
 	assert.equal(folded.entityKeyHistory.length, 1)
 	assert.equal(entityKeyAuth.isEntityTimelineWriteAuthorized({
 		entityHash: 'a'.repeat(128),
-		sender: activeSenderHashFromPubKeyHex(activeHex),
+		sender: hashFromPubKeyHex(activeHex),
 		eventType: 'post',
 		eventContent: {},
 		recoveryPubKeyHex: recoveryHex,

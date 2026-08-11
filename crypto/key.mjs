@@ -73,7 +73,7 @@ function toHBuf(H) {
  * @returns {Buffer} 32 字节 AES-256 密钥
  */
 export function deriveFileKey(H, fileId) {
-	return kdf(toHBuf(H), 'file', String(fileId))
+	return kdf(toHBuf(H), 'file', fileId)
 }
 
 /**
@@ -83,7 +83,7 @@ export function deriveFileKey(H, fileId) {
  * @returns {Buffer} 32 字节 AES-256 密钥
  */
 export function deriveSocialPostKey(H, postId) {
-	return kdf(toHBuf(H), 'post', String(postId))
+	return kdf(toHBuf(H), 'post', postId)
 }
 
 /**
@@ -93,7 +93,7 @@ export function deriveSocialPostKey(H, postId) {
  * @returns {Buffer} 32 字节 HMAC 密钥
  */
 export function deriveStreamingAuthKey(H, groupId) {
-	return kdf(toHBuf(H), 'streaming', String(groupId))
+	return kdf(toHBuf(H), 'streaming', groupId)
 }
 
 // ─── H 轮换（§11.2、§6.3 key_rotate）──────────────────────────────────────
@@ -109,8 +109,8 @@ export function deriveStreamingAuthKey(H, groupId) {
 export function deriveNextFileMasterKey(oldKeyHex, eventId, nonce) {
 	return createHash('sha256')
 		.update(Buffer.from(oldKeyHex, 'hex'))
-		.update(String(eventId))
-		.update(String(nonce))
+		.update(eventId)
+		.update(nonce)
 		.digest('hex')
 }
 
@@ -245,7 +245,7 @@ export function encryptUtf8ForMember(utf8Text, memberEdPubKeyHex) {
 	const wrapKey = createHash('sha256').update(sharedSecret).digest()
 	const iv = randomBytes(12)
 	const cipher = createCipheriv('aes-256-gcm', wrapKey, iv)
-	const plain = Buffer.from(String(utf8Text), 'utf8')
+	const plain = Buffer.from(utf8Text, 'utf8')
 	const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()])
 	const authTag = cipher.getAuthTag()
 	return {
@@ -356,7 +356,7 @@ export function decryptConvergentCiphertext(raw, contentHashHex) {
 		decipher.setAuthTag(authTag)
 		const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()])
 		const check = createHash('sha256').update(plain).digest('hex')
-		if (check !== contentHashHex.toLowerCase()) return null
+		if (check !== contentHashHex) return null
 		return plain
 	}
 	catch { return null }
@@ -379,10 +379,9 @@ export function decryptRandomCiphertext(raw, contentKey, contentHashHex = '') {
 		const decipher = createDecipheriv('aes-256-gcm', Buffer.from(contentKey), iv)
 		decipher.setAuthTag(authTag)
 		const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()])
-		const expect = String(contentHashHex || '').trim().toLowerCase()
-		if (expect) {
+		if (contentHashHex) {
 			const check = createHash('sha256').update(plain).digest('hex')
-			if (check !== expect) return null
+			if (check !== contentHashHex) return null
 		}
 		return plain
 	}

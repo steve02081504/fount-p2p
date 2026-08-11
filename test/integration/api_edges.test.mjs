@@ -18,13 +18,13 @@ import {
 import {
 	attachReputationSyncWire,
 	getReputationLocks,
-	getReputationTable,
 	lockReputationMax,
 	resetReputationSyncForTests,
 	setReputationExportAllowlist,
 	setReputationTable,
 	unlockReputationMax,
 } from '../../node/reputation_sync.mjs'
+import { loadReputation } from '../../node/reputation_store.mjs'
 import { resolveSignalingRuntimeConfig } from '../../node/signaling_config.mjs'
 import {
 	configureLinkRegistry,
@@ -194,11 +194,11 @@ test('lockReputationMax forces score to 1; unlock restores prior score', async (
 		initNode({ nodeDir })
 		await setReputationTable({ byNodeHash: { [HASH_A]: { score: 0.2 } } })
 		await lockReputationMax([HASH_A])
-		assert.equal(getReputationTable().byNodeHash[HASH_A].score, 1)
+		assert.equal(loadReputation().byNodeHash[HASH_A].score, 1)
 		assert.deepEqual(getReputationLocks(), [HASH_A])
 		await unlockReputationMax([HASH_A])
 		assert.deepEqual(getReputationLocks(), [])
-		assert.equal(getReputationTable().byNodeHash[HASH_A].score, 0.2)
+		assert.equal(loadReputation().byNodeHash[HASH_A].score, 0.2)
 	}
 	finally {
 		resetAll()

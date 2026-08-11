@@ -19,7 +19,7 @@ const consumers = new Map()
  * @returns {void}
  */
 export function registerMailboxConsumer(app, handler) {
-	consumers.set(String(app), { handler })
+	consumers.set(app, { handler })
 }
 
 /**
@@ -27,7 +27,7 @@ export function registerMailboxConsumer(app, handler) {
  * @returns {void}
  */
 export function unregisterMailboxConsumer(app) {
-	consumers.delete(String(app))
+	consumers.delete(app)
 }
 
 /**

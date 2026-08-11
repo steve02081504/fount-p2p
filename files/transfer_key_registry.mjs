@@ -10,7 +10,7 @@ const dagPlaintextReadersByOwner = new Map()
  * @returns {void}
  */
 export function registerTransferKeyDependencies(ownerId, dependencies) {
-	const key = String(ownerId)
+	const key = ownerId
 	const prev = transferDependenciesByOwner.get(key) || {}
 	transferDependenciesByOwner.set(key, { ...prev, ...dependencies })
 }
@@ -21,7 +21,7 @@ export function registerTransferKeyDependencies(ownerId, dependencies) {
  * @returns {void}
  */
 export function registerDagManifestPlaintextReader(ownerId, reader) {
-	dagPlaintextReadersByOwner.set(String(ownerId), reader)
+	dagPlaintextReadersByOwner.set(ownerId, reader)
 }
 
 /** @type {Array<{ ownerId: string, match: (manifest: import('./manifest/normalize.mjs').FileManifest) => boolean }>} */
@@ -33,7 +33,7 @@ const manifestOwnerMatchers = []
  * @returns {void}
  */
 export function registerManifestOwnerMatcher(ownerId, match) {
-	manifestOwnerMatchers.push({ ownerId: String(ownerId), match })
+	manifestOwnerMatchers.push({ ownerId, match })
 }
 
 /**
@@ -41,7 +41,7 @@ export function registerManifestOwnerMatcher(ownerId, match) {
  * @returns {void}
  */
 export function unregisterManifestOwnerMatchers(ownerId) {
-	const id = String(ownerId)
+	const id = ownerId
 	for (let i = manifestOwnerMatchers.length - 1; i >= 0; i--)
 		if (manifestOwnerMatchers[i].ownerId === id) manifestOwnerMatchers.splice(i, 1)
 }
@@ -51,7 +51,7 @@ export function unregisterManifestOwnerMatchers(ownerId) {
  * @returns {void}
  */
 export function unregisterTransferKeyDependencies(ownerId) {
-	const key = String(ownerId)
+	const key = ownerId
 	transferDependenciesByOwner.delete(key)
 	dagPlaintextReadersByOwner.delete(key)
 	unregisterManifestOwnerMatchers(key)
@@ -75,7 +75,7 @@ export function resolveManifestTransferOwnerId(manifest) {
  */
 export function resolveTransferKeyDependencies(ownerId, manifest) {
 	const resolved = ownerId || (manifest ? resolveManifestTransferOwnerId(manifest) : null)
-	if (resolved) return transferDependenciesByOwner.get(String(resolved)) || {}
+	if (resolved) return transferDependenciesByOwner.get(resolved) || {}
 	return {}
 }
 

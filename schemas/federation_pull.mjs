@@ -14,7 +14,7 @@ const ENVELOPE_BLOB_MIN_LEN = 2
  * @returns {boolean} 是否像合法 ECIES blob 段
  */
 function isEnvelopeBlob(value) {
-	return String(value ?? '').trim().length >= ENVELOPE_BLOB_MIN_LEN
+	return String(value ?? '').length >= ENVELOPE_BLOB_MIN_LEN
 }
 
 /**
@@ -24,14 +24,14 @@ function isEnvelopeBlob(value) {
 export function parsePullAttestation(attestation) {
 	if (!isPlainObject(attestation)) return null
 	const requesterPubKeyHash = normalizeHex64(attestation.requesterPubKeyHash)
-	const groupId = String(attestation.groupId || '').trim()
-	const requestId = String(attestation.requestId || '').trim()
+	const groupId = String(attestation.groupId || '')
+	const requestId = String(attestation.requestId || '')
 	const timestamp = Number(attestation.timestamp)
-	const signature = String(attestation.signature || '').trim().toLowerCase()
+	const signature = String(attestation.signature || '')
 	if (!isHex64(requesterPubKeyHash) || !groupId || !Number.isFinite(timestamp) || !isSignatureHex128(signature))
 		return null
 	const wantIds = attestation.wantIds?.length
-		? [...new Set(attestation.wantIds.map(id => id.trim().toLowerCase()).filter(id => EVENT_ID_HEX.test(id)))]
+		? [...new Set(attestation.wantIds.map(id => normalizeHex64(id)).filter(id => EVENT_ID_HEX.test(id)))]
 		: undefined
 	return {
 		requesterPubKeyHash,
@@ -49,13 +49,13 @@ export function parsePullAttestation(attestation) {
  */
 export function parsePullResponseEnvelope(envelope) {
 	if (!isPlainObject(envelope)) return null
-	const requestId = String(envelope.requestId || '').trim()
+	const requestId = String(envelope.requestId || '')
 	const requesterPubKeyHash = normalizeHex64(envelope.requesterPubKeyHash)
-	const requesterNodeHash = String(envelope.requesterNodeHash || '').trim()
-	const ephemPub = String(envelope.ephemPub || '').trim()
-	const iv = String(envelope.iv || '').trim()
-	const ciphertext = String(envelope.ciphertext || '').trim()
-	const authTag = String(envelope.authTag || '').trim()
+	const requesterNodeHash = String(envelope.requesterNodeHash || '')
+	const ephemPub = String(envelope.ephemPub || '')
+	const iv = String(envelope.iv || '')
+	const ciphertext = String(envelope.ciphertext || '')
+	const authTag = String(envelope.authTag || '')
 	if (!requestId || !isHex64(requesterPubKeyHash) || !requesterNodeHash) return null
 	if (!isEnvelopeBlob(ephemPub) || !isEnvelopeBlob(iv) || !isEnvelopeBlob(ciphertext) || !isEnvelopeBlob(authTag))
 		return null
@@ -76,27 +76,19 @@ export function parsePullResponseEnvelope(envelope) {
  */
 export function parseJoinSnapshotRequest(data) {
 	if (!isPlainObject(data)) return null
-	const requestId = String(data.requestId || '').trim()
-	const requesterNodeHash = String(data.requesterNodeHash || '').trim()
-	const groupId = String(data.groupId || '').trim()
+	const requestId = String(data.requestId || '')
+	const requesterNodeHash = String(data.requesterNodeHash || '')
+	const groupId = String(data.groupId || '')
 	const attestation = parsePullAttestation(data.attestation)
 	if (!requestId || !requesterNodeHash || !groupId || !attestation) return null
 	if (attestation.groupId !== groupId || attestation.requestId !== requestId) return null
-	const tipsHash = String(data.tipsHash || '').trim()
+	const tipsHash = String(data.tipsHash || '')
 	return {
 		requestId,
 		requesterNodeHash,
 		requesterPubKeyHash: attestation.requesterPubKeyHash,
 		groupId,
-		tipsHash: tipsHash ? tipsHash.toLowerCase() : undefined,
+		tipsHash: tipsHash || undefined,
 		attestation,
 	}
-}
-
-/**
- * @param {unknown} data 入群快照响应载荷
- * @returns {object | null} 解析结果
- */
-export function parseJoinSnapshotResponse(data) {
-	return parsePullResponseEnvelope(data)
 }

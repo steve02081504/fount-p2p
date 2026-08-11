@@ -10,9 +10,8 @@ export const EVFS_SCHEME = 'evfs:'
  * @returns {string} evfs URI 引用
  */
 export function formatEvfsRef(entityHash, logicalPath) {
-	const eh = String(entityHash).trim().toLowerCase()
 	const safePath = assertSafeEvfsLogicalPath(logicalPath)
-	return `${EVFS_SCHEME}//${eh}/${safePath}`
+	return `${EVFS_SCHEME}//${entityHash}/${safePath}`
 }
 
 /**
@@ -24,8 +23,8 @@ export function parseEvfsRef(ref) {
 	try {
 		const url = new URL(ref)
 		if (url.protocol !== 'evfs:') return null
-		const entityHash = String(url.hostname || '').trim().toLowerCase()
-		const logicalPath = String(url.pathname || '').replace(/^\/+/, '')
+		const entityHash = url.hostname
+		const logicalPath = url.pathname.replace(/^\/+/, '')
 		if (!isEntityHash128(entityHash)) return null
 		return { entityHash, logicalPath: assertSafeEvfsLogicalPath(logicalPath) }
 	}

@@ -39,7 +39,7 @@ function releaseMutex(lockKey, state) {
  * @template T
  */
 export async function withAsyncMutex(key, criticalSection) {
-	const lockKey = String(key)
+	const lockKey = key
 	const state = mutexState(lockKey)
 	return new Promise((resolve, reject) => {
 		/**

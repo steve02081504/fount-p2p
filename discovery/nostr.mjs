@@ -82,13 +82,12 @@ export function noteNostrVisibleNode(nodeHash, now = Date.now()) {
  * @returns {void}
  */
 export function noteNostrGroupVisibleNode(roomSecret, nodeHash, now = Date.now()) {
-	const key = String(roomSecret || '')
 	const hash = normalizeHex64(nodeHash)
-	if (!key || !isHex64(hash)) return
-	let pool = visibleByGroup.get(key)
+	if (!roomSecret || !isHex64(hash)) return
+	let pool = visibleByGroup.get(roomSecret)
 	if (!pool) {
 		pool = new Map()
-		visibleByGroup.set(key, pool)
+		visibleByGroup.set(roomSecret, pool)
 	}
 	pool.set(hash, now)
 }
@@ -109,11 +108,10 @@ export function listNostrVisibleNodeHashes(now = Date.now(), ttlMs = ADVERT_TTL_
  * @returns {string[]} 该群可见 nodeHash
  */
 export function listNostrGroupVisibleNodeHashes(roomSecret, now = Date.now(), ttlMs = ADVERT_TTL_MS) {
-	const key = String(roomSecret || '')
-	const pool = visibleByGroup.get(key)
+	const pool = visibleByGroup.get(roomSecret)
 	if (!pool) return []
 	const out = listPoolHashes(pool, now, ttlMs)
-	if (!pool.size) visibleByGroup.delete(key)
+	if (!pool.size) visibleByGroup.delete(roomSecret)
 	return out
 }
 
@@ -133,9 +131,8 @@ export async function acceptNostrAdvert(rendezvousKey, bytes, options = {}) {
 	const roomSecret = options.roomSecret
 	let firstSeen = true
 	if (roomSecret) {
-		const key = String(roomSecret || '')
-		firstSeen = !visibleByGroup.get(key)?.has(hash)
-		noteNostrGroupVisibleNode(key, hash)
+		firstSeen = !visibleByGroup.get(roomSecret)?.has(hash)
+		noteNostrGroupVisibleNode(roomSecret, hash)
 	}
 	else {
 		firstSeen = !visibleByHash.has(hash)
@@ -188,8 +185,8 @@ function dropWebSocket(ws) {
 function dedupeRelayUrls(urls) {
 	const seen = new Set()
 	return (urls || [])
-		.map(url => url.trim())
-		.filter(trimmed => trimmed && !seen.has(trimmed) && (seen.add(trimmed), true))
+		.map(url => String(url || ''))
+		.filter(url => url && !seen.has(url) && (seen.add(url), true))
 }
 
 /**
@@ -568,7 +565,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 	 * @returns {string[]} 去重后的中继 URL 列表
 	 */
 	const resolveRelayUrls = () => {
-		if (typeof options.getRelayUrls === 'function') {
+		if (options.getRelayUrls) {
 			const urls = options.getRelayUrls()
 			return dedupeRelayUrls(urls == null ? DEFAULT_RELAY_URLS : urls)
 		}
@@ -676,11 +673,10 @@ export function createNostrDiscoveryProvider(options = {}) {
 	 * @returns {() => void} 取消 listener
 	 */
 	function ensureGroupSubscription(roomSecret, listener) {
-		const key = String(roomSecret || '')
-		if (!key) return () => { }
-		return ensureAdvertSubscription('group:' + key, {
-			rendezvousKey: groupRendezvousKey(key),
-			roomSecret: key,
+		if (!roomSecret) return () => { }
+		return ensureAdvertSubscription('group:' + roomSecret, {
+			rendezvousKey: groupRendezvousKey(roomSecret),
+			roomSecret,
 		}, listener)
 	}
 
@@ -828,10 +824,9 @@ export function createNostrDiscoveryProvider(options = {}) {
 		 * @returns {Promise<() => void>} 停止群 presence 广播
 		 */
 		async startGroupPresence(roomSecret, getBeacon) {
-			const key = String(roomSecret || '')
-			const rendezvousKey = groupRendezvousKey(key)
+			const rendezvousKey = groupRendezvousKey(roomSecret)
 			const abortController = new AbortController()
-			ensureGroupSubscription(key)
+			ensureGroupSubscription(roomSecret)
 			/**
 			 * @returns {Promise<void>}
 			 */

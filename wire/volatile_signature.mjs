@@ -28,10 +28,9 @@ export function boundStreamSlices(slices) {
  * @returns {Uint8Array} 验签消息字节
  */
 export function streamChunkSignBytes(pendingStreamId, chunkSeq, slices) {
-	const streamId = String(pendingStreamId ?? '')
 	const sequence = Number.isFinite(Number(chunkSeq)) ? String(chunkSeq) : '0'
 	const body = JSON.stringify(slices ?? [])
-	return new TextEncoder().encode(`${CHUNK_DOMAIN}\0${streamId}\0${sequence}\0${body}`)
+	return new TextEncoder().encode(`${CHUNK_DOMAIN}\0${pendingStreamId}\0${sequence}\0${body}`)
 }
 
 /**
@@ -51,11 +50,9 @@ export async function signStreamSignatureHex(bytes, secretKey) {
  * @returns {Promise<boolean>} 验签是否通过
  */
 export async function verifyStreamSignatureHex(bytes, signatureHex, publicKeyHex) {
-	const signature = String(signatureHex || '').trim().toLowerCase()
-	const publicKey = String(publicKeyHex || '').trim().toLowerCase()
-	if (!isSignatureHex128(signature) || !isHex64(publicKey)) return false
+	if (!isSignatureHex128(signatureHex) || !isHex64(publicKeyHex)) return false
 	try {
-		return await verify(Buffer.from(signature, 'hex'), bytes, Buffer.from(publicKey, 'hex'))
+		return await verify(Buffer.from(signatureHex, 'hex'), bytes, Buffer.from(publicKeyHex, 'hex'))
 	}
 	catch {
 		return false
@@ -69,8 +66,6 @@ export async function verifyStreamSignatureHex(bytes, signatureHex, publicKeyHex
  * @returns {{ publicKey: Uint8Array, secretKey: Uint8Array }} 密钥对
  */
 export function streamKeyPairFromUserSeed(username, seedMaterial) {
-	const user = String(username ?? '')
-	const material = String(seedMaterial ?? '')
-	const seed = createHash('sha256').update(`fount-stream-sign\0${user}\0${material}`).digest()
+	const seed = createHash('sha256').update(`fount-stream-sign\0${username}\0${seedMaterial}`).digest()
 	return keyPairFromSeed(seed)
 }

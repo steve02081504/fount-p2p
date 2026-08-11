@@ -38,12 +38,17 @@ export function normalizePersonalListEntries(raw) {
 	/** @type {Map<string, { scope: PersonalListScope, value: string }>} */
 	const byKey = new Map()
 	for (const entry of raw || []) {
-		const scope = String(entry?.scope || '').trim().toLowerCase()
-		const value = String(entry?.value || '').trim().toLowerCase()
-		if (scope === 'entity' && parseEntityHash(value))
-			byKey.set(`entity:${value}`, { scope: 'entity', value })
-		else if (scope === 'subject' && isHex64(normalizeHex64(value)))
-			byKey.set(`subject:${normalizeHex64(value)}`, { scope: 'subject', value: normalizeHex64(value) })
+		const scope = String(entry?.scope || '')
+		if (scope === 'entity') {
+			const parsed = parseEntityHash(entry?.value)
+			if (parsed)
+				byKey.set(`entity:${parsed.entityHash}`, { scope: 'entity', value: parsed.entityHash })
+		}
+		else if (scope === 'subject') {
+			const value = normalizeHex64(entry?.value)
+			if (isHex64(value))
+				byKey.set(`subject:${value}`, { scope: 'subject', value })
+		}
 	}
 	return [...byKey.values()]
 }
@@ -58,7 +63,7 @@ export function normalizePersonalListEntries(raw) {
  * @returns {boolean} 是否命中列表
  */
 export function matchesPersonalListEntries(entries, subject) {
-	const entity = String(subject?.entityHash || '').trim().toLowerCase()
+	const entity = subject?.entityHash || ''
 	const pk = normalizeHex64(subject?.pubKeyHash || subject?.subjectHash || '')
 	if (entity) {
 		for (const entry of entries)
@@ -112,11 +117,10 @@ export async function loadPersonalBlockEntries(viewerEntityHash) {
  */
 export async function setPersonalHidden(viewerEntityHash, targetEntityHash, hide) {
 	if (!isWritableLocalEntity(viewerEntityHash)) throw new Error('entity not writable on this replica')
-	const target = String(targetEntityHash || '').trim().toLowerCase()
-	if (!parseEntityHash(target)) throw new Error('invalid targetEntityHash')
+	if (!parseEntityHash(targetEntityHash)) throw new Error('invalid targetEntityHash')
 	const store = getEntityStore()
 	const current = normalizePersonalListEntries((await store.readEntityJson(viewerEntityHash, HIDE_JSON))?.hidden || [])
-	const addEntries = entriesForTargetEntityHash(target)
+	const addEntries = entriesForTargetEntityHash(targetEntityHash)
 	const addKeys = new Set(addEntries.map(e => `${e.scope}:${e.value}`))
 	const next = hide
 		? normalizePersonalListEntries([...current, ...addEntries])
@@ -133,11 +137,10 @@ export async function setPersonalHidden(viewerEntityHash, targetEntityHash, hide
  */
 export async function setPersonalMuted(viewerEntityHash, targetEntityHash, mute) {
 	if (!isWritableLocalEntity(viewerEntityHash)) throw new Error('entity not writable on this replica')
-	const target = String(targetEntityHash || '').trim().toLowerCase()
-	if (!parseEntityHash(target)) throw new Error('invalid targetEntityHash')
+	if (!parseEntityHash(targetEntityHash)) throw new Error('invalid targetEntityHash')
 	const store = getEntityStore()
 	const current = normalizePersonalListEntries((await store.readEntityJson(viewerEntityHash, MUTE_JSON))?.muted || [])
-	const addEntries = entriesForTargetEntityHash(target)
+	const addEntries = entriesForTargetEntityHash(targetEntityHash)
 	const addKeys = new Set(addEntries.map(e => `${e.scope}:${e.value}`))
 	const next = mute
 		? normalizePersonalListEntries([...current, ...addEntries])
@@ -193,9 +196,9 @@ export function filterSetsFromPersonalListEntries(entries) {
 	/** @type {Set<string>} */
 	const mutedSubjects = new Set()
 	for (const entry of entries || []) {
-		const kind = String(entry?.kind || '').trim().toLowerCase()
-		const scope = String(entry?.scope || '').trim().toLowerCase()
-		const value = String(entry?.value || '').trim().toLowerCase()
+		const kind = String(entry?.kind || '')
+		const scope = String(entry?.scope || '')
+		const value = String(entry?.value || '')
 		if (!value || (scope !== 'entity' && scope !== 'subject')) continue
 		if (kind === 'block')
 			if (scope === 'entity') blockedEntityHashes.add(value)
@@ -237,11 +240,10 @@ export async function loadPersonalFilterSets(viewerEntityHash) {
  * @returns {boolean} 是否应过滤
  */
 export function isAuthorFilteredByPersonalSets(filterSets, authorEntityHash) {
-	const entity = String(authorEntityHash || '').trim().toLowerCase()
-	if (!entity) return false
-	if (filterSets.blockedEntityHashes.has(entity) || filterSets.hiddenEntityHashes.has(entity) || filterSets.mutedEntityHashes?.has(entity))
+	if (!authorEntityHash) return false
+	if (filterSets.blockedEntityHashes.has(authorEntityHash) || filterSets.hiddenEntityHashes.has(authorEntityHash) || filterSets.mutedEntityHashes?.has(authorEntityHash))
 		return true
-	const parsed = parseEntityHash(entity)
+	const parsed = parseEntityHash(authorEntityHash)
 	if (!parsed) return false
 	if (filterSets.blockedSubjects.has(parsed.subjectHash)
 		|| filterSets.hiddenSubjects.has(parsed.subjectHash)

@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 
-import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64, isSignatureHex128, normalizeHex64 } from '../core/hexIds.mjs'
 import { normalizeTcpPort } from '../core/tcp_port.mjs'
 import { keyPairFromSeed, pubKeyHash, sign, verify } from '../crypto/crypto.mjs'
 import { normalizeLanHosts } from '../discovery/lan_interfaces.mjs'
@@ -117,9 +117,9 @@ export function parseHello(hello) {
 export async function verifyAuth(hello, auth, expectedNonce, remoteBinding) {
 	const parsedHello = parseHello(hello)
 	if (!parsedHello) return null
-	const signatureHex = String(auth?.sig ?? '').trim().toLowerCase()
+	const signatureHex = String(auth?.sig ?? '')
 	const binding = normalizeLinkBinding(remoteBinding)
-	if (!/^[\da-f]{128}$/u.test(signatureHex) || !binding) return null
+	if (!isSignatureHex128(signatureHex) || !binding) return null
 	const normalizedNonce = normalizeHex64(expectedNonce)
 	if (!isHex64(normalizedNonce)) return null
 	const message = buildAuthMessage(normalizedNonce, binding, parsedHello.nodeHash)
@@ -141,7 +141,7 @@ export async function verifyAuth(hello, auth, expectedNonce, remoteBinding) {
  * @returns {Uint8Array} 待签名消息字节
  */
 export function buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort = null, lanHosts = null) {
-	const base = `fount-advert\0${String(rendezvousKey)}\0${String(ts)}\0${normalizeHex64(nodeHash)}`
+	const base = `fount-advert\0${rendezvousKey}\0${ts}\0${normalizeHex64(nodeHash)}`
 	const port = normalizeTcpPort(tcpPort)
 	let message = port ? `${base}\0${port}` : base
 	const hosts = normalizeLanHosts(lanHosts)
@@ -194,8 +194,8 @@ export async function verifySignedAdvert(rendezvousKey, advert, now = Date.now()
 	const parsedHello = parseHello({ nodeHash: advert?.nodeHash, nodePubKey: advert?.nodePubKey, nonce: '0'.repeat(64) })
 	if (!parsedHello) return null
 	const ts = Number(advert?.ts)
-	const sig = String(advert?.sig ?? '').trim().toLowerCase()
-	if (!Number.isFinite(ts) || Math.abs(now - ts) > maxSkewMs || !/^[\da-f]{128}$/u.test(sig)) return null
+	const sig = String(advert?.sig ?? '')
+	if (!Number.isFinite(ts) || Math.abs(now - ts) > maxSkewMs || !isSignatureHex128(sig)) return null
 	const hasTcpPortField = !!advert?.tcpPort
 	const tcpPort = normalizeTcpPort(advert?.tcpPort)
 	if (hasTcpPortField && !tcpPort) return null

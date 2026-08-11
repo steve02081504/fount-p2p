@@ -13,7 +13,7 @@ export const DEFAULT_TRUST_GRAPH_OWNER = 'default'
  * @returns {void}
  */
 export function registerTrustGraphProvider(ownerId, implementation) {
-	providersByOwner.set(String(ownerId), implementation)
+	providersByOwner.set(ownerId, implementation)
 }
 
 /** @returns {void} */
@@ -26,7 +26,7 @@ export function clearTrustGraphProvider() {
  * @returns {import('./registry.mjs').TrustGraphProvider} 已注册实现
  */
 export function requireTrustGraphProvider(ownerId = DEFAULT_TRUST_GRAPH_OWNER) {
-	const implementation = providersByOwner.get(String(ownerId))
+	const implementation = providersByOwner.get(ownerId)
 	if (!implementation)
 		throw new Error(`p2p: registerTrustGraphProvider('${ownerId}') must run before trust graph fanout`)
 	return implementation

@@ -25,9 +25,9 @@ import { readJsonFile, writeJsonFile } from '../utils/json_io.mjs'
  * @returns {string} 规范化 entityHash
  */
 function normalizeEntityHash(entityHash) {
-	const hash = String(entityHash || '').trim().toLowerCase()
-	if (!parseEntityHash(hash)) throw new Error('invalid entityHash')
-	return hash
+	const parsed = parseEntityHash(entityHash)
+	if (!parsed) throw new Error('invalid entityHash')
+	return parsed.entityHash
 }
 
 /**
@@ -51,7 +51,7 @@ export function createFsEntityStore(baseDir) {
 	 * @returns {string} JSON 文件绝对路径
 	 */
 	function entityJsonPath(entityHash, name) {
-		const safe = String(name || '').trim().replace(/\\/g, '/')
+		const safe = name.replace(/\\/g, '/')
 		if (!safe || safe.includes('..') || safe.startsWith('/')) throw new Error('invalid entity json name')
 		return path.join(entityRoot(entityHash), safe)
 	}
@@ -78,7 +78,7 @@ export function createFsEntityStore(baseDir) {
 		async listEntityHashes() {
 			try {
 				const entries = await fsp.readdir(root, { withFileTypes: true })
-				return entries.filter(e => e.isDirectory()).map(e => e.name.toLowerCase()).filter(h => parseEntityHash(h))
+				return entries.filter(e => e.isDirectory()).map(e => e.name).filter(h => parseEntityHash(h))
 			}
 			catch (error) {
 				if (/** @type {NodeJS.ErrnoException} */ error.code === 'ENOENT') return []

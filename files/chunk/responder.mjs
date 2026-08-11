@@ -5,43 +5,6 @@ import { handleIncomingChunkGet } from './fetch.mjs'
 import { resolvePendingChunkFetch } from './pending.mjs'
 
 /**
- * 群联邦 / TrustGraph 路径：响应带 requestId 的 fed_chunk_get。
- * @param {object} data 入站 fed_chunk_get
- * @param {string} peerId 对端 id
- * @param {(resp: object, peerId: string) => void} sendChunkData 发送 fed_chunk_data
- * @returns {Promise<void>}
- */
-export async function handleFedChunkGetIngress(data, peerId, sendChunkData) {
-	await handleIncomingChunkGet(data, sendChunkData, peerId)
-}
-
-/**
- * @param {object} data 入站 fed_chunk_data（含 requestId 时 resolve pending fetch）
- * @returns {boolean} 是否命中 pending
- */
-export function handleFedChunkDataIngress(data) {
-	return resolvePendingChunkFetch(data)
-}
-
-/**
- * @param {object} data 入站 fed_manifest_get
- * @param {string} peerId 对端 id
- * @param {(resp: object, peerId: string) => void} sendManifestData 发送 fed_manifest_data
- * @returns {Promise<void>}
- */
-export async function handleFedManifestGetIngress(data, peerId, sendManifestData) {
-	await handleIncomingManifestGet(data, sendManifestData, peerId)
-}
-
-/**
- * @param {object} data 入站 fed_manifest_data
- * @returns {Promise<boolean>} 是否命中 pending
- */
-export function handleFedManifestDataIngress(data) {
-	return resolvePendingManifestFetch(data)
-}
-
-/**
  * @param {(resp: object, peerId: string) => void} sendData 发送
  * @param {{ enqueue: (prio: number, cleanup: () => void) => void }} [fedOut] 出站限速队列
  * @returns {(resp: object, peerId: string) => void} 可入队的发送
@@ -83,22 +46,22 @@ export function attachTrustGraphFedChunkResponder(room, fedOut, guardGet, rtcLim
 	getChunkGet((data, peerId) => {
 		if (guardGet && !guardGet(roomKey, 'fed_chunk_get', rtcLimits)) return
 		if (!data?.requestId) return
-		void handleFedChunkGetIngress(data, peerId, sendChunk)
+		void handleIncomingChunkGet(data, sendChunk, peerId)
 	})
 
 	getChunkData(data => {
 		if (!data?.requestId) return
-		handleFedChunkDataIngress(data)
+		resolvePendingChunkFetch(data)
 	})
 
 	getManifestGet((data, peerId) => {
 		if (guardGet && !guardGet(roomKey, 'fed_manifest_get', rtcLimits)) return
 		if (!data?.requestId) return
-		void handleFedManifestGetIngress(data, peerId, sendManifest)
+		void handleIncomingManifestGet(data, sendManifest, peerId)
 	})
 
 	getManifestData(data => {
 		if (!data?.requestId) return
-		handleFedManifestDataIngress(data)
+		resolvePendingManifestFetch(data)
 	})
 }

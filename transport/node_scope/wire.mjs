@@ -103,7 +103,7 @@ export function getNodeScopeContext() {
  */
 export function ensureNodeScope(options = {}) {
 	if (options.replicaUsername != null)
-		nodeScopeContext.replicaUsername = String(options.replicaUsername)
+		nodeScopeContext.replicaUsername = options.replicaUsername
 	if (nodeScopeSubscribeCleanup) return nodeScopeSubscribeCleanup
 	nodeScopeSubscribeCleanup = subscribeScope('node', (senderNodeHash, envelope) => {
 		const handlers = nodeActionHandlers.get(envelope.action)

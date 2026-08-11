@@ -35,7 +35,7 @@ const providers = new Map()
  */
 export function registerLinkProvider(provider) {
 	if (!provider?.id) throw new Error('p2p: link provider requires id')
-	providers.set(String(provider.id), provider)
+	providers.set(provider.id, provider)
 	return () => unregisterLinkProvider(provider.id)
 }
 
@@ -45,7 +45,7 @@ export function registerLinkProvider(provider) {
  * @returns {void}
  */
 export function unregisterLinkProvider(id) {
-	providers.delete(String(id))
+	providers.delete(id)
 }
 
 /**
