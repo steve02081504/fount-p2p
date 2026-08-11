@@ -1,7 +1,8 @@
-import { handleIncomingChunkGet } from './fetch.mjs'
-import { resolvePendingChunkFetch } from './pending.mjs'
 import { handleIncomingManifestGet } from '../manifest/fetch.mjs'
 import { resolvePendingManifestFetch } from '../manifest/pending.mjs'
+
+import { handleIncomingChunkGet } from './fetch.mjs'
+import { resolvePendingChunkFetch } from './pending.mjs'
 
 /**
  * 群联邦 / TrustGraph 路径：响应带 requestId 的 fed_chunk_get。
