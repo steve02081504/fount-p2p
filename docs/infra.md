@@ -14,11 +14,10 @@ Call after `initNode`. CLI: `npx @steve02081504/fount-p2p`.
 
 ## Node-scope attaches
 
-Composable attaches in `transport/node_scope/`:
+Composable attaches under `transport/node_scope/` — import concrete modules, no directory barrel:
 
-- `ensureNodeScope`
-- `attachNodeScopeMailbox` / `Part` / `PartQuery` / `Chunks`
-- `attachNodeScopeDefaultFeatures`
+- `transport/node_scope/wire` — `ensureNodeScope`, `registerNodeScopeWireHook` (shell custom actions when wire is ready), helpers
+- `transport/node_scope/features` — `attachNodeScopeMailbox` / `Part` / `PartQuery` / `Chunks`, `attachNodeScopeDefaultFeatures`, `attachNodeScopeFeature`
 
 Each attach returns `dispose` and is **refcount-shared** (infra + default features can both hold mailbox without double handlers).
 

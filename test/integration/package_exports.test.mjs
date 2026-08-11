@@ -39,6 +39,8 @@ test('package exports resolve to loadable modules', async () => {
 		'./federation/part_query/runtime',
 		'./transport/scoped_link',
 		'./transport/link_registry',
+		'./transport/node_scope/wire',
+		'./transport/node_scope/features',
 		'./registries/event_type',
 		'./registries/room_provider',
 		'./schemas/mailbox',
@@ -52,4 +54,10 @@ test('package exports resolve to loadable modules', async () => {
 	]
 	for (const subpath of samples)
 		assert.equal(typeof await importExport(subpath), 'object', subpath)
+})
+
+test('transport/node_scope/wire exports registerNodeScopeWireHook', async () => {
+	const mod = await importExport('./transport/node_scope/wire')
+	assert.equal(typeof mod.registerNodeScopeWireHook, 'function')
+	assert.equal(typeof mod.ensureNodeScope, 'function')
 })

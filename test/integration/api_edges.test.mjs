@@ -39,7 +39,9 @@ import {
 	dispatchNodeScopeAction,
 	ensureNodeScope,
 	getNodeScopeContext,
+	getNodeScopeWire,
 	hasNodeScopeAction,
+	registerNodeScopeWireHook,
 } from '../../transport/node_scope/wire.mjs'
 import { ensureUserRoom } from '../../transport/user_room.mjs'
 
@@ -146,6 +148,38 @@ test('chunk attach reads live replicaUsername', async () => {
 		assert.equal(getNodeScopeContext().replicaUsername, 'alice')
 		ensureNodeScope({ replicaUsername: 'bob' })
 		assert.equal(getNodeScopeContext().replicaUsername, 'bob')
+	}
+	finally {
+		resetAll()
+		await rm(nodeDir, { recursive: true, force: true })
+	}
+})
+
+test('registerNodeScopeWireHook fires on ensure and when wire already exists', async () => {
+	const nodeDir = await tmpNodeDir()
+	try {
+		resetAll()
+		initNode({ nodeDir })
+		/** @type {unknown[]} */
+		const seen = []
+		const unregister = registerNodeScopeWireHook((context, wire) => {
+			seen.push({ when: 'before-ensure', username: context.replicaUsername, wire })
+			wire.on('emoji_probe', () => { })
+		})
+		assert.equal(seen.length, 0)
+		ensureNodeScope({ replicaUsername: 'alice' })
+		assert.equal(seen.length, 1)
+		assert.equal(seen[0].username, 'alice')
+		assert.equal(seen[0].wire, getNodeScopeWire())
+		assert.equal(hasNodeScopeAction('emoji_probe'), true)
+		unregister()
+
+		registerNodeScopeWireHook((context, wire) => {
+			seen.push({ when: 'late', username: context.replicaUsername, wire })
+		})
+		assert.equal(seen.length, 2)
+		assert.equal(seen[1].when, 'late')
+		assert.equal(seen[1].wire, getNodeScopeWire())
 	}
 	finally {
 		resetAll()

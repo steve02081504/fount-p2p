@@ -6,6 +6,9 @@ import { subscribeScope, sendToNodeLink } from '../link_registry.mjs'
 /** @type {Map<string, Set<(payload: unknown, peerId: string) => void>>} */
 const nodeActionHandlers = new Map()
 
+/** @type {Set<(context: NodeScopeContext, wire: NodeScopeWire) => void>} */
+const nodeScopeWireHooks = new Set()
+
 /** @type {NodeScopeContext} */
 const nodeScopeContext = { replicaUsername: '' }
 
@@ -108,8 +111,24 @@ export function ensureNodeScope(options = {}) {
 		for (const handler of handlers)
 			try { handler(envelope.payload, senderNodeHash) } catch { /* ignore */ }
 	})
-	nodeScopeWire ||= createNodeScopeWire()
+	if (!nodeScopeWire) {
+		nodeScopeWire = createNodeScopeWire()
+		for (const hook of nodeScopeWireHooks)
+			try { hook(nodeScopeContext, nodeScopeWire) } catch { /* ignore */ }
+	}
 	return nodeScopeSubscribeCleanup
+}
+
+/**
+ * 在 node scope wire 创建时（或已存在时立即）回调；shell 用此挂自定义 action。
+ * @param {(context: NodeScopeContext, wire: NodeScopeWire) => void} hook - wire 就绪回调
+ * @returns {() => void} 取消注册的 dispose
+ */
+export function registerNodeScopeWireHook(hook) {
+	nodeScopeWireHooks.add(hook)
+	if (nodeScopeWire)
+		try { hook(nodeScopeContext, nodeScopeWire) } catch { /* ignore */ }
+	return () => nodeScopeWireHooks.delete(hook)
 }
 
 /**

@@ -34,7 +34,7 @@ Shells talk to the **fount network** (`ensureLinkToNode` / `sendToNodeLink` / ro
 
 Dial order is descending link **`level`**: `lan_tcp` → `webrtc` → `ble_gatt` → `nostr` (−∞ last resort). Discovery **`priority`** only orders handshake / presence media. Details: [docs/transports.md](./docs/transports.md).
 
-Public transport subpaths: `link_registry`, `user_room`, `group_link_set`, `node_scope`, `room_scopes`, `remote_user_room`, `scoped_link`. Other `transport/*` modules are internal.
+Public transport subpaths: `link_registry`, `user_room`, `group_link_set`, `node_scope/wire`, `node_scope/features`, `room_scopes`, `remote_user_room`, `scoped_link`. Other `transport/*` modules are internal.
 
 ## Infra relay (optional)
 
@@ -85,7 +85,7 @@ Facade entry: `index.mjs` (`startNode`, `createGroupLinkSet`, `registerDiscovery
 | Module | Role |
 |---|---|
 | `link_registry.mjs` | fount-network facade: dial fallback, scope/overlay |
-| `user_room.mjs` / `group_link_set.mjs` / `node_scope/` | rooms + composable node-scope wires |
+| `user_room.mjs` / `group_link_set.mjs` / `node_scope/wire` + `node_scope/features` | rooms + composable node-scope wires (`registerNodeScopeWireHook`, attaches) |
 | `room_scopes.mjs` / `remote_user_room.mjs` | scope constants / remote user slot |
 
 `runtime_bootstrap`, `offer_answer` are **internal** (transport). Signal crypto / rendezvous live under `discovery/internal/signal_crypto.mjs` (used by discovery `nostr.mjs` / `adverts.mjs`; not a package export). The Nostr **link** provider (`link/providers/nostr.mjs`) reuses the same discovery signal path (`type: 'link'`) as a last-resort duplex pipe. `ensureRuntime` returns after registration and scheduling warm-up; it does not await lan_tcp listen, public relays, or Bluetooth. `setSignalingRuntimeConfig` → `reloadDiscoveryRelays`. See [docs/runtime.md](./docs/runtime.md) and [docs/transports.md](./docs/transports.md).
