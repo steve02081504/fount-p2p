@@ -6,13 +6,12 @@ import { resolvePendingChunkFetch } from './pending.mjs'
 
 /**
  * 群联邦 / TrustGraph 路径：响应带 requestId 的 fed_chunk_get。
- * @param {string} _username 副本用户名（兼容壳层签名；CAS 不依赖）
  * @param {object} data 入站 fed_chunk_get
  * @param {string} peerId 对端 id
  * @param {(resp: object, peerId: string) => void} sendChunkData 发送 fed_chunk_data
  * @returns {Promise<void>}
  */
-export async function handleFedChunkGetIngress(_username, data, peerId, sendChunkData) {
+export async function handleFedChunkGetIngress(data, peerId, sendChunkData) {
 	await handleIncomingChunkGet(data, sendChunkData, peerId)
 }
 
@@ -25,13 +24,12 @@ export function handleFedChunkDataIngress(data) {
 }
 
 /**
- * @param {string} _username 副本用户名（兼容壳层签名）
  * @param {object} data 入站 fed_manifest_get
  * @param {string} peerId 对端 id
  * @param {(resp: object, peerId: string) => void} sendManifestData 发送 fed_manifest_data
  * @returns {Promise<void>}
  */
-export async function handleFedManifestGetIngress(_username, data, peerId, sendManifestData) {
+export async function handleFedManifestGetIngress(data, peerId, sendManifestData) {
 	await handleIncomingManifestGet(data, sendManifestData, peerId)
 }
 
@@ -60,7 +58,6 @@ function wrapSend(sendData, fedOut) {
 
 /**
  * Trystero room：注册带 requestId 的 fed_chunk_* + fed_manifest_*（TrustGraph / 群全局 miss）。
- * @param {string} username 用户
  * @param {object} room Trystero room
  * @param {{ enqueue: (prio: number, cleanup: () => void) => void }} [fedOut] 出站队列
  * @param {(roomKey: string, action: string, rtcLimits: object) => boolean} [guardGet] RTC 负载守卫
@@ -68,7 +65,7 @@ function wrapSend(sendData, fedOut) {
  * @param {string} [roomKey] 房间键
  * @returns {void}
  */
-export function attachTrustGraphFedChunkResponder(username, room, fedOut, guardGet, rtcLimits = {}, roomKey = '') {
+export function attachTrustGraphFedChunkResponder(room, fedOut, guardGet, rtcLimits = {}, roomKey = '') {
 	const [sendChunkData, getChunkData] = room.makeAction('fed_chunk_data')
 	const [, getChunkGet] = room.makeAction('fed_chunk_get')
 	const [sendManifestData, getManifestData] = room.makeAction('fed_manifest_data')
@@ -86,7 +83,7 @@ export function attachTrustGraphFedChunkResponder(username, room, fedOut, guardG
 	getChunkGet((data, peerId) => {
 		if (guardGet && !guardGet(roomKey, 'fed_chunk_get', rtcLimits)) return
 		if (!data?.requestId) return
-		void handleFedChunkGetIngress(username, data, peerId, sendChunk)
+		void handleFedChunkGetIngress(data, peerId, sendChunk)
 	})
 
 	getChunkData(data => {
@@ -97,7 +94,7 @@ export function attachTrustGraphFedChunkResponder(username, room, fedOut, guardG
 	getManifestGet((data, peerId) => {
 		if (guardGet && !guardGet(roomKey, 'fed_manifest_get', rtcLimits)) return
 		if (!data?.requestId) return
-		void handleFedManifestGetIngress(username, data, peerId, sendManifest)
+		void handleFedManifestGetIngress(data, peerId, sendManifest)
 	})
 
 	getManifestData(data => {

@@ -21,7 +21,7 @@ import { assert, assertEquals } from '../helpers/assert.mjs'
 /**
  * @returns {Promise<string>} 临时 nodeDir
  */
-async function tmpNodeDir() {
+async function createTemporaryNodeDirectory() {
 	return mkdtemp(path.join(os.tmpdir(), 'p2p-part-fanout-'))
 }
 
@@ -77,7 +77,7 @@ function dispatch(handlers, name, payload, peerId) {
 }
 
 test('collectPartInvokeResponses gathers neighbor replies until maxResponses', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await createTemporaryNodeDirectory()
 	resetNodeForTests()
 	clearTrustGraphProvider()
 	initNode({ nodeDir })
@@ -100,14 +100,14 @@ test('collectPartInvokeResponses gathers neighbor replies until maxResponses', a
 		 */
 		async sendToNode() { return false },
 		/**
-		 * @param {string} _username 副本用户名
+		 * @param {string} username 副本用户名
 		 * @param {string} action action 名
 		 * @param {unknown} payload 载荷
 		 * @param {number} limit 扇出上限
 		 * @returns {Promise<number>} 扇出次数
 		 */
-		async fanoutToTopNodes(_username, action, payload, limit) {
-			fanouts.push({ action, payload, limit })
+		async fanoutToTopNodes(username, action, payload, limit) {
+			fanouts.push({ username, action, payload, limit })
 			queueMicrotask(() => {
 				dispatch(handlers, 'part_invoke_response', {
 					requestId: payload.requestId,
@@ -148,7 +148,7 @@ test('collectPartInvokeResponses gathers neighbor replies until maxResponses', a
 })
 
 test('collectPartInvokeResponses finishes immediately when fanout sends zero', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await createTemporaryNodeDirectory()
 	resetNodeForTests()
 	clearTrustGraphProvider()
 	initNode({ nodeDir })

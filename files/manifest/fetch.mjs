@@ -1,3 +1,5 @@
+import { parseEntityHash } from '../../core/entity_id.mjs'
+import { assertSafeEvfsLogicalPath } from '../../core/evfs_logical_path.mjs'
 import { isWritableLocalEntity } from '../../node/identity.mjs'
 import { getEntityStore } from '../../node/instance.mjs'
 import { ms } from '../../utils/duration.mjs'
@@ -107,10 +109,16 @@ export async function cachePublicManifest(ownerEntityHash, logicalPath, incoming
  * @returns {Promise<void>}
  */
 export async function handleIncomingManifestGet(payload, sendResponse, peerId) {
-	const ownerEntityHash = String(payload?.ownerEntityHash || '').trim().toLowerCase()
-	const logicalPath = String(payload?.logicalPath || '').trim().replace(/^\/+/, '')
+	const parsedOwner = parseEntityHash(payload?.ownerEntityHash)
+	if (!parsedOwner) return
+	let logicalPath
+	try {
+		logicalPath = assertSafeEvfsLogicalPath(payload?.logicalPath)
+	}
+	catch { return }
 	const requestId = String(payload?.requestId || '')
-	if (!ownerEntityHash || !logicalPath || !requestId) return
+	if (!requestId) return
+	const { entityHash: ownerEntityHash } = parsedOwner
 
 	const raw = await getEntityStore().readManifest(ownerEntityHash, logicalPath)
 	const manifest = normalizeFileManifest(raw)

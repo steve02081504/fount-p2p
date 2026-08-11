@@ -47,11 +47,13 @@ import {
 	attachNodeScopeDefaultFeatures,
 	attachNodeScopeMailbox,
 	attachNodeScopePart,
+	stopNodeScopeRuntime,
+} from '../../transport/node_scope/features.mjs'
+import {
 	countNodeScopeActionHandlers,
 	dispatchNodeScopeAction,
 	hasNodeScopeAction,
-	stopNodeScopeRuntime,
-} from '../../transport/node_scope/index.mjs'
+} from '../../transport/node_scope/wire.mjs'
 
 const HASH_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const HASH_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'

@@ -1,4 +1,3 @@
-import { isPlainObject } from '../../core/object.mjs'
 import {
 	handleIncomingPartQueryResponse,
 	processIncomingPartQueryRequest,
@@ -46,7 +45,6 @@ export function attachPartQueryWire(wireContext, wire, dependencies = {}) {
 		 * @param {string} peerId 对端 nodeHash
 		 */
 		part_query_req(data, peerId) {
-			if (!isPlainObject(data)) return
 			const request = parsePartQueryReq(data)
 			if (!request) return
 			if (!state.takeDedupe(request.requestId)) return

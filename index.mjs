@@ -41,10 +41,8 @@ import {
 	reloadDiscoveryRelays,
 	sendToNodeLink,
 } from './transport/link_registry.mjs'
-import {
-	attachNodeScopeDefaultFeatures,
-	ensureNodeScope,
-} from './transport/node_scope/index.mjs'
+import { attachNodeScopeDefaultFeatures } from './transport/node_scope/features.mjs'
+import { ensureNodeScope } from './transport/node_scope/wire.mjs'
 import { createScopedLinkRoom } from './transport/scoped_link.mjs'
 import {
 	ensureUserRoom,

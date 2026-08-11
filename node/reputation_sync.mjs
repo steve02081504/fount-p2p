@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto'
 
 import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
 import { sendToNodeLink } from '../transport/link_registry.mjs'
-import { attachNodeScopeFeature, ensureNodeScope, getNodeScopeWire } from '../transport/node_scope/index.mjs'
+import { attachNodeScopeFeature } from '../transport/node_scope/features.mjs'
+import { ensureNodeScope, getNodeScopeWire } from '../transport/node_scope/wire.mjs'
 import { subscribeWire } from '../wire/subscribe.mjs'
 
 import {

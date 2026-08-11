@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { test } from 'node:test'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 
 /**
  * 壳层（fount social / cabinet）依赖的公开子路径与符号。
@@ -78,41 +78,27 @@ const SHELL_CONTRACT = [
 	},
 ]
 
-const PKG_ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))))
-const pkg = JSON.parse(await readFile(path.join(PKG_ROOT, 'package.json'), 'utf8'))
+const packageRoot = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))))
+const PACKAGE_NAME = '@steve02081504/fount-p2p'
 
 /**
- * @param {string} subpath package export 子路径
- * @returns {string | null} 目标相对路径
+ * @param {string} subpath package export 子路径（带 `./` 前缀）
+ * @returns {string} package self-reference 标识符
  */
-function resolveExportTarget(subpath) {
-	const exact = pkg.exports[subpath]
-	if (exact) return exact
-	for (const [pattern, target] of Object.entries(pkg.exports)) {
-		const star = pattern.indexOf('*')
-		if (star < 0) continue
-		const prefix = pattern.slice(0, star)
-		const suffix = pattern.slice(star + 1)
-		if (!subpath.startsWith(prefix) || !subpath.endsWith(suffix)) continue
-		const captured = subpath.slice(prefix.length, subpath.length - suffix.length)
-		if (!captured || captured.includes('/')) continue
-		return target.replace('*', captured)
-	}
-	return null
+function packageSelfReference(subpath) {
+	return `${PACKAGE_NAME}/${subpath.slice(2)}`
 }
 
 test('shell part_invoke contract exports stay loadable', async () => {
 	for (const entry of SHELL_CONTRACT) {
-		const target = resolveExportTarget(entry.subpath)
-		assert(target, `missing package export ${entry.subpath}`)
-		const mod = await import(pathToFileURL(path.join(PKG_ROOT, target)).href)
+		const moduleNamespace = await import(packageSelfReference(entry.subpath))
 		for (const name of entry.exports)
-			assert.notEqual(mod[name], undefined, `${entry.subpath} must export ${name}`)
+			assert.notEqual(moduleNamespace[name], undefined, `${entry.subpath} must export ${name}`)
 	}
 })
 
 test('attachPartWire registers part_invoke_response collector', async () => {
-	const text = await readFile(path.join(PKG_ROOT, 'wire/part/ingress.mjs'), 'utf8')
+	const text = await readFile(path.join(packageRoot, 'wire/part/ingress.mjs'), 'utf8')
 	assert.match(text, /part_invoke_response/)
 	assert.match(text, /handleIncomingPartInvokeResponse/)
 })

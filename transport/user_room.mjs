@@ -5,10 +5,8 @@ import { registerFederationRoomProvider } from '../registries/room_provider.mjs'
 import { shuffleInPlace } from '../utils/shuffle.mjs'
 
 import { getLinkRegistry, listLinks, sendToNodeLink } from './link_registry.mjs'
-import {
-	attachNodeScopeDefaultFeatures,
-	ensureNodeScope,
-} from './node_scope/index.mjs'
+import { attachNodeScopeDefaultFeatures } from './node_scope/features.mjs'
+import { ensureNodeScope } from './node_scope/wire.mjs'
 import { USER_ROOM_SCOPE } from './room_scopes.mjs'
 
 /** User Room 随机 peer 转发默认上限 */
@@ -156,13 +154,16 @@ export async function ensureUserRoom(options = {}) {
  */
 export async function deliverToUserRoomPeers(username, actionName, payload, exceptPeerId = null, limit) {
 	const fanoutLimit = limit ?? USER_ROOM_PEER_FANOUT_DEFAULT
-	const body = { ...payload, nodeHash: getNodeHash() }
 	let sent = 0
 	const peers = shuffleInPlace(activeLinkRoster()
 		.filter(({ peerId }) => peerId && peerId !== exceptPeerId))
 	for (const { peerId } of peers)
 		try {
-			if (await sendToNodeLink(peerId, { scope: 'node', action: actionName, payload: body }))
+			if (await sendToNodeLink(peerId, {
+				scope: 'node',
+				action: actionName,
+				payload: { ...payload, nodeHash: getNodeHash() },
+			}))
 				sent++
 			if (sent >= fanoutLimit) break
 		}

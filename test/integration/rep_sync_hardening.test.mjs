@@ -16,11 +16,11 @@ import {
 	getLinkRegistry,
 	resetLinkRegistryForTests,
 } from '../../transport/link_registry.mjs'
+import { stopNodeScopeRuntime } from '../../transport/node_scope/features.mjs'
 import {
 	dispatchNodeScopeAction,
 	hasNodeScopeAction,
-	stopNodeScopeRuntime,
-} from '../../transport/node_scope/index.mjs'
+} from '../../transport/node_scope/wire.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
 
 const HASH_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'

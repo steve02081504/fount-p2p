@@ -5,9 +5,9 @@
  * @returns {() => void} 取消全部注册
  */
 export function subscribeWire(wire, handlers) {
-	const offs = Object.entries(handlers).map(([name, handler]) => wire.on(name, handler))
+	const disposers = Object.entries(handlers).map(([name, handler]) => wire.on(name, handler))
 	return () => {
-		for (const off of offs)
-			try { off?.() } catch { /* ignore */ }
+		for (const dispose of disposers)
+			dispose()
 	}
 }

@@ -2,7 +2,7 @@
 import { isNodeInitialized } from '../node/instance.mjs'
 import { setOverlayRateGate, clearOverlayRateGate } from '../overlay/index.mjs'
 import { getLinkRegistry } from '../transport/link_registry.mjs'
-import { attachNodeScopeMailbox } from '../transport/node_scope/index.mjs'
+import { attachNodeScopeMailbox } from '../transport/node_scope/features.mjs'
 
 import { attachInfraDebugLog, detachInfraDebugLog } from './debug_log.mjs'
 import {

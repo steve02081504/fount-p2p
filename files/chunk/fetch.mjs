@@ -1,4 +1,5 @@
 import { bytesToBase64 } from '../../core/bytes_codec.mjs'
+import { assertHex64 } from '../../core/hexIds.mjs'
 import { ms } from '../../utils/duration.mjs'
 import { createInflightTable } from '../../utils/inflight_table.mjs'
 import { beginFedFanoutFetch } from '../fed/fetch_shared.mjs'
@@ -88,8 +89,11 @@ export async function fetchChunk(context) {
  * @returns {Promise<void>}
  */
 export async function handleIncomingChunkGet(payload, sendResponse, peerId) {
-	const hash = String(payload?.chunkHash || '').trim().toLowerCase()
-	if (!hash) return
+	let hash
+	try {
+		hash = assertHex64(payload?.chunkHash, 'chunkHash')
+	}
+	catch { return }
 	if (!await hasChunk(hash)) return
 	const chunkBytes = await getChunk(hash)
 	if (!chunkBytes?.length) return

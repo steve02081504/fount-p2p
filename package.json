@@ -48,7 +48,6 @@
 		"./discovery/bt": "./discovery/bt/index.mjs",
 		"./discovery/bt/*": "./discovery/bt/*.mjs",
 		"./discovery/*": "./discovery/*.mjs",
-		"./transport/node_scope": "./transport/node_scope/index.mjs",
 		"./transport/node_scope/*": "./transport/node_scope/*.mjs",
 		"./transport/*": "./transport/*.mjs",
 		"./overlay": "./overlay/index.mjs",

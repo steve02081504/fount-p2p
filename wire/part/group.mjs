@@ -22,13 +22,11 @@ function parseGroupContext(data, groupId) {
  * @returns {WireAdapter['on']} 注入 groupId 的 on 包装
  */
 function wrapWireOn(wire, groupId) {
-	return (name, handler) => {
-		wire.on(name, (data, peerId) => {
-			const payload = parseGroupContext(data, groupId)
-			if (!payload) return
-			handler(payload, peerId)
-		})
-	}
+	return (name, handler) => wire.on(name, (data, peerId) => {
+		const payload = parseGroupContext(data, groupId)
+		if (!payload) return
+		handler(payload, peerId)
+	})
 }
 
 /**

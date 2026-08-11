@@ -3,14 +3,14 @@
  * @template T
  * @param {{ maxSize: number }} options 容量
  * @returns {{
- *   pending: Map<string, { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void }>,
+ *   pending: Map<string, { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void } }>,
  *   register: (key: string, expectedKey: string, timeoutMs: number, options?: { rejectOnTimeout?: boolean }) => { done: Promise<T | null>, cancel: () => void },
- *   peek: (key: string) => { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void } | undefined,
+ *   peek: (key: string) => { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void } } | undefined,
  *   settle: (key: string, value: T | null | Error) => boolean,
  * }} 等待表 API
  */
 export function createFetchWaitTable({ maxSize }) {
-	/** @type {Map<string, { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void }>} */
+	/** @type {Map<string, { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void } }>} */
 	const pending = new Map()
 
 	/**
@@ -38,7 +38,17 @@ export function createFetchWaitTable({ maxSize }) {
 		 * @returns {{ done: Promise<T | null>, cancel: () => void }} 等待句柄
 		 */
 		register(key, expectedKey, timeoutMs, options = {}) {
-			if (!key || pending.size >= maxSize)
+			if (!key)
+				return {
+					done: Promise.resolve(null),
+					/** @returns {void} */
+					cancel: () => { },
+				}
+
+			const existing = pending.get(key)
+			if (existing) return existing.handle
+
+			if (pending.size >= maxSize)
 				return {
 					done: Promise.resolve(null),
 					/** @returns {void} */
@@ -64,19 +74,20 @@ export function createFetchWaitTable({ maxSize }) {
 				else finish(null)
 			}, timeoutMs)
 
-			pending.set(key, { expectedKey, timer, finish })
-
-			return {
+			/** @type {{ done: Promise<T | null>, cancel: () => void }} */
+			const handle = {
 				done,
 				/** @returns {void} 取消等待 */
 				cancel: () => settle(key, null),
 			}
+			pending.set(key, { expectedKey, timer, finish, handle })
+			return handle
 		},
 
 		/**
 		 * 只读查看，不移除。
 		 * @param {string} key 等待键
-		 * @returns {{ expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void } | undefined} 等待条目
+		 * @returns {{ expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void } } | undefined} 等待条目
 		 */
 		peek(key) {
 			return pending.get(key)

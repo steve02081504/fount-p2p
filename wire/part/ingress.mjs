@@ -51,23 +51,23 @@ function buildPartInvokePayload(partpath, invoke, nodeHash, groupId) {
 
 /**
  * @param {PartWireContext} wireContext 入站上下文
- * @param {object} payload part_invoke 请求
+ * @param {object} payload part_invoke 请求（含已验证 peerId）
  * @returns {Promise<PartInvokeResponse | null>} RPC 处理器返回值
  */
 async function dispatchPartInvoke(wireContext, payload) {
 	const partpath = parsePartpath(payload?.partpath)
 	const invoke = payload?.invoke
 	if (!partpath || !isPlainObject(invoke)) return null
+	const requesterNodeHash = payload.peerId ? String(payload.peerId).trim() : null
 	return dispatchRpcInbound({
 		replicaUsername: wireContext.replicaUsername,
-		requesterNodeHash: payload.nodeHash ? String(payload.nodeHash).trim() : null,
+		requesterNodeHash,
 		groupId: payload.groupId ? String(payload.groupId).trim() : undefined,
 		peerId: payload.peerId,
 	}, {
 		type: 'part_invoke',
 		partpath,
 		invoke,
-		nodeHash: payload.nodeHash,
 		groupId: payload.groupId,
 		requestId: payload.requestId,
 	})
@@ -84,8 +84,9 @@ export function attachPartWire(wireContext, wire, options = {}) {
 	return subscribeWire(wire, {
 		/**
 		 * @param {unknown} data part_timeline_put 载荷
+		 * @param {string} peerId 对端 nodeHash
 		 */
-		part_timeline_put(data) {
+		part_timeline_put(data, peerId) {
 			if (!isPlainObject(data)) return
 			const partpath = parsePartpath(data.partpath)
 			if (!partpath) return
@@ -93,7 +94,7 @@ export function attachPartWire(wireContext, wire, options = {}) {
 			if (!message) return
 			void dispatchDeliveryInbound({
 				replicaUsername: wireContext.replicaUsername,
-				requesterNodeHash: data.nodeHash ? String(data.nodeHash).trim() : null,
+				requesterNodeHash: peerId ? String(peerId).trim() : null,
 			}, message)
 		},
 		/**
@@ -159,7 +160,7 @@ export async function handleIncomingPartInvokeFireAndForget(wireContext, payload
 	const followUp = unwrapPartInvokeResult(response)
 	if (!isPartInvoke(followUp)) return
 	try {
-		wire.send('part_invoke', buildPartInvokePayload(partpath, followUp, payload.nodeHash, payload.groupId), peerId)
+		wire.send('part_invoke', buildPartInvokePayload(partpath, followUp, peerId, payload.groupId), peerId)
 	}
 	catch { /* disconnected */ }
 }
