@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
+import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { test } from 'node:test'
 
 import { assertEquals } from '../helpers/assert.mjs'
 
@@ -20,7 +20,7 @@ function assertScriptRuns(script) {
 	assertEquals(result.error, undefined, `${script} failed to spawn: ${String(result.error?.message || result.error)}`)
 	assertEquals(result.signal, null, `${script} was killed by signal ${result.signal}`)
 	const allowNonZero = script.includes('find-unused-exports.mjs')
-	const ok = allowNonZero ? (result.status === 0 || result.status === 1) : result.status === 0
+	const ok = allowNonZero ? result.status === 0 || result.status === 1 : result.status === 0
 	assertEquals(ok, true, `${script} exited with status ${result.status}`)
 	const stderr = String(result.stderr || '')
 	assertEquals(stderr.includes('Internal/process'), false, `${script} threw a stack trace:\n${stderr}`)

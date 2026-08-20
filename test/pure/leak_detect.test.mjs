@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
-
 import { test } from 'node:test'
+
 import WebSocket, { WebSocketServer } from 'ws'
 
 import { assertEquals } from '../helpers/assert.mjs'
@@ -9,6 +9,7 @@ import {
 	heapUsedAfterGc,
 	snapshotActiveResources,
 } from '../helpers/leak_detect.mjs'
+
 import { createNostrSendWorkload } from './fixtures/nostr_send_workload.mjs'
 
 /**
@@ -83,7 +84,7 @@ test('repeated nostr sends keep forced-GC heap bounded', async () => {
 		for (let batchIndex = 0; batchIndex < 3; batchIndex++)
 			for (let iterationIndex = 0; iterationIndex < 200; iterationIndex++) await workload(iterationIndex)
 		// 稳态下累积堆增长应有界；若每 send 保留对象，增长会随批累积而线性超阈。
-		const growth = (await heapUsedAfterGc()) - baseline
+		const growth = await heapUsedAfterGc() - baseline
 		assertEquals(growth < 512 * 1024, true,
 			`cumulative heap grew by ${growth} bytes across 3 batches; a retained-per-send leak is suspected`)
 	}
@@ -99,7 +100,7 @@ test('detector flags retained objects via cumulative heap growth', async () => {
 		for (let iterationIndex = 0; iterationIndex < 200; iterationIndex++)
 			retained.push(Array(1024).fill(0))
 		// 200 × 1024 数字数组强制引用保留：稳态 GC 后仍被持有，堆应明显增长。
-		const growth = (await heapUsedAfterGc()) - baseline
+		const growth = await heapUsedAfterGc() - baseline
 		assertEquals(growth > 512 * 1024, true,
 			`retained arrays should grow heap by > 512KiB, got ${growth}`)
 	}

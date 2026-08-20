@@ -621,6 +621,9 @@ function flushPendingPublishes(relayUrl, session, socket) {
  */
 function attachQueuedAbort(session, publishRequest) {
 	const { signal, reject } = publishRequest
+	/**
+	 * 处理 abort 事件
+	 */
 	publishRequest.onAbort = () => {
 		publishRequest.removeAbort?.()
 		const idx = session.pendingPublishes.indexOf(publishRequest)
@@ -628,6 +631,9 @@ function attachQueuedAbort(session, publishRequest) {
 		session.pendingPublishes.splice(idx, 1)
 		reject(new Error('nostr: aborted'))
 	}
+	/**
+	 * 移除 abort 监听器
+	 */
 	publishRequest.removeAbort = () => {
 		if (signal) signal.removeEventListener('abort', publishRequest.onAbort)
 	}

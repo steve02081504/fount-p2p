@@ -90,6 +90,7 @@ export async function startFakeRelay(accept = () => true) {
 		reqCount: () => reqCount,
 		/**
 		 * @param {number} [n=1] 至少多少条连接
+		 * @param {number} expectedCount 预期的连接数
 		 * @returns {Promise<void>}
 		 */
 		async waitOpen(expectedCount = 1) {
