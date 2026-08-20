@@ -1,141 +1,11 @@
-import { createServer } from 'node:http'
 import { test } from 'node:test'
-
-import { WebSocketServer } from 'ws'
 
 import {
 	NOSTR_ADVERT_KIND,
 } from '../../discovery/nostr.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
+import { startFakeRelay } from '../helpers/fake_relay.mjs'
 import { identity } from '../helpers/identity.mjs'
-
-/**
- * @param {(eventId: string) => boolean} [accept] 是否接受 EVENT
- * @returns {Promise<{
- *   port: number,
- *   connectionCount: () => number,
- *   openCount: () => number,
- *   reqCount: () => number,
- *   waitOpen: (n?: number) => Promise<void>,
- *   waitReqs: (n: number) => Promise<void>,
- *   waitClosed: () => Promise<void>,
- *   dropAll: () => void,
- *   stop: () => Promise<void>,
- * }>} fake relay
- */
-async function startFakeRelay(accept = () => true) {
-	const server = createServer()
-	const wss = new WebSocketServer({ server })
-	/** @type {Set<import('ws').WebSocket>} */
-	const sockets = new Set()
-	let connectionCount = 0
-	let reqCount = 0
-	/** @type {Array<() => void>} */
-	const openWaiters = []
-	/** @type {Array<() => void>} */
-	const reqWaiters = []
-	/** @type {Array<() => void>} */
-	const closeWaiters = []
-
-	/**
-	 * @returns {void}
-	 */
-	const flushOpenWaiters = () => {
-		for (const wake of openWaiters.splice(0)) wake()
-	}
-	/**
-	 * @returns {void}
-	 */
-	const flushReqWaiters = () => {
-		for (const wake of reqWaiters.splice(0)) wake()
-	}
-	/**
-	 * @returns {void}
-	 */
-	const flushCloseWaiters = () => {
-		for (const wake of closeWaiters.splice(0)) wake()
-	}
-
-	wss.on('connection', ws => {
-		connectionCount++
-		sockets.add(ws)
-		flushOpenWaiters()
-		ws.on('message', raw => {
-			let parsed
-			try { parsed = JSON.parse(String(raw)) } catch { return }
-			if (parsed?.[0] === 'REQ') {
-				reqCount++
-				flushReqWaiters()
-				return
-			}
-			if (parsed?.[0] !== 'EVENT') return
-			const event = parsed[1]
-			const ok = accept(String(event?.id || ''))
-			ws.send(JSON.stringify(['OK', event.id, ok, ok ? '' : 'blocked: test']))
-		})
-		ws.on('close', () => {
-			sockets.delete(ws)
-			flushCloseWaiters()
-		})
-	})
-	await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-	const address = server.address()
-	const port = typeof address === 'object' && address ? address.port : 0
-	return {
-		port,
-		/**
-		 * @returns {number} 累计连接次数
-		 */
-		connectionCount: () => connectionCount,
-		/**
-		 * @returns {number} 当前仍打开的 socket 数
-		 */
-		openCount: () => sockets.size,
-		/**
-		 * @returns {number} 累计收到的 REQ 数
-		 */
-		reqCount: () => reqCount,
-		/**
-		 * @param {number} [n=1] 至少多少条连接
-		 * @returns {Promise<void>}
-		 */
-		async waitOpen(n = 1) {
-			while (connectionCount < n)
-				await new Promise(resolve => openWaiters.push(resolve))
-		},
-		/**
-		 * @param {number} n 至少多少条 REQ
-		 * @returns {Promise<void>}
-		 */
-		async waitReqs(n) {
-			while (reqCount < n)
-				await new Promise(resolve => reqWaiters.push(resolve))
-		},
-		/**
-		 * @returns {Promise<void>}
-		 */
-		async waitClosed() {
-			while (sockets.size > 0)
-				await new Promise(resolve => closeWaiters.push(resolve))
-		},
-		/**
-		 * @returns {void}
-		 */
-		dropAll() {
-			for (const ws of [...sockets])
-				try { ws.close() } catch { /* ignore */ }
-		},
-		/**
-		 * @returns {Promise<void>}
-		 */
-		async stop() {
-			for (const ws of [...sockets])
-				try { ws.terminate() } catch { /* ignore */ }
-			await new Promise(resolve => wss.close(() => resolve()))
-			await new Promise(resolve => server.close(() => resolve()))
-		},
-	}
-}
 
 test('NOSTR advert kind uses addressable range', () => {
 	assertEquals(NOSTR_ADVERT_KIND >= 30000 && NOSTR_ADVERT_KIND < 40000, true)
@@ -194,6 +64,43 @@ test('shared relay multiplexes signal and advert on one socket', async () => {
 		stopSignal()
 		assertEquals(relay.openCount(), 1)
 		assertEquals(relay.reqCount(), 3)
+	}
+	finally {
+		provider.dispose?.()
+		await relay.stop()
+	}
+})
+
+test('publish reuses one shared relay socket across many sends', async () => {
+	const { createNostrDiscoveryProvider } = await import('../../discovery/nostr.mjs')
+	const local = identity(79)
+	const peer = identity(80)
+	const relay = await startFakeRelay(() => true)
+	const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
+	try {
+		await provider.listenNodeSignals(local.nodeHash, () => { })
+		await relay.waitOpen(1)
+		for (let sendIndex = 0; sendIndex < 20; sendIndex++)
+			await provider.sendNodeSignal(peer.nodeHash, new Uint8Array([sendIndex]))
+		assertEquals(relay.connectionCount(), 1)
+		assertEquals(relay.openCount(), 1)
+	}
+	finally {
+		provider.dispose?.()
+		await relay.stop()
+	}
+})
+
+test('publish-only session reuses socket across consecutive sends', async () => {
+	const { createNostrDiscoveryProvider } = await import('../../discovery/nostr.mjs')
+	const peer = identity(81)
+	const relay = await startFakeRelay(() => true)
+	const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
+	try {
+		await provider.sendNodeSignal(peer.nodeHash, new Uint8Array([1]))
+		await provider.sendNodeSignal(peer.nodeHash, new Uint8Array([2]))
+		assertEquals(relay.connectionCount(), 1)
+		assertEquals(relay.openCount(), 1)
 	}
 	finally {
 		provider.dispose?.()
