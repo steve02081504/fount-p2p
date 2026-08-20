@@ -95,26 +95,23 @@ test('peer health: link up registers connected entry with source', () => {
 	const { tracker, registry, link } = setup()
 	registry.emitUp(PEER, link)
 	const entry = tracker.getPeerHealth(PEER)
-	assertEquals(entry, {
-		nodeHash: PEER,
-		connected: true,
-		rttMs: null,
-		avgRttMs: null,
-		lastSeenAt: entry.lastSeenAt,
-		source: 'mock',
-	})
-	assertEquals(typeof entry.lastSeenAt, 'number')
+	assertEquals(entry.nodeHash, PEER)
+	assertEquals(entry.connected, true)
+	assertEquals(entry.rttMs, null)
+	assertEquals(entry.avgRttMs, null)
+	assertEquals(entry.lastSeenAt > 0, true)
+	assertEquals(entry.source, 'mock')
 })
 
 test('peer health: onRtt updates rttMs / avgRttMs / lastSeenAt', () => {
 	const { tracker, registry, link } = setup()
 	registry.emitUp(PEER, link)
-	const before = tracker.getPeerHealth(PEER).lastSeenAt
+	const lastSeenAtBeforeRtt = tracker.getPeerHealth(PEER).lastSeenAt
 	link.emitRtt()
 	const entry = tracker.getPeerHealth(PEER)
 	assertEquals(entry.rttMs, 42)
 	assertEquals(entry.avgRttMs, 40)
-	assertEquals(entry.lastSeenAt >= before, true)
+	assertEquals(entry.lastSeenAt >= lastSeenAtBeforeRtt, true)
 })
 
 test('peer health: link down marks disconnected and keeps last record', () => {
@@ -148,11 +145,11 @@ test('peer health: onPeerHealth notifies on changes', () => {
 	const { tracker, registry, link } = setup()
 	/** @type {string[]} */
 	const seen = []
-	const off = tracker.onPeerHealth((nodeHash, entry) => { seen.push(`${nodeHash}:${entry.connected}`) })
+	const unsubscribe = tracker.onPeerHealth((nodeHash, entry) => { seen.push(`${nodeHash}:${entry.connected}`) })
 	registry.emitUp(PEER, link)
 	link.emitDown()
 	assertEquals(seen, [`${PEER}:true`, `${PEER}:false`])
-	off()
+	unsubscribe()
 })
 
 test('peer health: unknown node returns null; stop clears entries', () => {

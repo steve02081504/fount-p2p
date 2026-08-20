@@ -24,29 +24,21 @@ import { emitSafe } from '../utils/emit_safe.mjs'
  * }} peer health 聚合器
  */
 export function createPeerHealthTracker(registry) {
-	/** @type {Map<string, PeerHealthEntry & { _cleanup?: () => void }>} */
+	/** @type {Map<string, PeerHealthEntry>} */
 	const entries = new Map()
+	/** @type {Map<string, () => void>} 每条链路在 registry/link 上的取消订阅回调 */
+	const cleanups = new Map()
 	/** @type {Set<(nodeHash: string, entry: PeerHealthEntry) => void>} */
 	const listeners = new Set()
 
 	/**
-	 * @param {PeerHealthEntry & { _cleanup?: () => void }} entry 内部记录
-	 * @returns {PeerHealthEntry} 对外视图（去掉内部字段）
-	 */
-	function toPublic(entry) {
-		const { _cleanup, ...rest } = entry
-		return rest
-	}
-
-	/**
 	 * 合并补丁并通知订阅方。
 	 * @param {string} nodeHash 远端节点 64 hex
-	 * @param {Partial<PeerHealthEntry & { _cleanup?: () => void }>} patch 补丁
+	 * @param {Partial<PeerHealthEntry>} patch 补丁
 	 * @returns {void}
 	 */
 	function update(nodeHash, patch) {
-		const existing = entries.get(nodeHash)
-		const entry = existing ?? {
+		const entry = entries.get(nodeHash) ?? {
 			nodeHash,
 			connected: false,
 			rttMs: null,
@@ -59,15 +51,13 @@ export function createPeerHealthTracker(registry) {
 		if (patch.avgRttMs !== undefined) entry.avgRttMs = patch.avgRttMs
 		if (patch.lastSeenAt !== undefined) entry.lastSeenAt = patch.lastSeenAt
 		if (patch.source !== undefined) entry.source = patch.source
-		if (patch._cleanup !== undefined) entry._cleanup = patch._cleanup
 		entries.set(nodeHash, entry)
-		emitSafe(listeners, nodeHash, toPublic(entry))
+		emitSafe(listeners, nodeHash, entry)
 	}
 
 	const stopUp = registry.onLinkUp?.((nodeHash, link) => {
 		const hash = normalizeHex64(nodeHash)
 		if (!hash) return
-		const source = link?.providerId ?? null
 		const stopRtt = link?.onRtt?.(() => {
 			const stats = link.stats?.() ?? {}
 			update(hash, {
@@ -77,25 +67,25 @@ export function createPeerHealthTracker(registry) {
 			})
 		}) ?? null
 		const stopDown = link?.onDown?.(() => {
-			const current = entries.get(hash)
-			current?._cleanup?.()
+			cleanups.get(hash)?.()
+			cleanups.delete(hash)
 			update(hash, { connected: false, lastSeenAt: Date.now() })
 		}) ?? null
 		update(hash, {
 			connected: true,
-			source,
-			_cleanup() {
-				stopRtt?.()
-				stopDown?.()
-				delete entries.get(hash)?._cleanup
-			},
+			source: link?.providerId ?? null,
+			lastSeenAt: Date.now(),
+		})
+		cleanups.set(hash, () => {
+			stopRtt?.()
+			stopDown?.()
 		})
 	}) ?? null
 	const stopDown = registry.onLinkDown?.(nodeHash => {
 		const hash = normalizeHex64(nodeHash)
 		if (!hash) return
-		const current = entries.get(hash)
-		current?._cleanup?.()
+		cleanups.get(hash)?.()
+		cleanups.delete(hash)
 		update(hash, { connected: false, lastSeenAt: Date.now() })
 	}) ?? null
 
@@ -105,14 +95,13 @@ export function createPeerHealthTracker(registry) {
 		 * @returns {PeerHealthEntry | null} 健康记录；无记录时 null
 		 */
 		getPeerHealth(nodeHash) {
-			const entry = entries.get(normalizeHex64(nodeHash))
-			return entry ? toPublic(entry) : null
+			return entries.get(normalizeHex64(nodeHash)) ?? null
 		},
 		/**
 		 * @returns {PeerHealthEntry[]} 所有邻居健康记录
 		 */
 		listPeerHealth() {
-			return [...entries.values()].map(toPublic)
+			return [...entries.values()]
 		},
 		/**
 		 * @param {(nodeHash: string, entry: PeerHealthEntry) => void} listener 变化回调
@@ -129,7 +118,8 @@ export function createPeerHealthTracker(registry) {
 		stop() {
 			stopUp?.()
 			stopDown?.()
-			for (const entry of entries.values()) entry._cleanup?.()
+			for (const cleanup of cleanups.values()) cleanup()
+			cleanups.clear()
 			entries.clear()
 			listeners.clear()
 		},

@@ -12,6 +12,8 @@ const decoder = new TextDecoder()
 
 /** RTT 样本滑动窗口大小。 */
 const RTT_WINDOW_SIZE = 10
+/** 未收到 pong 的 ping 记录保留时长。 */
+const PING_RECORD_TTL_MS = 30000
 
 /**
  * 把 createLinkPipe 句柄收成上层 LinkHandle（可附带测试/内部字段）。
@@ -107,8 +109,8 @@ export function createLinkPipe(options) {
 	let recvFrames = 0
 	const rttWindowSize = Math.max(2, Math.floor(Number(options.rttWindowSize) || RTT_WINDOW_SIZE))
 	let pingSeq = 0
-	let lastPingSeq = 0
-	let lastPingTs = 0
+	/** @type {Map<number, number>} seq -> 发送时间戳，未收到 pong 的 ping */
+	const outstandingPings = new Map()
 	let rttMs = null
 	let avgRttMs = null
 	let minRttMs = null
@@ -166,9 +168,13 @@ export function createLinkPipe(options) {
 		clearTimeout(handshakeTimer)
 		heartbeatTimer = setInterval(() => {
 			pingCount++
-			lastPingSeq = pingSeq++
-			lastPingTs = Date.now()
-			void send({ scope: 'link', action: 'ping', payload: { ts: lastPingTs, seq: lastPingSeq } }).catch(() => { })
+			const seq = pingSeq++
+			const ts = Date.now()
+			const cutoff = ts - PING_RECORD_TTL_MS
+			for (const [outSeq, outTs] of outstandingPings)
+				if (outTs < cutoff) outstandingPings.delete(outSeq)
+			outstandingPings.set(seq, ts)
+			void send({ scope: 'link', action: 'ping', payload: { ts, seq } }).catch(() => { })
 		}, heartbeatMs)
 		idleTimer = setInterval(() => {
 			if (Date.now() - lastInboundAt > idleTimeoutMs)
@@ -250,9 +256,11 @@ export function createLinkPipe(options) {
 				}
 				if (envelope.action === 'pong') {
 					const pongPayload = envelope.payload ?? {}
-					if (Number.isFinite(pongPayload.ts) && pongPayload.seq === lastPingSeq) {
+					const sentTs = outstandingPings.get(pongPayload.seq)
+					if (Number.isFinite(pongPayload.ts) && sentTs !== undefined && sentTs === pongPayload.ts) {
+						outstandingPings.delete(pongPayload.seq)
 						pongCount++
-						const sample = Date.now() - pongPayload.ts
+						const sample = Date.now() - sentTs
 						if (sample >= 0) {
 							rttMs = sample
 							rttSamples.push(sample)
@@ -260,7 +268,7 @@ export function createLinkPipe(options) {
 							avgRttMs = Math.round(rttSamples.reduce((total, value) => total + value, 0) / rttSamples.length)
 							minRttMs = rttSamples.reduce((a, b) => Math.min(a, b))
 							maxRttMs = rttSamples.reduce((a, b) => Math.max(a, b))
-							for (const listener of rttListeners) listener(rttMs)
+							emitSafe(rttListeners, rttMs)
 						}
 					}
 					return
