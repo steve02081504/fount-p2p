@@ -17,6 +17,7 @@ import { createLruMap } from '../utils/lru.mjs'
 import { DEFAULT_ICE_SERVERS } from './ice_servers.mjs'
 import { createMeshKeepalive } from './mesh_keepalive.mjs'
 import { createOfferAnswerDial } from './offer_answer.mjs'
+import { createPeerHealthTracker } from './peer_health.mjs'
 import { pickMeshEvictionVictim } from './peer_pool.mjs'
 import { createRuntimeBootstrap } from './runtime_bootstrap.mjs'
 
@@ -510,6 +511,25 @@ export function createLinkRegistry(options = {}) {
 		return () => scopeAuthorizers.delete(prefix)
 	}
 
+	const peerHealth = createPeerHealthTracker({
+		/**
+		 * @param {(nodeHash: string, link: unknown) => void} listener link up 回调
+		 * @returns {() => void} 取消订阅
+		 */
+		onLinkUp: listener => {
+			linkUpListeners.add(listener)
+			return () => linkUpListeners.delete(listener)
+		},
+		/**
+		 * @param {(nodeHash: string) => void} listener link down 回调
+		 * @returns {() => void} 取消订阅
+		 */
+		onLinkDown: listener => {
+			linkDownListeners.add(listener)
+			return () => linkDownListeners.delete(listener)
+		},
+	})
+
 	return {
 		localIdentity,
 		buildLocalAdvert: bootstrap.buildLocalAdvert,
@@ -630,6 +650,22 @@ export function createLinkRegistry(options = {}) {
 		registerScopeAuthorizer,
 		subscribeScope,
 		/**
+		 * 获取指定邻居的健康记录。
+		 * @param {string} nodeHash 节点 64 hex
+		 * @returns {import('./peer_health.mjs').PeerHealthEntry | null} 健康记录；无记录时 null
+		 */
+		getPeerHealth: peerHealth.getPeerHealth,
+		/**
+		 * @returns {import('./peer_health.mjs').PeerHealthEntry[]} 所有邻居健康记录
+		 */
+		listPeerHealth: peerHealth.listPeerHealth,
+		/**
+		 * 订阅邻居健康变化。
+		 * @param {(nodeHash: string, entry: import('./peer_health.mjs').PeerHealthEntry) => void} listener 回调
+		 * @returns {() => void} 取消订阅
+		 */
+		onPeerHealth: peerHealth.onPeerHealth,
+		/**
 		 * 监听指定节点的 advert（per-hash，无 topic）。
 		 * @param {string} nodeHash 目标节点 64 hex
 		 * @param {(verifiedNodeHash: string, body: object) => void | Promise<void>} onAdvert advert 回调
@@ -652,6 +688,7 @@ export function createLinkRegistry(options = {}) {
 		 */
 		async shutdown() {
 			await meshKeepalive?.stop()
+			peerHealth.stop()
 			setDiscoveryLinkDialer(null)
 			setDiscoveryPeerClueListener(null)
 			await bootstrap.shutdown()
@@ -744,6 +781,12 @@ export const registerScopeInterest = bindRegistryMethod('registerScopeInterest')
 export const releaseScopeInterest = bindRegistryMethod('releaseScopeInterest')
 /** @type {(...methodArguments: unknown[]) => unknown} */
 export const subscribeScope = bindRegistryMethod('subscribeScope')
+/** @type {(...methodArguments: unknown[]) => unknown} */
+export const getPeerHealth = bindRegistryMethod('getPeerHealth')
+/** @type {(...methodArguments: unknown[]) => unknown} */
+export const listPeerHealth = bindRegistryMethod('listPeerHealth')
+/** @type {(...methodArguments: unknown[]) => unknown} */
+export const onPeerHealth = bindRegistryMethod('onPeerHealth')
 
 /**
  * 注册默认 registry 的 scope authorizer。

@@ -10,6 +10,11 @@ import { buildAuth, buildHello, parseHello, verifyAuth } from './handshake.mjs'
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
+/** RTT 样本滑动窗口大小。 */
+const RTT_WINDOW_SIZE = 10
+/** 未收到 pong 的 ping 记录保留时长。 */
+const PING_RECORD_TTL_MS = 30000
+
 /**
  * 把 createLinkPipe 句柄收成上层 LinkHandle（可附带测试/内部字段）。
  * @param {ReturnType<typeof createLinkPipe>} pipe pipe 句柄
@@ -43,6 +48,11 @@ export function asLinkHandle(pipe, extras = {}) {
 		 */
 		onDown: (...callArguments) => pipe.onDown(...callArguments),
 		/**
+		 * @param {...any} callArguments 透传 onRtt
+		 * @returns {ReturnType<typeof pipe.onRtt>} 取消订阅
+		 */
+		onRtt: (...callArguments) => pipe.onRtt(...callArguments),
+		/**
 		 * @param {...any} callArguments 透传 close
 		 * @returns {ReturnType<typeof pipe.close>} 关闭完成
 		 */
@@ -70,6 +80,7 @@ export function asLinkHandle(pipe, extras = {}) {
  * @param {number} [options.heartbeatMs] 心跳间隔
  * @param {number} [options.idleTimeoutMs] 空闲超时
  * @param {number} [options.handshakeTimeoutMs] 握手超时
+ * @param {number} [options.rttWindowSize] RTT 样本滑动窗口大小
  * @returns {object} link 句柄 + 入站 API
  */
 export function createLinkPipe(options) {
@@ -96,6 +107,20 @@ export function createLinkPipe(options) {
 	let lastOutboundAt = 0
 	let sentFrames = 0
 	let recvFrames = 0
+	const rttWindowSize = Math.max(2, Math.floor(Number(options.rttWindowSize) || RTT_WINDOW_SIZE))
+	let pingSeq = 0
+	/** @type {Map<number, number>} seq -> 发送时间戳，未收到 pong 的 ping */
+	const outstandingPings = new Map()
+	let rttMs = null
+	let avgRttMs = null
+	let minRttMs = null
+	let maxRttMs = null
+	let pingCount = 0
+	let pongCount = 0
+	/** @type {number[]} */
+	const rttSamples = []
+	/** @type {Set<(rttMs: number) => void>} */
+	const rttListeners = new Set()
 	const envelopeListeners = new Set()
 	const downListeners = new Set()
 	const completedFrameIds = createLruMap(4096)
@@ -142,7 +167,14 @@ export function createLinkPipe(options) {
 		ready = true
 		clearTimeout(handshakeTimer)
 		heartbeatTimer = setInterval(() => {
-			void send({ scope: 'link', action: 'ping', payload: {} }).catch(() => { })
+			pingCount++
+			const seq = pingSeq++
+			const ts = Date.now()
+			const cutoff = ts - PING_RECORD_TTL_MS
+			for (const [outSeq, outTs] of outstandingPings)
+				if (outTs < cutoff) outstandingPings.delete(outSeq)
+			outstandingPings.set(seq, ts)
+			void send({ scope: 'link', action: 'ping', payload: { ts, seq } }).catch(() => { })
 		}, heartbeatMs)
 		idleTimer = setInterval(() => {
 			if (Date.now() - lastInboundAt > idleTimeoutMs)
@@ -218,10 +250,29 @@ export function createLinkPipe(options) {
 			if (frameId) completedFrameIds.touch(frameId, true)
 			if (envelope?.scope === 'link') {
 				if (envelope.action === 'ping') {
-					void send({ scope: 'link', action: 'pong', payload: {} }).catch(() => { })
+					const pingPayload = envelope.payload ?? {}
+					void send({ scope: 'link', action: 'pong', payload: { ts: pingPayload.ts, seq: pingPayload.seq } }).catch(() => { })
 					return
 				}
-				if (envelope.action === 'pong') return
+				if (envelope.action === 'pong') {
+					const pongPayload = envelope.payload ?? {}
+					const sentTs = outstandingPings.get(pongPayload.seq)
+					if (Number.isFinite(pongPayload.ts) && sentTs !== undefined && sentTs === pongPayload.ts) {
+						outstandingPings.delete(pongPayload.seq)
+						pongCount++
+						const sample = Date.now() - sentTs
+						if (sample >= 0) {
+							rttMs = sample
+							rttSamples.push(sample)
+							if (rttSamples.length > rttWindowSize) rttSamples.shift()
+							avgRttMs = Math.round(rttSamples.reduce((total, value) => total + value, 0) / rttSamples.length)
+							minRttMs = rttSamples.reduce((minimum, sample) => Math.min(minimum, sample))
+							maxRttMs = rttSamples.reduce((minimum, sample) => Math.max(minimum, sample))
+							emitSafe(rttListeners, rttMs)
+						}
+					}
+					return
+				}
 			}
 			if (ready && remoteNodeHash)
 				emitSafe(envelopeListeners, envelope, remoteNodeHash)
@@ -350,6 +401,14 @@ export function createLinkPipe(options) {
 			downListeners.add(callback)
 			return () => downListeners.delete(callback)
 		},
+		/**
+		 * @param {(rttMs: number) => void} callback RTT 样本回调
+		 * @returns {() => void} 取消订阅
+		 */
+		onRtt(callback) {
+			rttListeners.add(callback)
+			return () => rttListeners.delete(callback)
+		},
 		close,
 		handleInbound,
 		startHandshake,
@@ -369,6 +428,12 @@ export function createLinkPipe(options) {
 				lastOutboundAt,
 				sentFrames,
 				recvFrames,
+				rttMs,
+				avgRttMs,
+				minRttMs,
+				maxRttMs,
+				pingCount,
+				pongCount,
 				closeReason,
 				...options.extraStats?.() ?? {},
 			}
