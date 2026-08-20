@@ -19,7 +19,7 @@ import { WebSocketServer } from 'ws'
  */
 export async function startFakeRelay(accept = () => true) {
 	const server = createServer()
-	const wss = new WebSocketServer({ server })
+	const webSocketServer = new WebSocketServer({ server })
 	/** @type {Set<import('ws').WebSocket>} */
 	const sockets = new Set()
 	let connectionCount = 0
@@ -50,13 +50,13 @@ export async function startFakeRelay(accept = () => true) {
 		for (const wake of closeWaiters.splice(0)) wake()
 	}
 
-	wss.on('connection', ws => {
+	webSocketServer.on('connection', socket => {
 		connectionCount++
-		sockets.add(ws)
+		sockets.add(socket)
 		flushOpenWaiters()
-		ws.on('message', raw => {
+		socket.on('message', rawMessage => {
 			let parsed
-			try { parsed = JSON.parse(String(raw)) } catch { return }
+			try { parsed = JSON.parse(String(rawMessage)) } catch { return }
 			if (parsed?.[0] === 'REQ') {
 				reqCount++
 				flushReqWaiters()
@@ -65,16 +65,15 @@ export async function startFakeRelay(accept = () => true) {
 			if (parsed?.[0] !== 'EVENT') return
 			const event = parsed[1]
 			const ok = accept(String(event?.id || ''))
-			ws.send(JSON.stringify(['OK', event.id, ok, ok ? '' : 'blocked: test']))
+			socket.send(JSON.stringify(['OK', event.id, ok, ok ? '' : 'blocked: test']))
 		})
-		ws.on('close', () => {
-			sockets.delete(ws)
+		socket.on('close', () => {
+			sockets.delete(socket)
 			flushCloseWaiters()
 		})
 	})
 	await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-	const address = server.address()
-	const port = typeof address === 'object' && address ? address.port : 0
+	const port = server.address().port
 	return {
 		port,
 		/**
@@ -93,16 +92,16 @@ export async function startFakeRelay(accept = () => true) {
 		 * @param {number} [n=1] 至少多少条连接
 		 * @returns {Promise<void>}
 		 */
-		async waitOpen(n = 1) {
-			while (connectionCount < n)
+		async waitOpen(expectedCount = 1) {
+			while (connectionCount < expectedCount)
 				await new Promise(resolve => openWaiters.push(resolve))
 		},
 		/**
-		 * @param {number} n 至少多少条 REQ
+		 * @param {number} expectedCount 至少多少条 REQ
 		 * @returns {Promise<void>}
 		 */
-		async waitReqs(n) {
-			while (reqCount < n)
+		async waitReqs(expectedCount) {
+			while (reqCount < expectedCount)
 				await new Promise(resolve => reqWaiters.push(resolve))
 		},
 		/**
@@ -125,7 +124,7 @@ export async function startFakeRelay(accept = () => true) {
 		async stop() {
 			for (const ws of [...sockets])
 				try { ws.terminate() } catch { /* ignore */ }
-			await new Promise(resolve => wss.close(() => resolve()))
+			await new Promise(resolve => webSocketServer.close(() => resolve()))
 			await new Promise(resolve => server.close(() => resolve()))
 		},
 	}

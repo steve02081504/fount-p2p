@@ -1,18 +1,18 @@
+import process from 'node:process'
 import { setFlagsFromString } from 'node:v8'
 import { runInNewContext } from 'node:vm'
 
 /**
- * 列出当前活跃资源的类型（跨 Node 版本：优先公开 API，回退到私有 API / 句柄类名）。
- * @returns {string[]} 活跃资源类型
+ * 触发一次垃圾回收。
+ * @returns {void}
  */
-function activeResourceTypes() {
-	if (typeof process.getActiveResourcesInfo === 'function')
-		return process.getActiveResourcesInfo()
-	if (typeof process._getActiveResourcesInfo === 'function')
-		return process._getActiveResourcesInfo()
-	if (typeof process._getActiveHandles === 'function')
-		return process._getActiveHandles().map(handle => handle.constructor?.name || 'handle')
-	return []
+export function gc() {
+	setFlagsFromString('--expose_gc')
+	runInNewContext('gc')({
+		execution: 'sync',
+		flavor: 'last-resort',
+		type: 'major'
+	})
 }
 
 /**
@@ -25,7 +25,7 @@ function activeResourceTypes() {
  */
 export function snapshotActiveResources() {
 	const counts = new Map()
-	for (const type of activeResourceTypes())
+	for (const type of process.getActiveResourcesInfo())
 		counts.set(type, (counts.get(type) || 0) + 1)
 	return counts
 }
@@ -40,28 +40,12 @@ export function activeResourceDelta(after, before) {
 	let total = 0
 	let maxType = 0
 	for (const [type, count] of after) {
-		const d = count - (before.get(type) || 0)
-		if (d <= 0) continue
-		total += d
-		if (d > maxType) maxType = d
+		const delta = count - (before.get(type) || 0)
+		if (delta <= 0) continue
+		total += delta
+		if (delta > maxType) maxType = delta
 	}
 	return { total, maxType }
-}
-
-/** @type {(() => void) | null} 惰性启用的强制 GC（无 --expose-gc 也可用） */
-let forceGc = null
-
-/**
- * 运行时启用并执行一次强制 GC：`setFlagsFromString('--expose_gc')` + `runInNewContext('gc')()`
- * 可在不带 --expose-gc 启动的进程里触发 GC，无需为此起子进程。
- * @returns {void}
- */
-export function forceGarbageCollection() {
-	if (!forceGc) {
-		setFlagsFromString('--expose_gc')
-		forceGc = runInNewContext('gc')
-	}
-	forceGc()
 }
 
 /**
@@ -71,9 +55,9 @@ export function forceGarbageCollection() {
  * @returns {Promise<number>} 强制 GC 后的堆占用（字节）
  */
 export async function heapUsedAfterGc() {
-	forceGarbageCollection()
+	gc()
 	await new Promise(resolve => setTimeout(resolve, 20))
-	forceGarbageCollection()
+	gc()
 	await new Promise(resolve => setTimeout(resolve, 20))
 	return process.memoryUsage().heapUsed
 }

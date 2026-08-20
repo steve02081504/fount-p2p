@@ -358,7 +358,22 @@ async function publishEvent(relayUrls, event, signal) {
  *   reconnectTimer: ReturnType<typeof setTimeout> | null,
  *   idleTimer: ReturnType<typeof setTimeout> | null,
  *   subs: Map<string, { filter: object, onEvent: (event: object, relayUrl: string) => void }>,
- *   pendingPublishes: Array<{ event: object, signal: AbortSignal | undefined, offAbort: () => void, resolve: (ok: boolean) => void, reject: (err: Error) => void }>,
+ *   pendingPublishes: Array<{
+ *     event: object,
+ *     signal: AbortSignal | undefined,
+ *     onAbort: (() => void) | null,
+ *     removeAbort: (() => void) | null,
+ *     resolve: (ok: boolean) => void,
+ *     reject: (err: Error) => void,
+ *   }>,
+ *   inflightPublishes: Array<{
+ *     event: object,
+ *     signal: AbortSignal | undefined,
+ *     onAbort: (() => void) | null,
+ *     removeAbort: (() => void) | null,
+ *     resolve: (ok: boolean) => void,
+ *     reject: (err: Error) => void,
+ *   }>,
  * }} SharedRelaySession
  */
 
@@ -371,7 +386,7 @@ const sharedRelaySessions = new Map()
  * @returns {boolean} 是否有活跃工作
  */
 function hasPendingWork(session) {
-	return session.subs.size > 0 || session.pendingPublishes.length > 0
+	return session.subs.size  || session.pendingPublishes.length  || session.inflightPublishes.length
 }
 
 /**
@@ -393,7 +408,6 @@ function clearIdleDrop(session) {
  */
 function scheduleIdleDrop(relayUrl, session) {
 	if (session.subs.size || session.idleTimer) return
-	clearIdleDrop(session)
 	session.idleTimer = setTimeout(() => {
 		session.idleTimer = null
 		if (!isLiveSharedSession(relayUrl, session) || hasPendingWork(session)) return
@@ -446,6 +460,13 @@ function attachSharedRelaySocket(relayUrl, session, ws) {
 	ws.once('close', () => {
 		if (!isLiveSharedSession(relayUrl, session)) return
 		session.ws = null
+		// 尚未确认的 inflight publish 重新入队，重连后由 flushPendingPublishes 重发。
+		if (session.inflightPublishes.length) {
+			session.pendingPublishes.push(...session.inflightPublishes)
+			for (const publishRequest of session.inflightPublishes)
+				attachQueuedAbort(session, publishRequest)
+			session.inflightPublishes = []
+		}
 		if (!hasPendingWork(session)) {
 			sharedRelaySessions.delete(relayUrl)
 			return
@@ -525,6 +546,7 @@ function acquireSharedRelay(relayUrl) {
 		idleTimer: null,
 		subs: new Map(),
 		pendingPublishes: [],
+		inflightPublishes: [],
 	}
 	sharedRelaySessions.set(relayUrl, session)
 	scheduleSharedRelayConnect(relayUrl, session)
@@ -571,16 +593,62 @@ function registerSharedRelaySub(session, subscriptionId, filter, onEvent) {
  * 每个 publish 独立携带自己的 message/abort 监听，socket 共享安全。
  * @param {string} relayUrl 中继 URL
  * @param {SharedRelaySession} session 会话
- * @param {import('ws').WebSocket} ws 已打开连接
+ * @param {import('ws').WebSocket} socket 已打开连接
  * @returns {void}
  */
-function flushPendingPublishes(relayUrl, session, ws) {
+function flushPendingPublishes(relayUrl, session, socket) {
 	const pending = session.pendingPublishes
 	session.pendingPublishes = []
-	for (const p of pending) {
-		p.offAbort?.()
-		void publishEventOnRelay(ws, relayUrl, p.event, p.signal).then(p.resolve, p.reject)
+	for (const publishRequest of pending) {
+		publishRequest.removeAbort?.()
+		publishRequest.onAbort = null
+		publishRequest.removeAbort = null
+		session.inflightPublishes.push(publishRequest)
+		void publishEventOnRelay(socket, relayUrl, publishRequest.event, publishRequest.signal)
+			.then(
+				ok => settleInflightPublish(relayUrl, session, publishRequest, () => publishRequest.resolve(ok)),
+				error => settleInflightPublish(relayUrl, session, publishRequest, () => publishRequest.reject(error)),
+			)
 	}
+}
+
+/**
+ * 为队列中的 publish 挂上 abort 处理：先移除监听器（释放 signal 对回调/event/session 的引用），
+ * 再从队列删除并 reject。
+ * @param {SharedRelaySession} session 会话
+ * @param {SharedRelaySession['pendingPublishes'][number]} publishRequest 待发请求
+ * @returns {void}
+ */
+function attachQueuedAbort(session, publishRequest) {
+	const { signal, reject } = publishRequest
+	publishRequest.onAbort = () => {
+		publishRequest.removeAbort?.()
+		const idx = session.pendingPublishes.indexOf(publishRequest)
+		if (idx < 0) return
+		session.pendingPublishes.splice(idx, 1)
+		reject(new Error('nostr: aborted'))
+	}
+	publishRequest.removeAbort = () => {
+		if (signal) signal.removeEventListener('abort', publishRequest.onAbort)
+	}
+	if (signal) signal.addEventListener('abort', publishRequest.onAbort, { once: true })
+}
+
+/**
+ * publish 在 socket 上得到 OK / 失败 / abort 后结算：从 inflight 移除并 settle。
+ * 已被 requeue（断线重发）的请求不在 inflight，跳过结算，交由重发路径收尾。
+ * @param {string} relayUrl 中继 URL
+ * @param {SharedRelaySession} session 会话
+ * @param {SharedRelaySession['inflightPublishes'][number]} publishRequest 已发送请求
+ * @param {() => void} settle 结算回调（resolve/reject）
+ * @returns {void}
+ */
+function settleInflightPublish(relayUrl, session, publishRequest, settle) {
+	const idx = session.inflightPublishes.indexOf(publishRequest)
+	if (idx < 0) return
+	session.inflightPublishes.splice(idx, 1)
+	settle()
+	if (!hasPendingWork(session)) scheduleIdleDrop(relayUrl, session)
 }
 
 /**
@@ -600,15 +668,9 @@ function publishViaSharedRelay(relayUrl, event, signal) {
 		const session = acquireSharedRelay(relayUrl)
 		clearIdleDrop(session)
 		/** @type {SharedRelaySession['pendingPublishes'][number]} */
-		const p = { event, signal, resolve, reject, offAbort: null }
-		p.offAbort = () => {
-			const idx = session.pendingPublishes.indexOf(p)
-			if (idx < 0) return
-			session.pendingPublishes.splice(idx, 1)
-			reject(new Error('nostr: aborted'))
-		}
-		signal?.addEventListener('abort', p.offAbort, { once: true })
-		session.pendingPublishes.push(p)
+		const publishRequest = { event, signal, resolve, reject, onAbort: null, removeAbort: null }
+		attachQueuedAbort(session, publishRequest)
+		session.pendingPublishes.push(publishRequest)
 		if (session.ws?.readyState === WebSocket.OPEN)
 			flushPendingPublishes(relayUrl, session, session.ws)
 		else

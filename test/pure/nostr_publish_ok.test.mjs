@@ -80,8 +80,8 @@ test('publish reuses one shared relay socket across many sends', async () => {
 	try {
 		await provider.listenNodeSignals(local.nodeHash, () => { })
 		await relay.waitOpen(1)
-		for (let i = 0; i < 20; i++)
-			await provider.sendNodeSignal(peer.nodeHash, new Uint8Array([i]))
+		for (let sendIndex = 0; sendIndex < 20; sendIndex++)
+			await provider.sendNodeSignal(peer.nodeHash, new Uint8Array([sendIndex]))
 		assertEquals(relay.connectionCount(), 1)
 		assertEquals(relay.openCount(), 1)
 	}
