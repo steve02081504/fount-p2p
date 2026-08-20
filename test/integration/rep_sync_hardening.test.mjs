@@ -76,7 +76,7 @@ test('rep_sync_res from non-donor peerId is ignored; donor response accepted', a
 		 * @returns {Promise<boolean>} 始终视为发送成功
 		 */
 		registry.sendToNodeLink = async (_hash, envelope) => {
-			const requestId = envelope.payload.requestId
+			const { requestId } = envelope.payload
 			queueMicrotask(() => {
 				dispatchNodeScopeAction('rep_sync_res', {
 					requestId,

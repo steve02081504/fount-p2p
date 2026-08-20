@@ -128,7 +128,7 @@ export async function acceptNostrAdvert(rendezvousKey, bytes, options = {}) {
 	const hash = ingested.verifiedNodeHash
 	const skipHash = options.skipNodeHash ? normalizeHex64(options.skipNodeHash) : null
 	if (skipHash && hash === skipHash) return hash
-	const roomSecret = options.roomSecret
+	const { roomSecret } = options
 	let firstSeen = true
 	if (roomSecret) {
 		firstSeen = !visibleByGroup.get(roomSecret)?.has(hash)
@@ -499,7 +499,7 @@ function releaseSharedRelaySub(relayUrl, subscriptionId) {
 	const session = sharedRelaySessions.get(relayUrl)
 	if (!session) return
 	session.subs.delete(subscriptionId)
-	const ws = session.ws
+	const { ws } = session
 	if (ws?.readyState === WebSocket.OPEN)
 		try { ws.send(JSON.stringify(['CLOSE', subscriptionId])) } catch { /* ignore */ }
 	if (session.subs.size) return
@@ -518,7 +518,7 @@ function releaseSharedRelaySub(relayUrl, subscriptionId) {
  */
 function registerSharedRelaySub(session, subscriptionId, filter, onEvent) {
 	session.subs.set(subscriptionId, { filter, onEvent })
-	const ws = session.ws
+	const { ws } = session
 	if (ws?.readyState !== WebSocket.OPEN) return
 	try { ws.send(JSON.stringify(['REQ', subscriptionId, filter])) } catch { /* ignore */ }
 }

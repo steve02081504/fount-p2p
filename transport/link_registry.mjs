@@ -481,9 +481,9 @@ export function createLinkRegistry(options = {}) {
 	async function dispatchEnvelope(senderNodeHash, envelope, link) {
 		const { scope } = envelope
 		for (const [prefix, authorizer] of scopeAuthorizers.entries())
-			if (scope.startsWith(prefix)) {
+			if (scope.startsWith(prefix))
 				if (!await authorizer(scope, senderNodeHash, envelope, link)) return
-			}
+
 		for (const [prefix, listeners] of scopeListeners.entries())
 			if (scope.startsWith(prefix))
 				for (const listener of listeners)

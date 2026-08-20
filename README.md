@@ -69,7 +69,7 @@ Reputation pull/apply is separate: `pullReputationFromNode` → JSON; `setReputa
 ## Layout
 
 | Layer | Directory | Role |
-|---|---|---|
+| --- | --- | --- |
 | L0 | `core/` | Pure primitives: `hexIds`, `entity_id*`, `canonical_json` |
 | L1 | `crypto/`, `wire/`, `schemas/` | Cryptography, wire protocol, canonical validation |
 | L2 | `node/` | Node runtime: `identity`, `entity_store`, `denylist`, `reputation_store` |
@@ -83,7 +83,7 @@ Facade entry: `index.mjs` (`startNode`, `createGroupLinkSet`, `registerDiscovery
 **Public transport modules:**
 
 | Module | Role |
-|---|---|
+| --- | --- |
 | `link_registry.mjs` | fount-network facade: dial fallback, scope/overlay |
 | `user_room.mjs` / `group_link_set.mjs` / `node_scope/wire` + `node_scope/features` | rooms + composable node-scope wires (`registerNodeScopeWireHook`, attaches) |
 | `room_scopes.mjs` / `remote_user_room.mjs` | scope constants / remote user slot |

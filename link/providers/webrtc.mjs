@@ -264,7 +264,7 @@ export async function createWebRtcLink(options) {
 		 */
 		channel.onmessage = event => {
 			try {
-				const data = event.data
+				const { data } = event
 				pipe.handleInbound(typeof data === 'string' ? data : toBytes(data, { allowString: true }))
 			}
 			catch { /* drop */ }

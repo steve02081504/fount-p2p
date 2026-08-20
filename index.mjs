@@ -18,6 +18,7 @@ import {
 	setSignalingRuntimeConfig,
 } from './node/instance.mjs'
 import { setConnectivityDebug } from './node/log.mjs'
+import { loadReputation } from './node/reputation_store.mjs'
 import {
 	attachReputationSyncWire,
 	getReputationExportAllowlist,
@@ -30,7 +31,6 @@ import {
 	setTrustSyncDonors,
 	unlockReputationMax,
 } from './node/reputation_sync.mjs'
-import { loadReputation } from './node/reputation_store.mjs'
 import { getRoutingProfile, setRoutingProfile } from './node/routing_profile.mjs'
 import { createGroupLinkSet } from './transport/group_link_set.mjs'
 import {

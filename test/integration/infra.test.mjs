@@ -29,6 +29,7 @@ import {
 import { buildSignedAdvert } from '../../link/handshake.mjs'
 import { initNode, resetNodeForTests } from '../../node/instance.mjs'
 import { loadNetwork, replaceNetworkPeerPools } from '../../node/network.mjs'
+import { loadReputation } from '../../node/reputation_store.mjs'
 import {
 	pullReputationFromNode,
 	resetReputationSyncForTests,
@@ -36,7 +37,6 @@ import {
 	setTrustSyncDonors,
 	attachReputationSyncWire,
 } from '../../node/reputation_sync.mjs'
-import { loadReputation } from '../../node/reputation_store.mjs'
 import { getRoutingProfile, setRoutingProfile } from '../../node/routing_profile.mjs'
 import {
 	configureLinkRegistry,

@@ -29,7 +29,7 @@ Topic / rendezvous / signal crypto live under `discovery/` (`nostr.mjs`, `intern
 ## Internal layers
 
 | Layer | Role |
-|---|---|
+| --- | --- |
 | **Discovery** (`discovery/`) | Per medium: `listVisibleNodeHashes` + `connectToNode`. Encrypted adverts/signals via `adverts.mjs` + `index.mjs` helpers. |
 | **Link providers** (`link/providers/`) | Open a duplex pipe; sorted by **`level` (descending)** — not a shell import |
 | **Registry** (`transport/link_registry.mjs`) | fount-network facade: dial fallback, scope/overlay, one canonical link per peer |
@@ -48,7 +48,7 @@ Chain `providerId` on the LinkHandle stays the short name (`lan_tcp` / `ble_gatt
 ## Level table
 
 | id | level |
-|---|---|
+| --- | --- |
 | `lan_tcp` | 80 |
 | `webrtc` | 70 |
 | `ble_gatt` | 40 |

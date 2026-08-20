@@ -51,7 +51,7 @@ function namedExportsOf(text) {
 	const names = new Set()
 	for (const match of text.matchAll(/^export\s+(?:async\s+)?(?:function\s*\*?|class|const|let)\s+([$A-Z_a-z][\w$]*)/gmu))
 		names.add(match[1])
-	for (const match of text.matchAll(/^export\s*\{([^}]*)\}/gmu))
+	for (const match of text.matchAll(/^export\s*{([^}]*)}/gmu))
 		for (const piece of match[1].split(',')) {
 			const name = piece.split(/\s+as\s+/u).pop()?.trim()
 			if (name && name !== 'default') names.add(name)

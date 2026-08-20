@@ -24,7 +24,7 @@ Group presence / advert watch / signaling fan-in **all** providers that implemen
 No discovery-layer mDNS. LAN UDP presence must carry signed+encrypted network `advertBytes`; unsigned `nodeHash` beacons are ignored. WebRTC ICE `.local` host-candidate filtering is `iceLocalHostnamePolicy` (unrelated to discovery).
 
 | Medium | Scan | Dial |
-|---|---|---|
+| --- | --- | --- |
 | Nostr | Internal rendezvous; surface is hash list only | Internal signal + trigger link |
 | lan_tcp | Segment presence/beacon (not topic) | TCP dial |
 | BT | Near-field scan | GATT / near-field assist |
@@ -34,7 +34,7 @@ No discovery-layer mDNS. LAN UDP presence must carry signed+encrypted network `a
 After `ensureRuntime`, aim for at least **N** active peer links (subject to `maxActive` / routing profile — "no acquaintances" is never an excuse for N=0):
 
 | Slot | Count | Source | Selection |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Acquaintance | **K** (`K ≤ N`) | `trustedPeers` / high reputation / recent stable peers | High confidence first |
 | Explore | **N−K** | `listVisibleNodeHashes` + PEX/hints | Continuous try; rotate on failure |
 

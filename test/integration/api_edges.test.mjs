@@ -15,6 +15,7 @@ import {
 	setNodeLogger,
 	setSignalingRuntimeConfig,
 } from '../../node/instance.mjs'
+import { loadReputation } from '../../node/reputation_store.mjs'
 import {
 	attachReputationSyncWire,
 	getReputationLocks,
@@ -24,7 +25,6 @@ import {
 	setReputationTable,
 	unlockReputationMax,
 } from '../../node/reputation_sync.mjs'
-import { loadReputation } from '../../node/reputation_store.mjs'
 import { resolveSignalingRuntimeConfig } from '../../node/signaling_config.mjs'
 import {
 	configureLinkRegistry,

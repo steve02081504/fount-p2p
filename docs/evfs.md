@@ -5,7 +5,7 @@ Day-to-day package rules: [AGENTS.md](../AGENTS.md). Implementation: `files/` (`
 ## Storage
 
 | What | Path |
-|---|---|
+| --- | --- |
 | Ciphertext chunks (CAS) | `{nodeDir}/chunks/` |
 | Manifests | `{EntityStoreRoot}/{entityHash}/files/{path}.manifest.json` |
 
@@ -19,7 +19,7 @@ Day-to-day package rules: [AGENTS.md](../AGENTS.md). Implementation: `files/` (`
 ## `fetchPublicManifest`
 
 | Case | Behavior |
-|---|---|
+| --- | --- |
 | Default options | No cache write |
 | Local hit with `publicSig` | Return immediately; fanout revalidates in the background. With `cache: true`, write only when remote `publishedAt` is newer |
 | Cold miss | Await fanout |

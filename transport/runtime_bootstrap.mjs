@@ -41,7 +41,7 @@ export function collectFastListenProviders(ownedLanTcp) {
 	const listenProviders = []
 	if (ownedLanTcp) listenProviders.push(ownedLanTcp)
 	for (const provider of listLinkProviders()) {
-		const id = provider.id
+		const { id } = provider
 		if (id.startsWith('lan_tcp') || id.startsWith('ble_gatt')) continue
 		if (!provider.ensureListening) continue
 		if (providerHasNativeProbe(provider)) continue

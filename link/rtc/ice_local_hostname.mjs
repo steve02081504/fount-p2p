@@ -35,7 +35,7 @@ export function filterIceLocalHostnameCandidate(candidate, RTCIceCandidateCtor, 
 	if (!rewritten) return null
 	if (rewritten === raw) return candidate
 	const init = {
-		...(candidate.toJSON?.() || { sdpMid: candidate.sdpMid, sdpMLineIndex: candidate.sdpMLineIndex }),
+		...candidate.toJSON?.() || { sdpMid: candidate.sdpMid, sdpMLineIndex: candidate.sdpMLineIndex },
 		candidate: rewritten,
 	}
 	return new RTCIceCandidateCtor(init)

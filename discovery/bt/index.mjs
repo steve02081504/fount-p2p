@@ -9,6 +9,9 @@ import { noteDiscoveryPeerClue } from '../peer_clue.mjs'
 import { getBtPeerHint } from './peer_hints.mjs'
 import { canUseBluetoothRuntime, loadBleno, loadNoble, resolveBtRole, waitPoweredOn } from './runtime.mjs'
 
+/**
+ * 重导出有关 BT 生命期的工具函数。
+ */
 export { canUseBluetoothRuntime, waitPoweredOn }
 
 const BT_SERVICE_UUID = 'f017f017f017f017f017f017f017f017'

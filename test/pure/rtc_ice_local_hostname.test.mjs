@@ -53,7 +53,7 @@ test('applyIceLocalHostnamePolicy drop/rewrite/none', () => {
 })
 
 test('filterIceLocalHostnameCandidate returns null when dropped', () => {
-	const RTCIceCandidate = globalThis.RTCIceCandidate
+	const { RTCIceCandidate } = globalThis
 	if (!RTCIceCandidate) return
 	assertEquals(
 		filterIceLocalHostnameCandidate(

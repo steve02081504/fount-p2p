@@ -3,8 +3,8 @@ import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 import { test } from 'node:test'
 
-import { keyPairFromSeed } from '../../crypto/crypto.mjs'
 import { hashFromPubKeyHex } from '../../core/entity_id.mjs'
+import { keyPairFromSeed } from '../../crypto/crypto.mjs'
 import { fountBridgeSkipReason, importSocialModule } from '../helpers/fount_paths.mjs'
 
 const skip = await fountBridgeSkipReason('federation/entity_key_auth.mjs')

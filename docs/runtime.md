@@ -7,7 +7,7 @@
 Returns after registering lan / nostr / bt discovery providers and scheduling background warm — does **not** await lan_tcp listen, Nostr relays, or BT.
 
 | Who waits | For what |
-|---|---|
+| --- | --- |
 | Shells (`startNode` / `ensureUserRoom`) | Nothing beyond `ensureRuntime` itself — never read `lanTcpPort` or await public-signaling warm-up |
 | `buildLocalAdvert` / `whenListening` | Local lan_tcp listen only |
 | `ensureLinkToNode` | `whenSignalListening` (Nostr `listenNodeSignals` attached) before dial, so offer/answer does not drop the first signal |
@@ -22,7 +22,7 @@ Nostr / LAN / BT hooks are progressive. BT discovery / `ble_gatt` always warm in
 ### Regression budgets
 
 | Check | Bound | Test |
-|---|---|---|
+| --- | --- | --- |
 | Cold `ensureRuntime` | ≤50ms | `test/pure/startup_budget.test.mjs` |
 | Warm `ensureRuntime` | ≤5ms | same |
 | init → shutdown → natural exit | ≤10s | `test/pure/shutdown_exit.test.mjs` |
@@ -39,7 +39,7 @@ Self presence echo from relays is filtered (`skipNodeHash`, same idea as LAN) an
 ## Deno vs Node native addons
 
 | Surface | Node | Deno |
-|---|---|---|
+| --- | --- | --- |
 | Package tests / production CLI | `node` / `npx @steve02081504/fount-p2p` | Not primary |
 | fount bridge (`npm run test:fount`) | — | `deno.json` keeps `"nodeModulesDir": "none"` |
 | WebRTC | `node-datachannel` when native loads; else pure-JS `node-rtc-connection` (Termux/Android skips native) | same; native needs local `node_modules` + scripts for **only** `node-datachannel` |

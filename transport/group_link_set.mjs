@@ -30,7 +30,7 @@ export function createGroupLinkSet(options) {
 	const allowNode = options.allowNode ?? (() => true)
 	const { groupId } = options
 	const scope = options.scope ?? `group:${groupId}`
-	const roomSecret = options.roomSecret
+	const { roomSecret } = options
 	const members = new Set(options.members || [])
 	const selfNodeHash = registry.localIdentity.nodeHash
 	const groupSettings = options.groupSettings ?? {}

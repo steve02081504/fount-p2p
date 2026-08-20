@@ -14,7 +14,17 @@ const BINDING = 'ab'.repeat(32)
  * @returns {{ initiatorPipe: ReturnType<typeof createLinkPipe>, responderPipe: ReturnType<typeof createLinkPipe> }} pipe 对
  */
 function connectPipes(initiatorPingDelayMs) {
+	/**
+	 * 把帧直接投递给发起方 pipe 的入站。
+	 * @param {unknown} data 原始数据（JSON control 或二进制帧）
+	 * @returns {void}
+	 */
 	const deliverToInitiator = data => queueMicrotask(() => initiatorPipe.handleInbound(data))
+	/**
+	 * 把帧直接投递给响应方 pipe 的入站。
+	 * @param {unknown} data 原始数据（JSON control 或二进制帧）
+	 * @returns {void}
+	 */
 	const deliverToResponder = data => queueMicrotask(() => responderPipe.handleInbound(data))
 	/** @type {ReturnType<typeof createLinkPipe>} */
 	let initiatorPipe
@@ -32,13 +42,19 @@ function connectPipes(initiatorPingDelayMs) {
 		initiator,
 		nodeHash,
 		localIdentity,
+		/**
+		 * @returns {string} 本地绑定标识
+		 */
 		getLocalBinding: () => BINDING,
+		/**
+		 * @returns {string} 远端绑定标识
+		 */
 		getRemoteBinding: () => BINDING,
 		/**
 		 * @param {string} text control JSON
 		 * @returns {void}
 		 */
-		sendControlText: text => (initiator ? deliverToResponder(text) : deliverToInitiator(text)),
+		sendControlText: text => initiator ? deliverToResponder(text) : deliverToInitiator(text),
 		/**
 		 * @param {string} action action
 		 * @param {Uint8Array} frame 帧

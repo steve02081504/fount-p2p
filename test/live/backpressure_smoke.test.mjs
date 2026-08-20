@@ -24,7 +24,7 @@ function waitForMessage(channel, timeoutMs) {
 		 */
 		channel.onmessage = event => {
 			clearTimeout(timer)
-			const data = event.data
+			const { data } = event
 			if (typeof data === 'string') resolve(data)
 			else if (data instanceof Uint8Array) resolve(new TextDecoder().decode(data))
 			else if (data instanceof ArrayBuffer) resolve(new TextDecoder().decode(new Uint8Array(data)))
