@@ -4,10 +4,11 @@ import { strict as assert } from 'node:assert'
  * 深度比较 actual 与 expected，不等则抛出 AssertionError。
  * @param {unknown} actual 实际值
  * @param {unknown} expected 期望值
+ * @param {string} [message] 失败时附加的说明信息
  * @returns {void}
  */
-export function assertEquals(actual, expected) {
-	assert.deepEqual(actual, expected)
+export function assertEquals(actual, expected, message) {
+	assert.deepEqual(actual, expected, message)
 }
 
 /**

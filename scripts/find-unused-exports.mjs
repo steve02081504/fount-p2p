@@ -19,7 +19,7 @@ const fountFlagIndex = process.argv.indexOf('--fount')
 const fountRoot = fountFlagIndex >= 0 ? process.argv[fountFlagIndex + 1] : null
 if (fountFlagIndex >= 0 && (!fountRoot || !existsSync(fountRoot))) {
 	console.error('--fount path missing or does not exist')
-	process.exit(2)
+	process.exit(3)
 }
 
 /**
@@ -98,4 +98,4 @@ for (const [file, names] of [...unusedByFile].sort(([a], [b]) => a.localeCompare
 	}
 }
 console.log(`\n${total} unused export(s) in ${unusedByFile.size} file(s).`)
-process.exit(1)
+process.exit(2)
