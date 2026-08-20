@@ -39,6 +39,7 @@ test('package exports resolve to loadable modules', async () => {
 		'./federation/part_query/runtime',
 		'./transport/scoped_link',
 		'./transport/link_registry',
+		'./transport/peer_health',
 		'./transport/node_scope/wire',
 		'./transport/node_scope/features',
 		'./registries/event_type',

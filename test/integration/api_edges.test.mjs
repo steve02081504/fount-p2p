@@ -99,6 +99,13 @@ test('facade exports attachReputationSyncWire', async () => {
 	assert.equal(typeof facade.attachReputationSyncWire, 'function')
 })
 
+test('facade exports peer health query surface', async () => {
+	const facade = await import('../../index.mjs')
+	assert.equal(typeof facade.getPeerHealth, 'function')
+	assert.equal(typeof facade.listPeerHealth, 'function')
+	assert.equal(typeof facade.onPeerHealth, 'function')
+})
+
 test('startNode after init rejects conflicting options; setSignalingRuntimeConfig emits', async () => {
 	const nodeDir = await tmpNodeDir()
 	try {
