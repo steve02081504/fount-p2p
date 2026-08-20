@@ -9,6 +9,7 @@ import {
 	heapUsedAfterGc,
 	snapshotActiveResources,
 } from '../helpers/leak_detect.mjs'
+import { createNostrSendWorkload } from './fixtures/nostr_send_workload.mjs'
 
 /**
  * 通用内存/连接泄漏检测测试。
@@ -36,7 +37,7 @@ async function activeResourceGrowth(workload, iterations, warmup = 5) {
 }
 
 test('repeated nostr sends do not grow active resources', async () => {
-	const { workload, shutdown } = await import('./fixtures/nostr_send_workload.mjs')
+	const { workload, shutdown } = await createNostrSendWorkload()
 	try {
 		const growth = await activeResourceGrowth(workload, 50)
 		assertEquals(growth <= 4, true, `active resources grew by ${growth} across 50 sends`)
@@ -75,7 +76,7 @@ test('detector flags sockets that are opened but never closed', async () => {
 })
 
 test('repeated nostr sends keep forced-GC heap bounded', async () => {
-	const { workload, shutdown } = await import('./fixtures/nostr_send_workload.mjs')
+	const { workload, shutdown } = await createNostrSendWorkload()
 	try {
 		for (let i = 0; i < 20; i++) await workload(i) // 预热：让一次性初始化先落地
 		const perBatchGrowth = []
