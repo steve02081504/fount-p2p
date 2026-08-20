@@ -34,6 +34,8 @@ export const NOSTR_CLOSE_GRACE_MS = 1_000
 export const NOSTR_PUBLISH_OK_TIMEOUT_MS = 3_000
 /** 共享 relay 会话断线后重连间隔。 */
 export const NOSTR_RECONNECT_DELAY_MS = 500
+/** 无 sub/publish 工作时共享 relay 空闲回收延迟（给连续 send 复用窗口）。 */
+export const NOSTR_IDLE_DROP_MS = 2_000
 
 /** Nostr network advert 事件 kind（addressable，可存储）。 */
 export const NOSTR_ADVERT_KIND = 30787
@@ -331,41 +333,77 @@ function publishEventOnRelay(ws, relayUrl, event, signal) {
  * @returns {Promise<void>}
  */
 async function publishEvent(relayUrls, event, signal) {
-	if (!relayUrls.length) throw new Error('nostr: no relay')
+	const urls = dedupeRelayUrls(relayUrls)
+	if (!urls.length) throw new Error('nostr: no relay')
 	let published = false
 	let lastError = null
-	await Promise.allSettled(relayUrls.map(async relayUrl => {
-		if (signal?.aborted) throw new Error('nostr: aborted')
-		const ws = await connectRelay(relayUrl, NOSTR_CONNECT_TIMEOUT_MS, signal)
+	await Promise.allSettled(urls.map(async relayUrl => {
 		try {
-			if (signal?.aborted) throw new Error('nostr: aborted')
-			const ok = await publishEventOnRelay(ws, relayUrl, event, signal)
-			if (ok) published = true
+			if (await publishViaSharedRelay(relayUrl, event, signal)) published = true
 		}
 		catch (error) {
 			lastError = error
-			throw error
-		}
-		finally {
-			dropWebSocket(ws)
 		}
 	}))
 	if (!published) throw lastError || new Error('nostr: no relay accepted publish')
 }
 
 /**
- * 共享 relay 会话：多 SUB 复用同一 URL 的 WebSocket，避免 signal/presence/advert 各建一池。
- * 仍有活跃 sub 时断线会自动重连并重发 REQ。
+ * 共享 relay 会话：多 SUB / publish 复用同一 URL 的 WebSocket，避免 signal/presence/advert 各建一池、
+ * 以及每次 send 重开一条连接（内存泄漏）。
+ * 仍有活跃 sub 或待发 publish 时断线会自动重连并重发 REQ / 重发 EVENT。
  * @typedef {{
  *   ws: import('ws').WebSocket | null,
  *   connecting: boolean,
  *   reconnectTimer: ReturnType<typeof setTimeout> | null,
+ *   idleTimer: ReturnType<typeof setTimeout> | null,
  *   subs: Map<string, { filter: object, onEvent: (event: object, relayUrl: string) => void }>,
+ *   pendingPublishes: Array<{ event: object, signal: AbortSignal | undefined, offAbort: () => void, resolve: (ok: boolean) => void, reject: (err: Error) => void }>,
  * }} SharedRelaySession
  */
 
 /** @type {Map<string, SharedRelaySession>} */
 const sharedRelaySessions = new Map()
+
+/**
+ * 会话是否仍有需要连接的工作（sub 或待发 publish）。
+ * @param {SharedRelaySession} session 会话
+ * @returns {boolean} 是否有活跃工作
+ */
+function hasPendingWork(session) {
+	return session.subs.size > 0 || session.pendingPublishes.length > 0
+}
+
+/**
+ * 取消会话的空闲回收定时器。
+ * @param {SharedRelaySession} session 会话
+ * @returns {void}
+ */
+function clearIdleDrop(session) {
+	if (!session.idleTimer) return
+	clearTimeout(session.idleTimer)
+	session.idleTimer = null
+}
+
+/**
+ * 会话无 sub 时，待 publish 清空后延迟回收空闲 socket（给连续 send 复用窗口）。
+ * @param {string} relayUrl 中继 URL
+ * @param {SharedRelaySession} session 会话
+ * @returns {void}
+ */
+function scheduleIdleDrop(relayUrl, session) {
+	if (session.subs.size || session.idleTimer) return
+	clearIdleDrop(session)
+	session.idleTimer = setTimeout(() => {
+		session.idleTimer = null
+		if (!isLiveSharedSession(relayUrl, session) || hasPendingWork(session)) return
+		sharedRelaySessions.delete(relayUrl)
+		clearSharedRelayReconnect(session)
+		if (session.ws) dropWebSocket(session.ws)
+		session.ws = null
+	}, NOSTR_IDLE_DROP_MS)
+	session.idleTimer.unref?.()
+}
 
 /**
  * @param {string} relayUrl 中继 URL
@@ -408,7 +446,7 @@ function attachSharedRelaySocket(relayUrl, session, ws) {
 	ws.once('close', () => {
 		if (!isLiveSharedSession(relayUrl, session)) return
 		session.ws = null
-		if (!session.subs.size) {
+		if (!hasPendingWork(session)) {
 			sharedRelaySessions.delete(relayUrl)
 			return
 		}
@@ -416,6 +454,8 @@ function attachSharedRelaySocket(relayUrl, session, ws) {
 	})
 	for (const [subId, sub] of session.subs)
 		try { ws.send(JSON.stringify(['REQ', subId, sub.filter])) } catch { /* ignore */ }
+	flushPendingPublishes(relayUrl, session, ws)
+	if (!hasPendingWork(session)) scheduleIdleDrop(relayUrl, session)
 }
 
 /**
@@ -433,16 +473,15 @@ function scheduleSharedRelayConnect(relayUrl, session, delayMs = 0) {
 	const start = () => {
 		session.reconnectTimer = null
 		if (!isLiveSharedSession(relayUrl, session) || session.connecting || session.ws) return
-		if (!session.subs.size) {
+		if (!hasPendingWork(session)) {
 			sharedRelaySessions.delete(relayUrl)
 			return
 		}
 		session.connecting = true
 		void connectRelay(relayUrl, NOSTR_CONNECT_TIMEOUT_MS).then(ws => {
 			session.connecting = false
-			if (!isLiveSharedSession(relayUrl, session) || !session.subs.size) {
-				if (!session.subs.size && isLiveSharedSession(relayUrl, session))
-					sharedRelaySessions.delete(relayUrl)
+			if (!isLiveSharedSession(relayUrl, session) || !hasPendingWork(session)) {
+				sharedRelaySessions.delete(relayUrl)
 				dropWebSocket(ws)
 				return
 			}
@@ -454,7 +493,7 @@ function scheduleSharedRelayConnect(relayUrl, session, delayMs = 0) {
 				url: relayUrl,
 				err: String(error?.message || error),
 			})
-			if (!session.subs.size) {
+			if (!hasPendingWork(session)) {
 				sharedRelaySessions.delete(relayUrl)
 				return
 			}
@@ -483,7 +522,9 @@ function acquireSharedRelay(relayUrl) {
 		ws: null,
 		connecting: false,
 		reconnectTimer: null,
+		idleTimer: null,
 		subs: new Map(),
+		pendingPublishes: [],
 	}
 	sharedRelaySessions.set(relayUrl, session)
 	scheduleSharedRelayConnect(relayUrl, session)
@@ -502,9 +543,10 @@ function releaseSharedRelaySub(relayUrl, subscriptionId) {
 	const { ws } = session
 	if (ws?.readyState === WebSocket.OPEN)
 		try { ws.send(JSON.stringify(['CLOSE', subscriptionId])) } catch { /* ignore */ }
-	if (session.subs.size) return
+	if (hasPendingWork(session)) return
 	sharedRelaySessions.delete(relayUrl)
 	clearSharedRelayReconnect(session)
+	clearIdleDrop(session)
 	if (ws) dropWebSocket(ws)
 }
 
@@ -518,9 +560,60 @@ function releaseSharedRelaySub(relayUrl, subscriptionId) {
  */
 function registerSharedRelaySub(session, subscriptionId, filter, onEvent) {
 	session.subs.set(subscriptionId, { filter, onEvent })
+	clearIdleDrop(session)
 	const { ws } = session
 	if (ws?.readyState !== WebSocket.OPEN) return
 	try { ws.send(JSON.stringify(['REQ', subscriptionId, filter])) } catch { /* ignore */ }
+}
+
+/**
+ * 将已入队的 publish 逐个派发到已打开 socket 上；复用 publishEventOnRelay 等 OK 回执。
+ * 每个 publish 独立携带自己的 message/abort 监听，socket 共享安全。
+ * @param {string} relayUrl 中继 URL
+ * @param {SharedRelaySession} session 会话
+ * @param {import('ws').WebSocket} ws 已打开连接
+ * @returns {void}
+ */
+function flushPendingPublishes(relayUrl, session, ws) {
+	const pending = session.pendingPublishes
+	session.pendingPublishes = []
+	for (const p of pending) {
+		p.offAbort?.()
+		void publishEventOnRelay(ws, relayUrl, p.event, p.signal).then(p.resolve, p.reject)
+	}
+}
+
+/**
+ * 通过共享 relay 会话发布 EVENT：复用已打开 socket，避免每次 send 重开一条连接（内存泄漏）。
+ * 无现成连接时入队并触发连接，连上后由 flushPendingPublishes 统一派发。
+ * @param {string} relayUrl 中继 URL
+ * @param {object} event 待发布事件
+ * @param {AbortSignal} [signal] 取消信号
+ * @returns {Promise<boolean>} relay 是否接受 EVENT
+ */
+function publishViaSharedRelay(relayUrl, event, signal) {
+	return new Promise((resolve, reject) => {
+		if (signal?.aborted) {
+			reject(new Error('nostr: aborted'))
+			return
+		}
+		const session = acquireSharedRelay(relayUrl)
+		clearIdleDrop(session)
+		/** @type {SharedRelaySession['pendingPublishes'][number]} */
+		const p = { event, signal, resolve, reject, offAbort: null }
+		p.offAbort = () => {
+			const idx = session.pendingPublishes.indexOf(p)
+			if (idx < 0) return
+			session.pendingPublishes.splice(idx, 1)
+			reject(new Error('nostr: aborted'))
+		}
+		signal?.addEventListener('abort', p.offAbort, { once: true })
+		session.pendingPublishes.push(p)
+		if (session.ws?.readyState === WebSocket.OPEN)
+			flushPendingPublishes(relayUrl, session, session.ws)
+		else
+			scheduleSharedRelayConnect(relayUrl, session)
+	})
 }
 
 /**

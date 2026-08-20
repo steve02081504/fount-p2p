@@ -201,6 +201,43 @@ test('shared relay multiplexes signal and advert on one socket', async () => {
 	}
 })
 
+test('publish reuses one shared relay socket across many sends', async () => {
+	const { createNostrDiscoveryProvider } = await import('../../discovery/nostr.mjs')
+	const local = identity(79)
+	const peer = identity(80)
+	const relay = await startFakeRelay(() => true)
+	const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
+	try {
+		await provider.listenNodeSignals(local.nodeHash, () => { })
+		await relay.waitOpen(1)
+		for (let i = 0; i < 20; i++)
+			await provider.sendNodeSignal(peer.nodeHash, new Uint8Array([i]))
+		assertEquals(relay.connectionCount(), 1)
+		assertEquals(relay.openCount(), 1)
+	}
+	finally {
+		provider.dispose?.()
+		await relay.stop()
+	}
+})
+
+test('publish-only session reuses socket across consecutive sends', async () => {
+	const { createNostrDiscoveryProvider } = await import('../../discovery/nostr.mjs')
+	const peer = identity(81)
+	const relay = await startFakeRelay(() => true)
+	const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
+	try {
+		await provider.sendNodeSignal(peer.nodeHash, new Uint8Array([1]))
+		await provider.sendNodeSignal(peer.nodeHash, new Uint8Array([2]))
+		assertEquals(relay.connectionCount(), 1)
+		assertEquals(relay.openCount(), 1)
+	}
+	finally {
+		provider.dispose?.()
+		await relay.stop()
+	}
+})
+
 test('shared relay reconnects active subscriptions after drop', async () => {
 	const { createNostrDiscoveryProvider } = await import('../../discovery/nostr.mjs')
 	const local = identity(75)
