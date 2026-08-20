@@ -266,8 +266,8 @@ export function createLinkPipe(options) {
 							rttSamples.push(sample)
 							if (rttSamples.length > rttWindowSize) rttSamples.shift()
 							avgRttMs = Math.round(rttSamples.reduce((total, value) => total + value, 0) / rttSamples.length)
-							minRttMs = rttSamples.reduce((a, b) => Math.min(a, b))
-							maxRttMs = rttSamples.reduce((a, b) => Math.max(a, b))
+							minRttMs = rttSamples.reduce((minimum, sample) => Math.min(minimum, sample))
+							maxRttMs = rttSamples.reduce((minimum, sample) => Math.max(minimum, sample))
 							emitSafe(rttListeners, rttMs)
 						}
 					}

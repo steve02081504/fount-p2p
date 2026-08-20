@@ -103,15 +103,16 @@ test('peer health: link up registers connected entry with source', () => {
 	assertEquals(entry.source, 'mock')
 })
 
-test('peer health: onRtt updates rttMs / avgRttMs / lastSeenAt', () => {
+test('peer health: onRtt updates rttMs / avgRttMs / lastSeenAt', async () => {
 	const { tracker, registry, link } = setup()
 	registry.emitUp(PEER, link)
 	const lastSeenAtBeforeRtt = tracker.getPeerHealth(PEER).lastSeenAt
+	await new Promise(resolve => setTimeout(resolve, 5))
 	link.emitRtt()
 	const entry = tracker.getPeerHealth(PEER)
 	assertEquals(entry.rttMs, 42)
 	assertEquals(entry.avgRttMs, 40)
-	assertEquals(entry.lastSeenAt >= lastSeenAtBeforeRtt, true)
+	assertEquals(entry.lastSeenAt > lastSeenAtBeforeRtt, true)
 })
 
 test('peer health: link down marks disconnected and keeps last record', () => {
