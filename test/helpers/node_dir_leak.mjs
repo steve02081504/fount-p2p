@@ -28,7 +28,14 @@ const REMOVE_RETRY_DELAY_MS = 50
  * @returns {Promise<boolean>} 是否存在
  */
 async function exists(filePath) {
-	try { await fsp.access(filePath); return true } catch { return false }
+	try {
+		await fsp.access(filePath)
+		return true
+	}
+	catch (error) {
+		if (/** @type {NodeJS.ErrnoException} */ error.code === 'ENOENT') return false
+		throw error
+	}
 }
 
 /**

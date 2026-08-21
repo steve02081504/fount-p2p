@@ -32,8 +32,8 @@ test('writeJsonFile concurrent rewrites of the same path do not ENOENT', async (
 })
 
 test('writeJsonFileSync sequential rewrite keeps valid JSON', async () => {
-	const dir = await mkTestNodeDir('p2p-json-io-sync-')
-	const filePath = join(dir, 'personal_block.json')
+	const nodeDir = await mkTestNodeDir('p2p-json-io-sync-')
+	const filePath = join(nodeDir, 'personal_block.json')
 	try {
 		writeJsonFileSync(filePath, { blocked: [] })
 		for (let i = 0; i < 20; i++)
@@ -41,6 +41,6 @@ test('writeJsonFileSync sequential rewrite keeps valid JSON', async () => {
 		assertEquals(await readJsonFile(filePath), { blocked: [{ i: 19 }] })
 	}
 	finally {
-		await teardownTestNodeDir(dir)
+		await teardownTestNodeDir(nodeDir)
 	}
 })

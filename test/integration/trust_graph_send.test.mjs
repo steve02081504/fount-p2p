@@ -4,7 +4,7 @@
  * trust_graph sendToNode / user_room 定向投递单元测试。
  */
 import { Buffer } from 'node:buffer'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -29,7 +29,6 @@ test('sendToNode returns false for blank target node hash', async () => {
 test('deliverToUserRoomPeers returns 0 when user room is unavailable', async () => {
 	const nodeDir = await mkTestNodeDir('fount-deliver-')
 	try {
-		await mkdir(nodeDir, { recursive: true })
 		await writeFile(join(nodeDir, 'node.json'), JSON.stringify({ nodeSeedHex: Buffer.alloc(32, 3).toString('hex') }))
 		initTestP2pNode({ nodeDir })
 		assertEquals(await deliverToUserRoomPeers('__no_such_user__', 'mailbox-give', { x: 1 }), 0)

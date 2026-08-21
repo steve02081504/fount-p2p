@@ -2,7 +2,7 @@
 
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -15,7 +15,6 @@ import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs
 test('resolveUserRoomCredentials derives deterministic room secret', async () => {
 	const nodeDir = await mkTestNodeDir('fount-user-room-')
 	try {
-		await mkdir(nodeDir, { recursive: true })
 		const seedHex = Buffer.alloc(32, 7).toString('hex')
 		await writeFile(join(nodeDir, 'node.json'), JSON.stringify({ nodeSeedHex: seedHex }))
 		initTestP2pNode({ nodeDir })

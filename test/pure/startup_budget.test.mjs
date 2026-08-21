@@ -1,4 +1,3 @@
-import { mkdir } from 'node:fs/promises'
 import { performance } from 'node:perf_hooks'
 import { test } from 'node:test'
 
@@ -36,8 +35,6 @@ test('ensureRuntime cold ≤50ms, warm ≤20ms; listening is background', async 
 	clearDiscoveryProviders()
 	const nodeDir = await mkTestNodeDir('fount-p2p-startup-')
 	try {
-		await mkdir(nodeDir, { recursive: true })
-
 		const cold = openRegistry(nodeDir, identity(91))
 		const tCold = performance.now()
 		await cold.ensureRuntime()

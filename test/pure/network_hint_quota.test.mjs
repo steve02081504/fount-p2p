@@ -1,4 +1,3 @@
-import { mkdir } from 'node:fs/promises'
 import { test } from 'node:test'
 
 import { capHintsBySource, loadNetwork, normalizeNetwork, promoteExplorePeer, replaceNetworkPeerPools } from '../../node/network.mjs'
@@ -34,7 +33,6 @@ test('normalizeNetwork still dedupes peers', () => {
 
 test('saveNetwork caps trustedPeers at 64', async () => {
 	const nodeDir = await mkTestNodeDir('fount-p2p-trusted-cap-')
-	await mkdir(nodeDir, { recursive: true })
 	initTestP2pNode({ nodeDir })
 	const hashes = Array.from({ length: 80 }, (_, i) => {
 		const n = i.toString(16).padStart(2, '0')

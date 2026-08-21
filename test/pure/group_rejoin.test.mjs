@@ -1,4 +1,3 @@
-import { mkdir } from 'node:fs/promises'
 import { test } from 'node:test'
 
 import { clearDiscoveryProviders, registerDiscoveryProvider } from '../../discovery/index.mjs'
@@ -12,7 +11,6 @@ import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs
 
 test('group_link_set leave then start rejoins (active + subscriptions)', async () => {
 	const nodeDir = await mkTestNodeDir('fount-p2p-rejoin-')
-	await mkdir(nodeDir, { recursive: true })
 	clearDiscoveryProviders()
 	const mock = createMockDiscoveryProvider()
 	registerDiscoveryProvider(mock)

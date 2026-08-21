@@ -29,17 +29,16 @@ export function trackFileStream(stream) {
  * @returns {Promise<number>} 被销毁的流数量
  */
 export async function closeAllFileStreams() {
-	let count = 0
+	const targeted = [...streams]
 	const pending = []
-	for (const stream of streams) {
-		count++
+	for (const stream of targeted) {
 		if (!stream.closed)
 			pending.push(new Promise(resolve => stream.once('close', resolve)))
 		stream.destroy()
 	}
 	await Promise.all(pending)
-	streams.clear()
-	return count
+	for (const stream of targeted) streams.delete(stream)
+	return targeted.length
 }
 
 /**

@@ -11,24 +11,24 @@ import { assertEquals } from '../helpers/assert.mjs'
 import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 test('readJsonl returns [] for missing file', async () => {
-	const dir = await mkTestNodeDir('p2p-dag-')
-	const missing = join(dir, 'nope.jsonl')
+	const nodeDir = await mkTestNodeDir('p2p-dag-')
+	const missing = join(nodeDir, 'nope.jsonl')
 	assertEquals(await readJsonl(missing), [])
-	await teardownTestNodeDir(dir)
+	await teardownTestNodeDir(nodeDir)
 })
 
 test('readJsonlStream silently yields nothing for missing file (no unhandled error)', async () => {
-	const dir = await mkTestNodeDir('p2p-dag-')
-	const missing = join(dir, 'gone.jsonl')
+	const nodeDir = await mkTestNodeDir('p2p-dag-')
+	const missing = join(nodeDir, 'gone.jsonl')
 	const rows = []
 	for await (const row of readJsonlStream(missing)) rows.push(row)
 	assertEquals(rows, [])
-	await teardownTestNodeDir(dir)
+	await teardownTestNodeDir(nodeDir)
 })
 
 test('readJsonlStream survives cleanup race: file deleted mid-iteration', async () => {
-	const dir = await mkTestNodeDir('p2p-dag-')
-	const path = join(dir, 'events.jsonl')
+	const nodeDir = await mkTestNodeDir('p2p-dag-')
+	const path = join(nodeDir, 'events.jsonl')
 	writeFileSync(path, `${JSON.stringify({ id: 'a' })}\n${JSON.stringify({ id: 'b' })}\n`)
 	const ids = []
 	for await (const row of readJsonlStream(path)) ids.push(row.id)
@@ -37,13 +37,13 @@ test('readJsonlStream survives cleanup race: file deleted mid-iteration', async 
 	const after = []
 	for await (const row of readJsonlStream(path)) after.push(row)
 	assertEquals(after, [])
-	await teardownTestNodeDir(dir)
+	await teardownTestNodeDir(nodeDir)
 })
 
 test('readJsonl skips torn trailing line and keeps prior rows', async () => {
-	const dir = await mkTestNodeDir('p2p-dag-')
-	const path = join(dir, 'events.jsonl')
+	const nodeDir = await mkTestNodeDir('p2p-dag-')
+	const path = join(nodeDir, 'events.jsonl')
 	await writeFile(path, `${JSON.stringify({ id: 'a' })}\n${JSON.stringify({ id: 'b' })}\n{"id":"c"`, 'utf8')
 	assertEquals(await readJsonl(path), [{ id: 'a' }, { id: 'b' }])
-	await teardownTestNodeDir(dir)
+	await teardownTestNodeDir(nodeDir)
 })
