@@ -1,6 +1,7 @@
 import path from 'node:path'
 
 import { createFsEntityStore } from './entity_store.mjs'
+import { closeAllFileStreams } from './handles.mjs'
 import { defaultSignalingRuntimeConfig, resolveSignalingRuntimeConfig } from './signaling_config.mjs'
 
 /** @typedef {{ warn?: (...args: unknown[]) => void, error?: (...args: unknown[]) => void, info?: (...args: unknown[]) => void, log?: (...args: unknown[]) => void }} NodeLogger */
@@ -138,11 +139,21 @@ export function onNodeChange(listener) {
 }
 
 /**
- * 测试专用：重置节点运行时。
+ * 关闭节点：释放全部文件句柄（chunk 读/写流等）并清空运行时与监听器。
+ * 之后可用 initNode 重新引导。
  * @returns {void}
  */
-export function resetNodeForTests() {
+export function closeNode() {
+	closeAllFileStreams()
 	runtime = null
 	changeListeners.clear()
 	rtcPolyfillCacheEpoch++
+}
+
+/**
+ * 测试专用：关闭并重置节点运行时（等价于 closeNode）。
+ * @returns {void}
+ */
+export function resetNodeForTests() {
+	closeNode()
 }

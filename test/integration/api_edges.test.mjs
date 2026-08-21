@@ -5,8 +5,10 @@ import path from 'node:path'
 import { test } from 'node:test'
 
 import { cachePublicManifest } from '../../files/manifest/fetch.mjs'
+import { createChunkReadStream, putChunk } from '../../files/chunk/store.mjs'
 import { startNode } from '../../index.mjs'
 import {
+	closeNode,
 	getNodeLogger,
 	getSignalingRuntimeConfig,
 	initNode,
@@ -15,6 +17,7 @@ import {
 	setNodeLogger,
 	setSignalingRuntimeConfig,
 } from '../../node/instance.mjs'
+import { hasOpenFileStreams } from '../../node/handles.mjs'
 import { loadReputation } from '../../node/reputation_store.mjs'
 import {
 	attachReputationSyncWire,
@@ -97,6 +100,48 @@ test('setNodeLogger(null) disables logger; second initNode throws', async () => 
 test('facade exports attachReputationSyncWire', async () => {
 	const facade = await import('../../index.mjs')
 	assert.equal(typeof facade.attachReputationSyncWire, 'function')
+})
+
+test('closeNode releases open chunk streams so nodeDir is deletable', async () => {
+	const nodeDir = await tmpNodeDir()
+	try {
+		resetAll()
+		initNode({ nodeDir })
+		const hash = '1111111111111111111111111111111111111111111111111111111111111111'
+		await putChunk(hash, Buffer.from('payload'))
+		const abandoned = createChunkReadStream(hash)
+		assert.equal(hasOpenFileStreams(), true)
+		closeNode()
+		assert.equal(hasOpenFileStreams(), false)
+		await rm(nodeDir, { recursive: true, force: true })
+		await assert.rejects(() => import('node:fs/promises').then(fs => fs.access(nodeDir)), error => error?.code === 'ENOENT')
+	}
+	finally {
+		closeNode()
+		await rm(nodeDir, { recursive: true, force: true })
+	}
+})
+
+test('closeNode is exported from facade; resetNodeForTests closes handles', async () => {
+	const facade = await import('../../index.mjs')
+	assert.equal(typeof facade.closeNode, 'function')
+	const nodeDir = await tmpNodeDir()
+	try {
+		closeNode()
+		initNode({ nodeDir })
+		const hash = '2222222222222222222222222222222222222222222222222222222222222222'
+		await putChunk(hash, Buffer.from('payload'))
+		createChunkReadStream(hash)
+		assert.equal(hasOpenFileStreams(), true)
+		resetNodeForTests()
+		assert.equal(hasOpenFileStreams(), false)
+		await rm(nodeDir, { recursive: true, force: true })
+		await assert.rejects(() => import('node:fs/promises').then(fs => fs.access(nodeDir)), error => error?.code === 'ENOENT')
+	}
+	finally {
+		resetNodeForTests()
+		await rm(nodeDir, { recursive: true, force: true })
+	}
 })
 
 test('facade exports peer health query surface', async () => {
