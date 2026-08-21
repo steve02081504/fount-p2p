@@ -17,6 +17,7 @@ const streams = new Set()
  */
 export function trackFileStream(stream) {
 	streams.add(stream)
+	/** @returns {void} */
 	const forget = () => streams.delete(stream)
 	stream.once('close', forget)
 	stream.once('error', forget)

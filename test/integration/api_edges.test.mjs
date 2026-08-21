@@ -1,9 +1,11 @@
 import { strict as assert } from 'node:assert'
+import { Buffer } from 'node:buffer'
 import { test } from 'node:test'
 
-import { cachePublicManifest } from '../../files/manifest/fetch.mjs'
 import { createChunkReadStream, putChunk } from '../../files/chunk/store.mjs'
+import { cachePublicManifest } from '../../files/manifest/fetch.mjs'
 import { startNode } from '../../index.mjs'
+import { hasOpenFileStreams } from '../../node/handles.mjs'
 import {
 	closeNode,
 	getNodeLogger,
@@ -13,8 +15,6 @@ import {
 	setNodeLogger,
 	setSignalingRuntimeConfig,
 } from '../../node/instance.mjs'
-import { hasOpenFileStreams } from '../../node/handles.mjs'
-import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import { loadReputation } from '../../node/reputation_store.mjs'
 import {
 	attachReputationSyncWire,
@@ -44,6 +44,7 @@ import {
 	registerNodeScopeWireHook,
 } from '../../transport/node_scope/wire.mjs'
 import { ensureUserRoom } from '../../transport/user_room.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 const HASH_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const HASH_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'

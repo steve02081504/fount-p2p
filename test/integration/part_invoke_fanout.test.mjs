@@ -1,7 +1,6 @@
 import { test } from 'node:test'
 
 import { closeNode, initNode } from '../../node/instance.mjs'
-import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import {
 	clearTrustGraphProvider,
 	DEFAULT_TRUST_GRAPH_OWNER,
@@ -15,6 +14,7 @@ import {
 } from '../../wire/part/fanout.mjs'
 import { attachPartWire } from '../../wire/part/ingress.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 /**
  * @returns {Promise<string>} 临时 nodeDir

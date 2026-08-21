@@ -22,8 +22,8 @@ import {
 } from '../../mailbox/store.mjs'
 import { ensureNodeDefaults } from '../../node/identity.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
-import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 const RECIPIENT = 'a'.repeat(64)
 const FROM_NODE = 'b'.repeat(64)

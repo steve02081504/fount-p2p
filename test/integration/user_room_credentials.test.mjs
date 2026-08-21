@@ -9,8 +9,8 @@ import { test } from 'node:test'
 
 import { nodeHashFromSeed } from '../../node/identity.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
-import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 test('resolveUserRoomCredentials derives deterministic room secret', async () => {
 	const dir = await mkTestNodeDir('fount-user-room-')

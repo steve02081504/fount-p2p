@@ -1,7 +1,6 @@
 import { test } from 'node:test'
 
 import { closeNode, initNode } from '../../node/instance.mjs'
-import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import {
 	attachReputationSyncWire,
 	pullReputationFromNode,
@@ -20,6 +19,7 @@ import {
 	hasNodeScopeAction,
 } from '../../transport/node_scope/wire.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 const HASH_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const HASH_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'

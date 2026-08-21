@@ -1,5 +1,5 @@
-import fsp from 'node:fs/promises'
 import fs from 'node:fs'
+import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { after } from 'node:test'
@@ -70,7 +70,7 @@ export function countOpenFdsUnder(dir) {
 async function removeStrict(dir) {
 	/** @type {Error | null} */
 	let lastError = null
-	for (let attempt = 0; attempt <= REMOVE_RETRIES; attempt++) {
+	for (let attempt = 0; attempt <= REMOVE_RETRIES; attempt++) 
 		try {
 			await fsp.rm(dir, { recursive: true })
 			return
@@ -78,17 +78,17 @@ async function removeStrict(dir) {
 		catch (error) {
 			// 目录已不存在即视为成功（幂等 teardown）。
 			if (/** @type {NodeJS.ErrnoException} */ error.code === 'ENOENT') return
-			lastError = /** @type {Error} */(error)
+			lastError = /** @type {Error} */error
 			if (attempt === REMOVE_RETRIES) break
 			await new Promise(resolve => setTimeout(resolve, REMOVE_RETRY_DELAY_MS))
 		}
-	}
+	
 	const remain = await collectRemaining(dir)
 	throw new Error(
 		`removeNodeDirStrict: 目录未能删除：${dir}\n` +
 		`cause: ${lastError?.message}\n` +
 		`remaining: ${remain.length ? remain.join('\n  ') : '(无法枚举残留)'}\n` +
-		`hint: 大概率有未关闭的文件句柄（Windows 上 open-handle 会阻止删除）`
+		'hint: 大概率有未关闭的文件句柄（Windows 上 open-handle 会阻止删除）'
 	)
 }
 
@@ -99,6 +99,11 @@ async function removeStrict(dir) {
 async function collectRemaining(dir) {
 	/** @type {string[]} */
 	const out = []
+	/**
+	 *
+	 * @param current
+	 */
+	/** @param {string} current 当前目录路径 */
 	async function walk(current) {
 		let entries
 		try { entries = await fsp.readdir(current, { withFileTypes: true }) }
@@ -184,7 +189,7 @@ function assertCleanlyRemovedSync(dir) {
 		fs.rmSync(dir, { recursive: true })
 	}
 	catch (error) {
-		throw new Error(`assertCleanlyRemovedSync: 目录未能删除：${dir}\ncause: ${/** @type {Error} */(error).message}`)
+		throw new Error(`assertCleanlyRemovedSync: 目录未能删除：${dir}\ncause: ${/** @type {Error} */error.message}`)
 	}
 	if (fs.existsSync(dir))
 		throw new Error(`assertCleanlyRemovedSync: 目录删除后仍存在：${dir}`)

@@ -17,8 +17,8 @@ import {
 	requireTrustGraphProvider,
 } from '../../trust_graph/registry.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
-import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 test('sendToNode returns false for blank target node hash', async () => {
 	registerTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER, createDefaultTrustGraphProvider())

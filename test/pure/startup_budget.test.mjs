@@ -1,5 +1,4 @@
 import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { test } from 'node:test'
 
@@ -9,8 +8,8 @@ import { clearLinkProviders } from '../../link/providers/index.mjs'
 import { createLinkRegistry } from '../../transport/link_registry.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'
-import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 /** ensureRuntime 仅注册 + 调度后台暖机，不得等 listen / 公网 */
 const COLD_STARTUP_BUDGET_MS = 50

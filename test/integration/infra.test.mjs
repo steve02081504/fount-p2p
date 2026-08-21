@@ -26,7 +26,6 @@ import {
 } from '../../infra/service.mjs'
 import { buildSignedAdvert } from '../../link/handshake.mjs'
 import { closeNode, initNode } from '../../node/instance.mjs'
-import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import { loadNetwork, replaceNetworkPeerPools } from '../../node/network.mjs'
 import { loadReputation } from '../../node/reputation_store.mjs'
 import {
@@ -53,6 +52,7 @@ import {
 	dispatchNodeScopeAction,
 	hasNodeScopeAction,
 } from '../../transport/node_scope/wire.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 const HASH_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const HASH_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'

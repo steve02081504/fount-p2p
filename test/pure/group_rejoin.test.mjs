@@ -1,5 +1,4 @@
 import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { clearDiscoveryProviders, registerDiscoveryProvider } from '../../discovery/index.mjs'
@@ -7,9 +6,9 @@ import { createGroupLinkSet } from '../../transport/group_link_set.mjs'
 import { createLinkRegistry } from '../../transport/link_registry.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'
-import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import { createMockDiscoveryProvider } from '../helpers/mock_discovery.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 test('group_link_set leave then start rejoins (active + subscriptions)', async () => {
 	const dir = await mkTestNodeDir('fount-p2p-rejoin-')

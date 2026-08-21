@@ -1,5 +1,4 @@
 import { Buffer } from 'node:buffer'
-import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { entityHashFromRecoveryPubKeyHex } from '../../core/entity_id.mjs'
@@ -23,8 +22,8 @@ import {
 import { getNodeHash } from '../../node/identity.mjs'
 import { ms } from '../../utils/duration.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
-import { mkTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
+import { mkTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 /**
  * @param {number} [timeoutMs] 等待上限

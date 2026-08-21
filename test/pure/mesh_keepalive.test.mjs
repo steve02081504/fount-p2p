@@ -1,14 +1,13 @@
 import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { clearDiscoveryProviders, registerDiscoveryProvider } from '../../discovery/index.mjs'
 import { createMeshKeepalive, isMeshIntentionalClose } from '../../transport/mesh_keepalive.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'
-import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import { createMockDiscoveryProvider } from '../helpers/mock_discovery.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 const SELF = identity(1)
 const PEER = identity(2)

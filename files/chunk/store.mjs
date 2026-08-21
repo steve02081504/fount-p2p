@@ -5,8 +5,8 @@ import { dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 
 import { isHex64 } from '../../core/hexIds.mjs'
-import { getNodeDir } from '../../node/instance.mjs'
 import { trackFileStream } from '../../node/handles.mjs'
+import { getNodeDir } from '../../node/instance.mjs'
 
 /**
  * @returns {string} `{nodeDir}/chunks`
