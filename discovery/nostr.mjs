@@ -243,6 +243,7 @@ function connectRelay(relayUrl, timeoutMs = NOSTR_CONNECT_TIMEOUT_MS, signal) {
 			reject(error)
 		}
 		/**
+		 * 收到 abort 信号时失败
 		 * @returns {void}
 		 */
 		const onAbort = () => fail(new Error('nostr: aborted'))
@@ -294,6 +295,7 @@ function publishEventOnRelay(ws, relayUrl, event, signal, isCurrent) {
 			else resolve(ok)
 		}
 		/**
+		 * 收到 abort 信号时以失败结束
 		 * @returns {void}
 		 */
 		const onAbort = () => finish(false, new Error('nostr: aborted'))
@@ -492,9 +494,7 @@ function attachSharedRelaySocket(relayUrl, session, ws) {
 function scheduleSharedRelayConnect(relayUrl, session, delayMs = 0) {
 	if (!isLiveSharedSession(relayUrl, session) || session.connecting || session.ws) return
 	clearSharedRelayReconnect(session)
-	/**
-	 * @returns {void}
-	 */
+	/** 启动/恢复共享会话连接 */
 	const start = () => {
 		session.reconnectTimer = null
 		if (!isLiveSharedSession(relayUrl, session) || session.connecting || session.ws) return

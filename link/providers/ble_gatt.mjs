@@ -80,9 +80,7 @@ async function dialBleGatt(options) {
 			cleanup()
 			reject(new Error('p2p: ble_gatt peripheral scan timeout'))
 		}, 8_000)
-		/**
-		 * @returns {void}
-		 */
+		/** 清理扫描超时计时器与监听器 */
 		function cleanup() {
 			clearTimeout(deadline)
 			noble.removeListener('discover', onDiscover)
@@ -249,9 +247,7 @@ export function createBleGattLinkProvider() {
 					sessionInbound = handler
 					return () => { sessionInbound = null }
 				},
-				/**
-				 * @returns {void}
-				 */
+				/** 关闭入站 transport */
 				closeTransport() {
 					activeInbound = null
 					sessionInbound = null

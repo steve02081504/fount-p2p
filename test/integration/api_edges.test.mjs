@@ -56,9 +56,7 @@ async function tmpNodeDir() {
 	return mkTestNodeDir('p2p-edge-')
 }
 
-/**
- * @returns {void}
- */
+/** 重置节点、registry、rep sync 与 node scope */
 function resetAll() {
 	closeNode()
 	resetLinkRegistryForTests()

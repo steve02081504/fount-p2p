@@ -42,9 +42,7 @@ export function consumeOverlayRateToken(buckets, sender, now, limits) {
 	return true
 }
 
-/**
- * @returns {void}
- */
+/** 安装 overlay 速率门 */
 function installOverlayRateLimit() {
 	const limits = {
 		perMin: Math.max(1, Number(infraTunables.overlayRatePerMin) || 120),
@@ -56,9 +54,7 @@ function installOverlayRateLimit() {
 	})
 }
 
-/**
- * @returns {void}
- */
+/** 移除 overlay 速率门并清空桶 */
 function removeOverlayRateLimit() {
 	clearOverlayRateGate()
 	overlayRateBuckets.clear()

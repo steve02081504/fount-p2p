@@ -42,9 +42,7 @@ export async function withAsyncMutex(key, criticalSection) {
 	const lockKey = key
 	const state = mutexState(lockKey)
 	return new Promise((resolve, reject) => {
-		/**
-		 * @returns {void}
-		 */
+		/** 执行临界区并最终释放锁 */
 		const run = () => {
 			Promise.resolve()
 				.then(criticalSection)

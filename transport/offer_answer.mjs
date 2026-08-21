@@ -48,9 +48,7 @@ export function createBufferedSignalSession(sendRemote) {
 			for (const handler of handlers)
 				handler(message)
 		},
-		/**
-		 * @returns {void}
-		 */
+		/** 清空积压消息 */
 		clear() {
 			backlog.length = 0
 			handlers.clear()

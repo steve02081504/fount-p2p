@@ -111,9 +111,7 @@ export function createRuntimeBootstrap(deps) {
 			?? mergeSignalingRelayUrls(getNodeTransportSettings().relayUrls)
 	}
 
-	/**
-	 * @returns {void}
-	 */
+	/** 注册默认 discovery provider（lan/nostr） */
 	function registerDiscoveryDefaults() {
 		const providerIds = new Set(listDiscoveryProviders().map(provider => provider.id))
 		if (!providerIds.has('lan'))
@@ -124,9 +122,7 @@ export function createRuntimeBootstrap(deps) {
 			registerNostrProvider()
 	}
 
-	/**
-	 * @returns {void}
-	 */
+	/** 注册/替换 nostr discovery provider */
 	function registerNostrProvider() {
 		unregisterDiscoveryProvider('nostr')
 		registerDiscoveryProvider(createNostrDiscoveryProvider({

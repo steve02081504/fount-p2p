@@ -31,21 +31,15 @@ export async function startFakeRelay(accept = () => true) {
 	/** @type {Array<() => void>} */
 	const closeWaiters = []
 
-	/**
-	 * @returns {void}
-	 */
+	/** 唤醒全部 open 等待者 */
 	const flushOpenWaiters = () => {
 		for (const wake of openWaiters.splice(0)) wake()
 	}
-	/**
-	 * @returns {void}
-	 */
+	/** 唤醒全部 REQ 等待者 */
 	const flushReqWaiters = () => {
 		for (const wake of reqWaiters.splice(0)) wake()
 	}
-	/**
-	 * @returns {void}
-	 */
+	/** 唤醒全部 close 等待者 */
 	const flushCloseWaiters = () => {
 		for (const wake of closeWaiters.splice(0)) wake()
 	}
@@ -112,9 +106,7 @@ export async function startFakeRelay(accept = () => true) {
 			while (sockets.size > 0)
 				await new Promise(resolve => closeWaiters.push(resolve))
 		},
-		/**
-		 * @returns {void}
-		 */
+		/** 断开全部已连接 socket */
 		dropAll() {
 			for (const ws of [...sockets])
 				try { ws.close() } catch { /* ignore */ }

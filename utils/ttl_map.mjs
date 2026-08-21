@@ -56,9 +56,7 @@ export function createTtlMap(ttlMs, maxSize = 4096) {
 			}
 			return entry.value
 		},
-		/**
-		 * @returns {void}
-		 */
+		/** 清空全部条目 */
 		clear() {
 			map.clear()
 		},

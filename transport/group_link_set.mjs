@@ -99,9 +99,7 @@ export function createGroupLinkSet(options) {
 		scheduleDial()
 	}
 
-	/**
-	 * @returns {void}
-	 */
+	/** 按成员选择目标并拨号 */
 	function selectAndDial() {
 		if (!autoconnectEnabled || !active) return
 		const targets = dialAll
@@ -119,9 +117,7 @@ export function createGroupLinkSet(options) {
 				void registry.ensureLinkToNode(nodeHash).catch(() => null)
 	}
 
-	/**
-	 * @returns {void}
-	 */
+	/** 延迟调度一次拨号 */
 	function scheduleDial() {
 		if (!autoconnectEnabled || !active || dialTimer) return
 		dialTimer = setTimeout(() => { dialTimer = null; selectAndDial() }, 200)

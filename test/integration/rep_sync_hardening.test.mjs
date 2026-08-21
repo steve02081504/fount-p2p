@@ -32,9 +32,7 @@ async function tmpNodeDir() {
 	return mkTestNodeDir('p2p-repsync-')
 }
 
-/**
- * @returns {void}
- */
+/** 重置节点、registry 与 rep sync */
 function resetAll() {
 	closeNode()
 	resetLinkRegistryForTests()
