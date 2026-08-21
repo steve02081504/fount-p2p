@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 
-import { initNode, resetNodeForTests } from '../../node/instance.mjs'
+import { closeNode, initNode } from '../../node/instance.mjs'
 import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import {
 	clearTrustGraphProvider,
@@ -76,7 +76,7 @@ function dispatch(handlers, name, payload, peerId) {
 
 test('collectPartInvokeResponses gathers neighbor replies until maxResponses', async () => {
 	const nodeDir = await createTemporaryNodeDirectory()
-	resetNodeForTests()
+	closeNode()
 	clearTrustGraphProvider()
 	initNode({ nodeDir })
 	const { wire, handlers } = createMemoryWire()
@@ -140,14 +140,14 @@ test('collectPartInvokeResponses gathers neighbor replies until maxResponses', a
 	}
 	finally {
 		clearTrustGraphProvider()
-		resetNodeForTests()
+		closeNode()
 		await teardownTestNodeDir(nodeDir)
 	}
 })
 
 test('collectPartInvokeResponses finishes immediately when fanout sends zero', async () => {
 	const nodeDir = await createTemporaryNodeDirectory()
-	resetNodeForTests()
+	closeNode()
 	clearTrustGraphProvider()
 	initNode({ nodeDir })
 	attachPartWire({ replicaUsername: 'alice' }, createMemoryWire().wire)
@@ -183,14 +183,14 @@ test('collectPartInvokeResponses finishes immediately when fanout sends zero', a
 	}
 	finally {
 		clearTrustGraphProvider()
-		resetNodeForTests()
+		closeNode()
 		await teardownTestNodeDir(nodeDir)
 	}
 })
 
 test('collectPartInvokeResponses respects timeoutMs even when fanout hangs', async () => {
 	const nodeDir = await createTemporaryNodeDirectory()
-	resetNodeForTests()
+	closeNode()
 	clearTrustGraphProvider()
 	initNode({ nodeDir })
 	attachPartWire({ replicaUsername: 'alice' }, createMemoryWire().wire)
@@ -237,7 +237,7 @@ test('collectPartInvokeResponses respects timeoutMs even when fanout hangs', asy
 	}
 	finally {
 		clearTrustGraphProvider()
-		resetNodeForTests()
+		closeNode()
 		await teardownTestNodeDir(nodeDir)
 	}
 })

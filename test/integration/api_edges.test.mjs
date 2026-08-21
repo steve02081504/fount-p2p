@@ -10,7 +10,6 @@ import {
 	getSignalingRuntimeConfig,
 	initNode,
 	onNodeChange,
-	resetNodeForTests,
 	setNodeLogger,
 	setSignalingRuntimeConfig,
 } from '../../node/instance.mjs'
@@ -60,7 +59,7 @@ async function tmpNodeDir() {
  * @returns {void}
  */
 function resetAll() {
-	resetNodeForTests()
+	closeNode()
 	resetLinkRegistryForTests()
 	resetReputationSyncForTests()
 	stopNodeScopeRuntime()
@@ -118,7 +117,7 @@ test('closeNode releases open chunk streams so nodeDir is deletable', async () =
 	}
 })
 
-test('closeNode is exported from facade; resetNodeForTests closes handles', async () => {
+test('closeNode is exported from facade and closes handles', async () => {
 	const facade = await import('../../index.mjs')
 	assert.equal(typeof facade.closeNode, 'function')
 	const nodeDir = await tmpNodeDir()
@@ -129,11 +128,11 @@ test('closeNode is exported from facade; resetNodeForTests closes handles', asyn
 		await putChunk(hash, Buffer.from('payload'))
 		createChunkReadStream(hash)
 		assert.equal(hasOpenFileStreams(), true)
-		resetNodeForTests()
+		closeNode()
 		assert.equal(hasOpenFileStreams(), false)
 	}
 	finally {
-		resetNodeForTests()
+		closeNode()
 		await teardownTestNodeDir(nodeDir)
 	}
 })

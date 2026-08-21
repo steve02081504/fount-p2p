@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 
-import { initNode, resetNodeForTests } from '../../node/instance.mjs'
+import { closeNode, initNode } from '../../node/instance.mjs'
 import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import {
 	attachReputationSyncWire,
@@ -36,7 +36,7 @@ async function tmpNodeDir() {
  * @returns {void}
  */
 function resetAll() {
-	resetNodeForTests()
+	closeNode()
 	resetLinkRegistryForTests()
 	resetReputationSyncForTests()
 	stopNodeScopeRuntime()

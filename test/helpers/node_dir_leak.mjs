@@ -41,7 +41,7 @@ function listOpenFdTargets() {
 		const fdDir = '/proc/self/fd'
 		return fs.readdirSync(fdDir).map(fd => {
 			try { return fs.readlinkSync(path.join(fdDir, fd)) } catch { return null }
-		}).filter(/** @param {string | null} p */(p) => typeof p === 'string')
+		}).filter(p => typeof p === 'string')
 	}
 	catch { return null }
 }

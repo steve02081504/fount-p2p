@@ -38,7 +38,7 @@ export function getRtcPolyfillCacheEpoch() {
  * @returns {NodeRuntime} 初始化后的运行时
  */
 export function initNode(options) {
-	if (runtime) throw new Error('p2p: initNode already called — use setNodeLogger / setSignalingRuntimeConfig or resetNodeForTests')
+	if (runtime) throw new Error('p2p: initNode already called — use setNodeLogger / setSignalingRuntimeConfig or closeNode')
 	if (options?.logger !== undefined || options?.signaling !== undefined)
 		throw new Error('p2p: initNode only accepts nodeDir/entityStore — use setNodeLogger / setSignalingRuntimeConfig')
 	const nodeDir = path.resolve(options.nodeDir)
@@ -148,12 +148,4 @@ export function closeNode() {
 	runtime = null
 	changeListeners.clear()
 	rtcPolyfillCacheEpoch++
-}
-
-/**
- * 测试专用：关闭并重置节点运行时（等价于 closeNode）。
- * @returns {void}
- */
-export function resetNodeForTests() {
-	closeNode()
 }

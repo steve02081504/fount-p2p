@@ -25,7 +25,7 @@ import {
 	stopInfra,
 } from '../../infra/service.mjs'
 import { buildSignedAdvert } from '../../link/handshake.mjs'
-import { initNode, resetNodeForTests } from '../../node/instance.mjs'
+import { closeNode, initNode } from '../../node/instance.mjs'
 import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import { loadNetwork, replaceNetworkPeerPools } from '../../node/network.mjs'
 import { loadReputation } from '../../node/reputation_store.mjs'
@@ -68,7 +68,7 @@ async function tmpNodeDir() {
  * @returns {void} 重置测试用节点 / registry / sync / scope 状态
  */
 function resetAll() {
-	resetNodeForTests()
+	closeNode()
 	resetLinkRegistryForTests()
 	resetReputationSyncForTests()
 	stopNodeScopeRuntime()
