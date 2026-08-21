@@ -195,4 +195,5 @@ after(async () => {
 			`测试泄漏门禁失败：专用根目录 ${TEST_ROOT} 下仍有 ${leftovers.length} 个残留（句柄泄漏或未清理）：\n` +
 			leftovers.join('\n  ')
 		)
+	await removeStrict(TEST_ROOT)
 })
