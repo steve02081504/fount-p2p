@@ -1,5 +1,4 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -7,6 +6,7 @@ import { clearDiscoveryProviders, registerDiscoveryProvider } from '../../discov
 import { createMeshKeepalive, isMeshIntentionalClose } from '../../transport/mesh_keepalive.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import { createMockDiscoveryProvider } from '../helpers/mock_discovery.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
 
@@ -24,7 +24,7 @@ test('isMeshIntentionalClose covers budget/manual/shutdown', () => {
 })
 
 test('mesh keepalive: intentional close does not redial; unexpected down refills via tick', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'fount-p2p-mesh-ka-'))
+	const dir = await mkTestNodeDir('fount-p2p-mesh-ka-')
 	await mkdir(dir, { recursive: true })
 	initTestP2pNode({ nodeDir: dir })
 	clearDiscoveryProviders()
@@ -101,11 +101,11 @@ test('mesh keepalive: intentional close does not redial; unexpected down refills
 
 	await ka.stop()
 	clearDiscoveryProviders()
-	await rm(dir, { recursive: true, force: true })
+	await teardownTestNodeDir(dir)
 })
 
 test('mesh keepalive: rebalance tick evicts explore then dials trusted', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'fount-p2p-mesh-reb-'))
+	const dir = await mkTestNodeDir('fount-p2p-mesh-reb-')
 	await mkdir(dir, { recursive: true })
 	initTestP2pNode({ nodeDir: dir })
 	const { mergeNetworkPeerPools } = await import('../../node/network.mjs')
@@ -203,11 +203,11 @@ test('mesh keepalive: rebalance tick evicts explore then dials trusted', async (
 
 	await ka.stop()
 	clearDiscoveryProviders()
-	await rm(dir, { recursive: true, force: true })
+	await teardownTestNodeDir(dir)
 })
 
 test('mesh keepalive: inbound non-trusted marked explore on link up', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'fount-p2p-mesh-in-'))
+	const dir = await mkTestNodeDir('fount-p2p-mesh-in-')
 	await mkdir(dir, { recursive: true })
 	initTestP2pNode({ nodeDir: dir })
 	clearDiscoveryProviders()
@@ -253,5 +253,5 @@ test('mesh keepalive: inbound non-trusted marked explore on link up', async () =
 
 	await ka.stop()
 	clearDiscoveryProviders()
-	await rm(dir, { recursive: true, force: true })
+	await teardownTestNodeDir(dir)
 })

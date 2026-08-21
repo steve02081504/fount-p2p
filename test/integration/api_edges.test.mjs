@@ -1,7 +1,4 @@
 import { strict as assert } from 'node:assert'
-import { mkdtemp, rm } from 'node:fs/promises'
-import os from 'node:os'
-import path from 'node:path'
 import { test } from 'node:test'
 
 import { cachePublicManifest } from '../../files/manifest/fetch.mjs'
@@ -18,6 +15,7 @@ import {
 	setSignalingRuntimeConfig,
 } from '../../node/instance.mjs'
 import { hasOpenFileStreams } from '../../node/handles.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import { loadReputation } from '../../node/reputation_store.mjs'
 import {
 	attachReputationSyncWire,
@@ -55,7 +53,7 @@ const HASH_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
  * @returns {Promise<string>} 临时 node 目录路径
  */
 async function tmpNodeDir() {
-	return mkdtemp(path.join(os.tmpdir(), 'p2p-edge-'))
+	return mkTestNodeDir('p2p-edge-')
 }
 
 /**
@@ -93,7 +91,7 @@ test('setNodeLogger(null) disables logger; second initNode throws', async () => 
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -113,12 +111,10 @@ test('closeNode releases open chunk streams so nodeDir is deletable', async () =
 		assert.equal(hasOpenFileStreams(), true)
 		closeNode()
 		assert.equal(hasOpenFileStreams(), false)
-		await rm(nodeDir, { recursive: true, force: true })
-		await assert.rejects(() => import('node:fs/promises').then(fs => fs.access(nodeDir)), error => error?.code === 'ENOENT')
 	}
 	finally {
 		closeNode()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -135,12 +131,10 @@ test('closeNode is exported from facade; resetNodeForTests closes handles', asyn
 		assert.equal(hasOpenFileStreams(), true)
 		resetNodeForTests()
 		assert.equal(hasOpenFileStreams(), false)
-		await rm(nodeDir, { recursive: true, force: true })
-		await assert.rejects(() => import('node:fs/promises').then(fs => fs.access(nodeDir)), error => error?.code === 'ENOENT')
 	}
 	finally {
 		resetNodeForTests()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -168,7 +162,7 @@ test('startNode after init rejects conflicting options; setSignalingRuntimeConfi
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -186,7 +180,7 @@ test('ensureUserRoom default does not attach full wires', async () => {
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -203,7 +197,7 @@ test('chunk attach reads live replicaUsername', async () => {
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -235,7 +229,7 @@ test('registerNodeScopeWireHook fires on ensure and when wire already exists', a
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -254,7 +248,7 @@ test('lockReputationMax forces score to 1; unlock restores prior score', async (
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -287,7 +281,7 @@ test('rep_sync_req responds for allowlisted peer without writing caller table', 
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 

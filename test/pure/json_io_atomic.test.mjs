@@ -2,16 +2,15 @@
  * writeJsonFile 固定 `.tmp` 竞态：重叠写同一路径时后 rename 会 ENOENT。
  * 覆盖 entity_store / personal_block 等同路径重写场景。
  */
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { readJsonFile, writeJsonFile, writeJsonFileSync } from '../../utils/json_io.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 test('writeJsonFile concurrent rewrites of the same path do not ENOENT', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'p2p-json-io-'))
+	const dir = await mkTestNodeDir('p2p-json-io-')
 	const filePath = join(dir, 'personal_block.json')
 	try {
 		await writeJsonFile(filePath, { blocked: [] })
@@ -28,12 +27,12 @@ test('writeJsonFile concurrent rewrites of the same path do not ENOENT', async (
 		assertEquals(data.blocked.length, 1)
 	}
 	finally {
-		await rm(dir, { recursive: true, force: true })
+		await teardownTestNodeDir(dir)
 	}
 })
 
 test('writeJsonFileSync sequential rewrite keeps valid JSON', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'p2p-json-io-sync-'))
+	const dir = await mkTestNodeDir('p2p-json-io-sync-')
 	const filePath = join(dir, 'personal_block.json')
 	try {
 		writeJsonFileSync(filePath, { blocked: [] })
@@ -42,6 +41,6 @@ test('writeJsonFileSync sequential rewrite keeps valid JSON', async () => {
 		assertEquals(await readJsonFile(filePath), { blocked: [{ i: 19 }] })
 	}
 	finally {
-		await rm(dir, { recursive: true, force: true })
+		await teardownTestNodeDir(dir)
 	}
 })

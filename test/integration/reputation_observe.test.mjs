@@ -1,7 +1,6 @@
 
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -9,12 +8,13 @@ import { test } from 'node:test'
 import { loadReputation, observePeerBehavior } from '../../node/reputation_store.mjs'
 import { isQuarantinedPure } from '../../reputation/engine.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
 
 const PEER = 'c'.repeat(64)
 
 test('observePeerBehavior awaits reputation mutation before returning', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'fount-rep-'))
+	const dir = await mkTestNodeDir('fount-rep-')
 	initTestP2pNode({ nodeDir: dir })
 	await mkdir(dir, { recursive: true })
 	try {
@@ -26,6 +26,6 @@ test('observePeerBehavior awaits reputation mutation before returning', async ()
 		assertEquals(isQuarantinedPure(loadReputation(), PEER), true)
 	}
 	finally {
-		await rm(dir, { recursive: true, force: true })
+		await teardownTestNodeDir(dir)
 	}
 })

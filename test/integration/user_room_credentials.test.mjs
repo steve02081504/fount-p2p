@@ -2,18 +2,18 @@
 
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 
 import { nodeHashFromSeed } from '../../node/identity.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
 
 test('resolveUserRoomCredentials derives deterministic room secret', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'fount-user-room-'))
+	const dir = await mkTestNodeDir('fount-user-room-')
 	try {
 		await mkdir(dir, { recursive: true })
 		const seedHex = Buffer.alloc(32, 7).toString('hex')
@@ -29,6 +29,6 @@ test('resolveUserRoomCredentials derives deterministic room secret', async () =>
 		assertEquals(creds.appId, 'fount-user-fed')
 	}
 	finally {
-		await rm(dir, { recursive: true, force: true })
+		await teardownTestNodeDir(dir)
 	}
 })

@@ -1,6 +1,4 @@
 import { Buffer } from 'node:buffer'
-import { mkdtemp } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -25,6 +23,7 @@ import {
 import { getNodeHash } from '../../node/identity.mjs'
 import { ms } from '../../utils/duration.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
+import { mkTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
 
 /**
@@ -190,7 +189,7 @@ test('valid manifest data resolves pending wait', async () => {
 })
 
 test('publishPublicFile writes verifiable public manifest', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'fount-pub-manifest-'))
+	const dir = await mkTestNodeDir('fount-pub-manifest-')
 	initTestP2pNode({ nodeDir: dir })
 	const keys = testRecoveryKeys(8)
 	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), keys.pubKeyHex)
@@ -210,7 +209,7 @@ test('publishPublicFile writes verifiable public manifest', async () => {
 })
 
 test('fed_manifest_get refuses vault-wrap private manifest', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'fount-fed-manifest-priv-'))
+	const dir = await mkTestNodeDir('fount-fed-manifest-priv-')
 	initTestP2pNode({ nodeDir: dir })
 	const { handleIncomingManifestGet } = await import('../../files/manifest/fetch.mjs')
 	const { getEntityStore } = await import('../../node/instance.mjs')
@@ -238,7 +237,7 @@ test('fed_manifest_get refuses vault-wrap private manifest', async () => {
 })
 
 test('fed_manifest_get refuses public manifest without publicSig', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'fount-fed-manifest-nosig-'))
+	const dir = await mkTestNodeDir('fount-fed-manifest-nosig-')
 	initTestP2pNode({ nodeDir: dir })
 	const { handleIncomingManifestGet } = await import('../../files/manifest/fetch.mjs')
 	const { getEntityStore } = await import('../../node/instance.mjs')
@@ -266,7 +265,7 @@ test('fed_manifest_get refuses public manifest without publicSig', async () => {
 })
 
 test('fed_manifest_get responds with publicSig-only meta', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'fount-fed-manifest-ok-'))
+	const dir = await mkTestNodeDir('fount-fed-manifest-ok-')
 	initTestP2pNode({ nodeDir: dir })
 	const { handleIncomingManifestGet } = await import('../../files/manifest/fetch.mjs')
 	const keys = testRecoveryKeys(12)
@@ -302,7 +301,7 @@ test('fed_manifest_get responds with publicSig-only meta', async () => {
 
 test('fetchPublicManifest returns local publicSig immediately without awaiting fanout', async () => {
 	settleAllPendingManifestFetches()
-	const dir = await mkdtemp(join(tmpdir(), 'fount-fetch-pub-swr-fast-'))
+	const dir = await mkTestNodeDir('fount-fetch-pub-swr-fast-')
 	initTestP2pNode({ nodeDir: dir })
 	const keys = testRecoveryKeys(13)
 	const owner = entityHashFromRecoveryPubKeyHex('a'.repeat(64), keys.pubKeyHex)
@@ -326,7 +325,7 @@ test('fetchPublicManifest returns local publicSig immediately without awaiting f
 
 test('fetchPublicManifest revalidates local publicSig in background and caches newer publishedAt', async () => {
 	settleAllPendingManifestFetches()
-	const dir = await mkdtemp(join(tmpdir(), 'fount-fetch-pub-revalidate-'))
+	const dir = await mkTestNodeDir('fount-fetch-pub-revalidate-')
 	initTestP2pNode({ nodeDir: dir })
 	const keys = testRecoveryKeys(14)
 	const owner = entityHashFromRecoveryPubKeyHex('b'.repeat(64), keys.pubKeyHex)
@@ -359,7 +358,7 @@ test('fetchPublicManifest revalidates local publicSig in background and caches n
 
 test('fetchPublicManifest keeps local when incoming publishedAt is not newer', async () => {
 	settleAllPendingManifestFetches()
-	const dir = await mkdtemp(join(tmpdir(), 'fount-fetch-pub-keep-local-'))
+	const dir = await mkTestNodeDir('fount-fetch-pub-keep-local-')
 	initTestP2pNode({ nodeDir: dir })
 	const keys = testRecoveryKeys(15)
 	const owner = entityHashFromRecoveryPubKeyHex('c'.repeat(64), keys.pubKeyHex)
@@ -385,7 +384,7 @@ test('fetchPublicManifest keeps local when incoming publishedAt is not newer', a
 
 test('fetchPublicManifest cold miss still awaits fanout', async () => {
 	settleAllPendingManifestFetches()
-	const dir = await mkdtemp(join(tmpdir(), 'fount-fetch-pub-cold-'))
+	const dir = await mkTestNodeDir('fount-fetch-pub-cold-')
 	initTestP2pNode({ nodeDir: dir })
 	const keys = testRecoveryKeys(16)
 	const owner = entityHashFromRecoveryPubKeyHex('d'.repeat(64), keys.pubKeyHex)
@@ -407,7 +406,7 @@ test('fetchPublicManifest cold miss still awaits fanout', async () => {
 
 test('fetchPublicManifest dedups concurrent in-flight by username+owner+path', async () => {
 	settleAllPendingManifestFetches()
-	const dir = await mkdtemp(join(tmpdir(), 'fount-fetch-pub-dedup-'))
+	const dir = await mkTestNodeDir('fount-fetch-pub-dedup-')
 	initTestP2pNode({ nodeDir: dir })
 	const keys = testRecoveryKeys(17)
 	const owner = entityHashFromRecoveryPubKeyHex('e'.repeat(64), keys.pubKeyHex)

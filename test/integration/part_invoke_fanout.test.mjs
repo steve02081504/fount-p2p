@@ -1,9 +1,7 @@
-import { mkdtemp, rm } from 'node:fs/promises'
-import os from 'node:os'
-import path from 'node:path'
 import { test } from 'node:test'
 
 import { initNode, resetNodeForTests } from '../../node/instance.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import {
 	clearTrustGraphProvider,
 	DEFAULT_TRUST_GRAPH_OWNER,
@@ -22,7 +20,7 @@ import { assert, assertEquals } from '../helpers/assert.mjs'
  * @returns {Promise<string>} 临时 nodeDir
  */
 async function createTemporaryNodeDirectory() {
-	return mkdtemp(path.join(os.tmpdir(), 'p2p-part-fanout-'))
+	return mkTestNodeDir('p2p-part-fanout-')
 }
 
 /**
@@ -143,7 +141,7 @@ test('collectPartInvokeResponses gathers neighbor replies until maxResponses', a
 	finally {
 		clearTrustGraphProvider()
 		resetNodeForTests()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -186,7 +184,7 @@ test('collectPartInvokeResponses finishes immediately when fanout sends zero', a
 	finally {
 		clearTrustGraphProvider()
 		resetNodeForTests()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -240,7 +238,7 @@ test('collectPartInvokeResponses respects timeoutMs even when fanout hangs', asy
 	finally {
 		clearTrustGraphProvider()
 		resetNodeForTests()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 

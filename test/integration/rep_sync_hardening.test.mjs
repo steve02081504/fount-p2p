@@ -1,9 +1,7 @@
-import { mkdtemp, rm } from 'node:fs/promises'
-import os from 'node:os'
-import path from 'node:path'
 import { test } from 'node:test'
 
 import { initNode, resetNodeForTests } from '../../node/instance.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 import {
 	attachReputationSyncWire,
 	pullReputationFromNode,
@@ -31,7 +29,7 @@ const HASH_C = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
  * @returns {Promise<string>} 临时 nodeDir 路径
  */
 async function tmpNodeDir() {
-	return mkdtemp(path.join(os.tmpdir(), 'p2p-repsync-'))
+	return mkTestNodeDir('p2p-repsync-')
 }
 
 /**
@@ -59,7 +57,7 @@ test('attachReputationSyncWire is refcounted: one dispose does not drop the othe
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -95,7 +93,7 @@ test('rep_sync_res from non-donor peerId is ignored; donor response accepted', a
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -127,6 +125,6 @@ test('pullReputationFromNode send failure clears timer (no unhandled rejection)'
 	finally {
 		process.off('unhandledRejection', onUnhandled)
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
