@@ -34,11 +34,11 @@ function openRegistry(dir, localIdentity) {
 test('ensureRuntime cold ≤50ms, warm ≤20ms; listening is background', async () => {
 	clearLinkProviders()
 	clearDiscoveryProviders()
-	const dir = await mkTestNodeDir('fount-p2p-startup-')
+	const nodeDir = await mkTestNodeDir('fount-p2p-startup-')
 	try {
-		await mkdir(dir, { recursive: true })
+		await mkdir(nodeDir, { recursive: true })
 
-		const cold = openRegistry(dir, identity(91))
+		const cold = openRegistry(nodeDir, identity(91))
 		const tCold = performance.now()
 		await cold.ensureRuntime()
 		const coldMs = performance.now() - tCold
@@ -59,7 +59,7 @@ test('ensureRuntime cold ≤50ms, warm ≤20ms; listening is background', async 
 		clearLinkProviders()
 		clearDiscoveryProviders()
 
-		const warm = openRegistry(dir, identity(93))
+		const warm = openRegistry(nodeDir, identity(93))
 		const tWarm = performance.now()
 		await warm.ensureRuntime()
 		const warmMs = performance.now() - tWarm
@@ -69,7 +69,7 @@ test('ensureRuntime cold ≤50ms, warm ≤20ms; listening is background', async 
 	finally {
 		clearLinkProviders()
 		clearDiscoveryProviders()
-		await teardownTestNodeDir(dir)
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 

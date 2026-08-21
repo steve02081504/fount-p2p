@@ -25,13 +25,6 @@ const HASH_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 const HASH_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 const HASH_C = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
 
-/**
- * @returns {Promise<string>} 临时 nodeDir 路径
- */
-async function tmpNodeDir() {
-	return mkTestNodeDir('p2p-repsync-')
-}
-
 /** 重置节点、registry 与 rep sync */
 function resetAll() {
 	closeNode()
@@ -41,7 +34,7 @@ function resetAll() {
 }
 
 test('attachReputationSyncWire is refcounted: one dispose does not drop the other holder', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-repsync-')
 	try {
 		resetAll()
 		initNode({ nodeDir })
@@ -60,7 +53,7 @@ test('attachReputationSyncWire is refcounted: one dispose does not drop the othe
 })
 
 test('rep_sync_res from non-donor peerId is ignored; donor response accepted', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-repsync-')
 	try {
 		resetAll()
 		configureLinkRegistry({ autoRegisterDiscoveryProviders: false, autoRegisterLinkProviders: false })
@@ -96,7 +89,7 @@ test('rep_sync_res from non-donor peerId is ignored; donor response accepted', a
 })
 
 test('pullReputationFromNode send failure clears timer (no unhandled rejection)', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-repsync-')
 	/** @type {unknown[]} */
 	const unhandled = []
 	/**

@@ -33,9 +33,9 @@ test('normalizeNetwork still dedupes peers', () => {
 })
 
 test('saveNetwork caps trustedPeers at 64', async () => {
-	const dir = await mkTestNodeDir('fount-p2p-trusted-cap-')
-	await mkdir(dir, { recursive: true })
-	initTestP2pNode({ nodeDir: dir })
+	const nodeDir = await mkTestNodeDir('fount-p2p-trusted-cap-')
+	await mkdir(nodeDir, { recursive: true })
+	initTestP2pNode({ nodeDir })
 	const hashes = Array.from({ length: 80 }, (_, i) => {
 		const n = i.toString(16).padStart(2, '0')
 		return n.repeat(32).slice(0, 64)
@@ -45,5 +45,5 @@ test('saveNetwork caps trustedPeers at 64', async () => {
 	promoteExplorePeer(NODE)
 	assertEquals(loadNetwork().trustedPeers.length, 64)
 	assertEquals(loadNetwork().trustedPeers.includes(NODE), true)
-	await teardownTestNodeDir(dir)
+	await teardownTestNodeDir(nodeDir)
 })

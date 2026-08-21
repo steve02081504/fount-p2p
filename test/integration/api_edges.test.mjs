@@ -49,13 +49,6 @@ import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs
 const HASH_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const HASH_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 
-/**
- * @returns {Promise<string>} 临时 node 目录路径
- */
-async function tmpNodeDir() {
-	return mkTestNodeDir('p2p-edge-')
-}
-
 /** 重置节点、registry、rep sync 与 node scope */
 function resetAll() {
 	closeNode()
@@ -76,7 +69,7 @@ test('resolveSignalingRuntimeConfig merges patch including relayOverride', () =>
 })
 
 test('setNodeLogger(null) disables logger; second initNode throws', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {
 		resetAll()
 		assert.throws(() => initNode({ nodeDir, logger: null }), /only accepts nodeDir/)
@@ -99,19 +92,18 @@ test('facade exports attachReputationSyncWire', async () => {
 })
 
 test('closeNode releases open chunk streams so nodeDir is deletable', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {
 		resetAll()
 		initNode({ nodeDir })
 		const hash = '1111111111111111111111111111111111111111111111111111111111111111'
 		await putChunk(hash, Buffer.from('payload'))
-		const abandoned = createChunkReadStream(hash)
+		createChunkReadStream(hash)
 		assert.equal(hasOpenFileStreams(), true)
-		closeNode()
+		await closeNode()
 		assert.equal(hasOpenFileStreams(), false)
 	}
 	finally {
-		closeNode()
 		await teardownTestNodeDir(nodeDir)
 	}
 })
@@ -119,19 +111,18 @@ test('closeNode releases open chunk streams so nodeDir is deletable', async () =
 test('closeNode is exported from facade and closes handles', async () => {
 	const facade = await import('../../index.mjs')
 	assert.equal(typeof facade.closeNode, 'function')
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {
-		closeNode()
+		await facade.closeNode()
 		initNode({ nodeDir })
 		const hash = '2222222222222222222222222222222222222222222222222222222222222222'
 		await putChunk(hash, Buffer.from('payload'))
 		createChunkReadStream(hash)
 		assert.equal(hasOpenFileStreams(), true)
-		closeNode()
+		await facade.closeNode()
 		assert.equal(hasOpenFileStreams(), false)
 	}
 	finally {
-		closeNode()
 		await teardownTestNodeDir(nodeDir)
 	}
 })
@@ -144,7 +135,7 @@ test('facade exports peer health query surface', async () => {
 })
 
 test('startNode after init rejects conflicting options; setSignalingRuntimeConfig emits', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {
 		resetAll()
 		initNode({ nodeDir })
@@ -165,7 +156,7 @@ test('startNode after init rejects conflicting options; setSignalingRuntimeConfi
 })
 
 test('ensureUserRoom default does not attach full wires', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {
 		resetAll()
 		configureLinkRegistry({ autoRegisterDiscoveryProviders: false, autoRegisterLinkProviders: false })
@@ -183,7 +174,7 @@ test('ensureUserRoom default does not attach full wires', async () => {
 })
 
 test('chunk attach reads live replicaUsername', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {
 		resetAll()
 		initNode({ nodeDir })
@@ -200,7 +191,7 @@ test('chunk attach reads live replicaUsername', async () => {
 })
 
 test('registerNodeScopeWireHook fires on ensure and when wire already exists', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {
 		resetAll()
 		initNode({ nodeDir })
@@ -232,7 +223,7 @@ test('registerNodeScopeWireHook fires on ensure and when wire already exists', a
 })
 
 test('lockReputationMax forces score to 1; unlock restores prior score', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {
 		resetAll()
 		initNode({ nodeDir })
@@ -251,7 +242,7 @@ test('lockReputationMax forces score to 1; unlock restores prior score', async (
 })
 
 test('rep_sync_req responds for allowlisted peer without writing caller table', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {
 		resetAll()
 		initNode({ nodeDir })

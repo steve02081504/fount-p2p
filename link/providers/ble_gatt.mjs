@@ -80,7 +80,7 @@ async function dialBleGatt(options) {
 			cleanup()
 			reject(new Error('p2p: ble_gatt peripheral scan timeout'))
 		}, 8_000)
-		/** 清理扫描超时计时器与监听器 */
+		/** 清理扫描超时计时器与监听器并停止 BLE 扫描 */
 		function cleanup() {
 			clearTimeout(deadline)
 			noble.removeListener('discover', onDiscover)

@@ -16,7 +16,7 @@ import { closeNode } from '../../node/instance.mjs'
  */
 
 /** 测试专用临时根目录（避免扫到系统里无关的 fount-* / p2p-*）。 */
-export const TEST_ROOT = path.join(os.tmpdir(), 'fount-p2p-tests')
+export const TEST_ROOT = path.join(os.tmpdir(), `fount-p2p-tests-${process.pid}`)
 
 /** 删除失败时的重试次数 */
 const REMOVE_RETRIES = 5
@@ -38,41 +38,41 @@ async function exists(filePath) {
 function listOpenFdTargets() {
 	if (process.platform !== 'linux') return null
 	try {
-		const fdDir = '/proc/self/fd'
-		return fs.readdirSync(fdDir).map(fd => {
-			try { return fs.readlinkSync(path.join(fdDir, fd)) } catch { return null }
-		}).filter(p => typeof p === 'string')
+		const fdDirectory = '/proc/self/fd'
+		return fs.readdirSync(fdDirectory).map(fileDescriptor => {
+			try { return fs.readlinkSync(path.join(fdDirectory, fileDescriptor)) } catch { return null }
+		}).filter(targetPath => typeof targetPath === 'string')
 	}
 	catch { return null }
 }
 
 /**
- * 统计仍指向 `dir`（或其子项）的打开文件描述符数量。
- * @param {string} dir 目录
+ * 统计仍指向 `directory`（或其子项）的打开文件描述符数量。
+ * @param {string} directory 目录
  * @returns {number} 泄漏句柄数（非 Linux 平台返回 -1 = 无法枚举）
  */
-export function countOpenFdsUnder(dir) {
+export function countOpenFdsUnder(directory) {
 	const targets = listOpenFdTargets()
 	if (targets === null) return -1
-	const root = path.resolve(dir)
-	return targets.filter(target => {
-		const t = path.resolve(target)
-		return t === root || t.startsWith(root + path.sep)
+	const root = path.resolve(directory)
+	return targets.filter(targetPath => {
+		const resolvedTarget = path.resolve(targetPath)
+		return resolvedTarget === root || resolvedTarget.startsWith(root + path.sep)
 	}).length
 }
 
 /**
  * 用严格模式删除目录：不传 `force`，失败即抛出并附残留详情，避免
  * Windows 上 open-handle 被 `force` 静默吞掉。带有限重试。
- * @param {string} dir 目录
+ * @param {string} directory 目录
  * @returns {Promise<void>}
  */
-async function removeStrict(dir) {
+async function removeStrict(directory) {
 	/** @type {Error | null} */
 	let lastError = null
 	for (let attempt = 0; attempt <= REMOVE_RETRIES; attempt++) 
 		try {
-			await fsp.rm(dir, { recursive: true })
+			await fsp.rm(directory, { recursive: true })
 			return
 		}
 		catch (error) {
@@ -83,22 +83,22 @@ async function removeStrict(dir) {
 			await new Promise(resolve => setTimeout(resolve, REMOVE_RETRY_DELAY_MS))
 		}
 	
-	const remain = await collectRemaining(dir)
+	const remainingPaths = await collectRemaining(directory)
 	throw new Error(
-		`removeNodeDirStrict: 目录未能删除：${dir}\n` +
+		`removeNodeDirStrict: 目录未能删除：${directory}\n` +
 		`cause: ${lastError?.message}\n` +
-		`remaining: ${remain.length ? remain.join('\n  ') : '(无法枚举残留)'}\n` +
+		`remaining: ${remainingPaths.length ? remainingPaths.join('\n  ') : '(无法枚举残留)'}\n` +
 		'hint: 大概率有未关闭的文件句柄（Windows 上 open-handle 会阻止删除）'
 	)
 }
 
 /**
- * @param {string} dir 目录
+ * @param {string} directory 目录
  * @returns {Promise<string[]>} 残留子路径
  */
-async function collectRemaining(dir) {
+async function collectRemaining(directory) {
 	/** @type {string[]} */
-	const out = []
+	const remainingPaths = []
 	/**
 	 *
 	 * @param current
@@ -109,14 +109,14 @@ async function collectRemaining(dir) {
 		try { entries = await fsp.readdir(current, { withFileTypes: true }) }
 		catch { return }
 		for (const entry of entries) {
-			const full = path.join(current, entry.name)
-			if (entry.isDirectory()) await walk(full)
-			else out.push(full)
+			const entryPath = path.join(current, entry.name)
+			if (entry.isDirectory()) await walk(entryPath)
+			else remainingPaths.push(entryPath)
 		}
-		if (!out.some(p => p.startsWith(current + path.sep))) out.push(current)
+		if (!remainingPaths.some(subPath => subPath.startsWith(current + path.sep))) remainingPaths.push(current)
 	}
-	await walk(dir)
-	return out
+	await walk(directory)
+	return remainingPaths
 }
 
 /**
@@ -144,55 +144,26 @@ export function mkTestNodeDirSync(prefix) {
  * 1. 统计并断言没有指向该目录的打开文件描述符（Linux；跨平台 + 严格删除兜底）；
  * 2. 严格删除（不吞错误，Windows 上 open-handle 会因此失败）；
  * 3. 断言目录已彻底消失。
- * @param {string} dir 目录
+ * @param {string} directory 目录
  * @returns {Promise<void>}
  */
-export async function assertCleanlyRemoved(dir) {
-	const leakedFds = countOpenFdsUnder(dir)
+export async function assertCleanlyRemoved(directory) {
+	const leakedFds = countOpenFdsUnder(directory)
 	if (leakedFds > 0)
-		throw new Error(`assertCleanlyRemoved: 有 ${leakedFds} 个打开的文件句柄仍指向 ${dir} —— 文件流/句柄泄漏`)
-	await removeStrict(dir)
-	if (await exists(dir))
-		throw new Error(`assertCleanlyRemoved: 目录删除后仍存在：${dir}`)
+		throw new Error(`assertCleanlyRemoved: 有 ${leakedFds} 个打开的文件句柄仍指向 ${directory} —— 文件流/句柄泄漏`)
+	await removeStrict(directory)
+	if (await exists(directory))
+		throw new Error(`assertCleanlyRemoved: 目录删除后仍存在：${directory}`)
 }
 
 /**
  * 关闭节点并严格删除其目录（节点测试 teardown 的统一入口）。
- * @param {string} dir 目录
+ * @param {string} directory 目录
  * @returns {Promise<void>}
  */
-export async function teardownTestNodeDir(dir) {
-	closeNode()
-	await assertCleanlyRemoved(dir)
-}
-
-/**
- * 关闭节点并严格删除其目录（同步调用场景）。
- * @param {string} dir 目录
- * @returns {void}
- */
-export function teardownTestNodeDirSync(dir) {
-	closeNode()
-	assertCleanlyRemovedSync(dir)
-}
-
-/**
- * 严格删除目录（同步版，不吞错误）。
- * @param {string} dir 目录
- * @returns {void}
- */
-function assertCleanlyRemovedSync(dir) {
-	const leakedFds = countOpenFdsUnder(dir)
-	if (leakedFds > 0)
-		throw new Error(`assertCleanlyRemovedSync: 有 ${leakedFds} 个打开的文件句柄仍指向 ${dir} —— 文件流/句柄泄漏`)
-	try {
-		fs.rmSync(dir, { recursive: true })
-	}
-	catch (error) {
-		throw new Error(`assertCleanlyRemovedSync: 目录未能删除：${dir}\ncause: ${/** @type {Error} */error.message}`)
-	}
-	if (fs.existsSync(dir))
-		throw new Error(`assertCleanlyRemovedSync: 目录删除后仍存在：${dir}`)
+export async function teardownTestNodeDir(directory) {
+	await closeNode()
+	await assertCleanlyRemoved(directory)
 }
 
 /**
@@ -206,11 +177,11 @@ after(async () => {
 	try { entries = await fsp.readdir(TEST_ROOT, { withFileTypes: true }) } catch { return }
 	for (const entry of entries) {
 		if (!entry.isDirectory()) continue
-		const full = path.join(TEST_ROOT, entry.name)
-		const leakedFds = countOpenFdsUnder(full)
-		try { await removeStrict(full) } catch { leftovers.push(full) }
+		const fullPath = path.join(TEST_ROOT, entry.name)
+		const leakedFds = countOpenFdsUnder(fullPath)
+		try { await removeStrict(fullPath) } catch { leftovers.push(fullPath) }
 		if (leakedFds > 0)
-			leftovers.push(`${full} (${leakedFds} 打开句柄)`)
+			leftovers.push(`${fullPath} (${leakedFds} 打开句柄)`)
 	}
 	if (leftovers.length)
 		throw new Error(

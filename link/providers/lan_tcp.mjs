@@ -35,7 +35,7 @@ function connectTcp(host, port, timeoutMs = LAN_TCP_CONNECT_TIMEOUT_MS) {
 			conn.off('connect', onConnect)
 			reject(error)
 		}
-		/** 连接成功后完成握手 */
+		/** TCP 连接成功并返回 socket */
 		function onConnect() {
 			clearTimeout(timer)
 			conn.off('error', onError)
@@ -109,7 +109,7 @@ function attachLengthPrefix(socket, onPayload) {
 			header.writeUInt32BE(body.length)
 			socket.write(Buffer.concat([header, body]))
 		},
-		/** 销毁连接，移除监听 */
+		/** 仅移除 data 监听器 */
 		destroy() {
 			socket.off('data', onData)
 		},

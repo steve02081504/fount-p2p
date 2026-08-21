@@ -141,11 +141,11 @@ export function onNodeChange(listener) {
 /**
  * 关闭节点：释放全部文件句柄（chunk 读/写流等）并清空运行时与监听器。
  * 之后可用 initNode 重新引导。
- * @returns {void}
+ * @returns {Promise<void>}
  */
-export function closeNode() {
-	closeAllFileStreams()
+export async function closeNode() {
 	runtime = null
 	changeListeners.clear()
 	rtcPolyfillCacheEpoch++
+	await closeAllFileStreams()
 }

@@ -140,7 +140,6 @@ test('collectPartInvokeResponses gathers neighbor replies until maxResponses', a
 	}
 	finally {
 		clearTrustGraphProvider()
-		closeNode()
 		await teardownTestNodeDir(nodeDir)
 	}
 })
@@ -183,7 +182,6 @@ test('collectPartInvokeResponses finishes immediately when fanout sends zero', a
 	}
 	finally {
 		clearTrustGraphProvider()
-		closeNode()
 		await teardownTestNodeDir(nodeDir)
 	}
 })
@@ -237,7 +235,6 @@ test('collectPartInvokeResponses respects timeoutMs even when fanout hangs', asy
 	}
 	finally {
 		clearTrustGraphProvider()
-		closeNode()
 		await teardownTestNodeDir(nodeDir)
 	}
 })

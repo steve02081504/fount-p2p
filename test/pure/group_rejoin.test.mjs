@@ -11,12 +11,12 @@ import { initTestP2pNode } from '../helpers/node.mjs'
 import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 test('group_link_set leave then start rejoins (active + subscriptions)', async () => {
-	const dir = await mkTestNodeDir('fount-p2p-rejoin-')
-	await mkdir(dir, { recursive: true })
+	const nodeDir = await mkTestNodeDir('fount-p2p-rejoin-')
+	await mkdir(nodeDir, { recursive: true })
 	clearDiscoveryProviders()
 	const mock = createMockDiscoveryProvider()
 	registerDiscoveryProvider(mock)
-	initTestP2pNode({ nodeDir: dir })
+	initTestP2pNode({ nodeDir })
 	const self = identity(51)
 	const peer = identity(52)
 	const roomSecret = 'rejoin-room'
@@ -60,6 +60,6 @@ test('group_link_set leave then start rejoins (active + subscriptions)', async (
 		await group.leave().catch(() => { })
 		await registry.shutdown()
 		clearDiscoveryProviders()
-		await teardownTestNodeDir(dir)
+		await teardownTestNodeDir(nodeDir)
 	}
 })

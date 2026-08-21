@@ -27,14 +27,14 @@ test('sendToNode returns false for blank target node hash', async () => {
 })
 
 test('deliverToUserRoomPeers returns 0 when user room is unavailable', async () => {
-	const dir = await mkTestNodeDir('fount-deliver-')
+	const nodeDir = await mkTestNodeDir('fount-deliver-')
 	try {
-		await mkdir(dir, { recursive: true })
-		await writeFile(join(dir, 'node.json'), JSON.stringify({ nodeSeedHex: Buffer.alloc(32, 3).toString('hex') }))
-		initTestP2pNode({ nodeDir: dir })
+		await mkdir(nodeDir, { recursive: true })
+		await writeFile(join(nodeDir, 'node.json'), JSON.stringify({ nodeSeedHex: Buffer.alloc(32, 3).toString('hex') }))
+		initTestP2pNode({ nodeDir })
 		assertEquals(await deliverToUserRoomPeers('__no_such_user__', 'mailbox-give', { x: 1 }), 0)
 	}
 	finally {
-		await teardownTestNodeDir(dir)
+		await teardownTestNodeDir(nodeDir)
 	}
 })

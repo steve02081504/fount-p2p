@@ -13,12 +13,12 @@ import { initTestP2pNode } from '../helpers/node.mjs'
 import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 test('resolveUserRoomCredentials derives deterministic room secret', async () => {
-	const dir = await mkTestNodeDir('fount-user-room-')
+	const nodeDir = await mkTestNodeDir('fount-user-room-')
 	try {
-		await mkdir(dir, { recursive: true })
+		await mkdir(nodeDir, { recursive: true })
 		const seedHex = Buffer.alloc(32, 7).toString('hex')
-		await writeFile(join(dir, 'node.json'), JSON.stringify({ nodeSeedHex: seedHex }))
-		initTestP2pNode({ nodeDir: dir })
+		await writeFile(join(nodeDir, 'node.json'), JSON.stringify({ nodeSeedHex: seedHex }))
+		initTestP2pNode({ nodeDir })
 		const nodeHash = nodeHashFromSeed(seedHex)
 		const { resolveUserRoomCredentials } = await import('../../transport/user_room.mjs')
 		const creds = resolveUserRoomCredentials()
@@ -29,6 +29,6 @@ test('resolveUserRoomCredentials derives deterministic room secret', async () =>
 		assertEquals(creds.appId, 'fount-user-fed')
 	}
 	finally {
-		await teardownTestNodeDir(dir)
+		await teardownTestNodeDir(nodeDir)
 	}
 })

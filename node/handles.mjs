@@ -26,14 +26,18 @@ export function trackFileStream(stream) {
 
 /**
  * 关闭并销毁所有仍在打开的文件流（测试 teardown / 节点关闭）。
- * @returns {number} 被销毁的流数量
+ * @returns {Promise<number>} 被销毁的流数量
  */
-export function closeAllFileStreams() {
+export async function closeAllFileStreams() {
 	let count = 0
+	const pending = []
 	for (const stream of streams) {
 		count++
-		try { stream.destroy() } catch { /* ignore */ }
+		if (!stream.closed)
+			pending.push(new Promise(resolve => stream.once('close', resolve)))
+		stream.destroy()
 	}
+	await Promise.all(pending)
 	streams.clear()
 	return count
 }

@@ -10,8 +10,8 @@ import { assert, assertEquals } from '../helpers/assert.mjs'
 import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 test('writeJsonFile concurrent rewrites of the same path do not ENOENT', async () => {
-	const dir = await mkTestNodeDir('p2p-json-io-')
-	const filePath = join(dir, 'personal_block.json')
+	const nodeDir = await mkTestNodeDir('p2p-json-io-')
+	const filePath = join(nodeDir, 'personal_block.json')
 	try {
 		await writeJsonFile(filePath, { blocked: [] })
 		const writers = 64
@@ -27,7 +27,7 @@ test('writeJsonFile concurrent rewrites of the same path do not ENOENT', async (
 		assertEquals(data.blocked.length, 1)
 	}
 	finally {
-		await teardownTestNodeDir(dir)
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
