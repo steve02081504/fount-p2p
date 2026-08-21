@@ -74,15 +74,11 @@ function setup() {
 			linkDownListeners.add(callback)
 			return () => linkDownListeners.delete(callback)
 		},
-		/**
-		 * @returns {void}
-		 */
+		/** 触发 rtt 监听器 */
 		emitRtt() {
 			for (const listener of rttListeners) listener()
 		},
-		/**
-		 * @returns {void}
-		 */
+		/** 触发 down 监听器 */
 		emitDown() {
 			for (const listener of linkDownListeners) listener('remote-hangup')
 		},

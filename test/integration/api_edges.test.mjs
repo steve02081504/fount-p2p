@@ -1,17 +1,17 @@
 import { strict as assert } from 'node:assert'
-import { mkdtemp, rm } from 'node:fs/promises'
-import os from 'node:os'
-import path from 'node:path'
+import { Buffer } from 'node:buffer'
 import { test } from 'node:test'
 
+import { createChunkReadStream, putChunk } from '../../files/chunk/store.mjs'
 import { cachePublicManifest } from '../../files/manifest/fetch.mjs'
 import { startNode } from '../../index.mjs'
+import { hasOpenFileStreams } from '../../node/handles.mjs'
 import {
+	closeNode,
 	getNodeLogger,
 	getSignalingRuntimeConfig,
 	initNode,
 	onNodeChange,
-	resetNodeForTests,
 	setNodeLogger,
 	setSignalingRuntimeConfig,
 } from '../../node/instance.mjs'
@@ -44,22 +44,14 @@ import {
 	registerNodeScopeWireHook,
 } from '../../transport/node_scope/wire.mjs'
 import { ensureUserRoom } from '../../transport/user_room.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 const HASH_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const HASH_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 
-/**
- * @returns {Promise<string>} 临时 node 目录路径
- */
-async function tmpNodeDir() {
-	return mkdtemp(path.join(os.tmpdir(), 'p2p-edge-'))
-}
-
-/**
- * @returns {void}
- */
+/** 重置节点、registry、rep sync 与 node scope */
 function resetAll() {
-	resetNodeForTests()
+	closeNode()
 	resetLinkRegistryForTests()
 	resetReputationSyncForTests()
 	stopNodeScopeRuntime()
@@ -77,7 +69,7 @@ test('resolveSignalingRuntimeConfig merges patch including relayOverride', () =>
 })
 
 test('setNodeLogger(null) disables logger; second initNode throws', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {
 		resetAll()
 		assert.throws(() => initNode({ nodeDir, logger: null }), /only accepts nodeDir/)
@@ -90,13 +82,49 @@ test('setNodeLogger(null) disables logger; second initNode throws', async () => 
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
 test('facade exports attachReputationSyncWire', async () => {
 	const facade = await import('../../index.mjs')
 	assert.equal(typeof facade.attachReputationSyncWire, 'function')
+})
+
+test('closeNode releases open chunk streams so nodeDir is deletable', async () => {
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
+	try {
+		resetAll()
+		initNode({ nodeDir })
+		const hash = '1111111111111111111111111111111111111111111111111111111111111111'
+		await putChunk(hash, Buffer.from('payload'))
+		createChunkReadStream(hash)
+		assert.equal(hasOpenFileStreams(), true)
+		await closeNode()
+		assert.equal(hasOpenFileStreams(), false)
+	}
+	finally {
+		await teardownTestNodeDir(nodeDir)
+	}
+})
+
+test('closeNode is exported from facade and closes handles', async () => {
+	const facade = await import('../../index.mjs')
+	assert.equal(typeof facade.closeNode, 'function')
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
+	try {
+		await facade.closeNode()
+		initNode({ nodeDir })
+		const hash = '2222222222222222222222222222222222222222222222222222222222222222'
+		await putChunk(hash, Buffer.from('payload'))
+		createChunkReadStream(hash)
+		assert.equal(hasOpenFileStreams(), true)
+		await facade.closeNode()
+		assert.equal(hasOpenFileStreams(), false)
+	}
+	finally {
+		await teardownTestNodeDir(nodeDir)
+	}
 })
 
 test('facade exports peer health query surface', async () => {
@@ -107,7 +135,7 @@ test('facade exports peer health query surface', async () => {
 })
 
 test('startNode after init rejects conflicting options; setSignalingRuntimeConfig emits', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {
 		resetAll()
 		initNode({ nodeDir })
@@ -123,12 +151,12 @@ test('startNode after init rejects conflicting options; setSignalingRuntimeConfi
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
 test('ensureUserRoom default does not attach full wires', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {
 		resetAll()
 		configureLinkRegistry({ autoRegisterDiscoveryProviders: false, autoRegisterLinkProviders: false })
@@ -141,12 +169,12 @@ test('ensureUserRoom default does not attach full wires', async () => {
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
 test('chunk attach reads live replicaUsername', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {
 		resetAll()
 		initNode({ nodeDir })
@@ -158,12 +186,12 @@ test('chunk attach reads live replicaUsername', async () => {
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
 test('registerNodeScopeWireHook fires on ensure and when wire already exists', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {
 		resetAll()
 		initNode({ nodeDir })
@@ -190,12 +218,12 @@ test('registerNodeScopeWireHook fires on ensure and when wire already exists', a
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
 test('lockReputationMax forces score to 1; unlock restores prior score', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {
 		resetAll()
 		initNode({ nodeDir })
@@ -209,12 +237,12 @@ test('lockReputationMax forces score to 1; unlock restores prior score', async (
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
 test('rep_sync_req responds for allowlisted peer without writing caller table', async () => {
-	const nodeDir = await tmpNodeDir()
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {
 		resetAll()
 		initNode({ nodeDir })
@@ -242,7 +270,7 @@ test('rep_sync_req responds for allowlisted peer without writing caller table', 
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 

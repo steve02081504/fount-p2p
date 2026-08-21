@@ -1,7 +1,6 @@
 
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -18,6 +17,7 @@ import {
 import { mailboxStorePath } from '../../node/user_paths.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 const RECIPIENT = 'a'.repeat(64)
 const FROM_NODE = 'b'.repeat(64)
@@ -28,14 +28,14 @@ const FROM_NODE = 'b'.repeat(64)
  * @returns {Promise<void>}
  */
 async function withTempNodeDir(testFn) {
-	const dir = await mkdtemp(join(tmpdir(), 'fount-mailbox-'))
+	const dir = await mkTestNodeDir('fount-mailbox-')
 	initTestP2pNode({ nodeDir: dir })
 	await mkdir(join(dir, 'mailbox'), { recursive: true })
 	try {
 		await testFn(dir)
 	}
 	finally {
-		await rm(dir, { recursive: true, force: true })
+		await teardownTestNodeDir(dir)
 	}
 }
 

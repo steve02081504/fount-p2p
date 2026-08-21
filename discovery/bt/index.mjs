@@ -297,9 +297,7 @@ export function createBluetoothDiscoveryProvider() {
 				cleanup()
 				reject(new Error('p2p: bt signal peripheral timeout'))
 			}, 8_000)
-			/**
-			 * @returns {void}
-			 */
+			/** 清理信号超时计时器并移除 discover 监听器 */
 			function cleanup() {
 				clearTimeout(deadline)
 				noble.removeListener('discover', onDiscover)

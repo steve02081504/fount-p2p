@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 
 import { isHex64 } from '../../core/hexIds.mjs'
+import { trackFileStream } from '../../node/handles.mjs'
 import { getNodeDir } from '../../node/instance.mjs'
 
 /**
@@ -50,7 +51,7 @@ export async function getChunk(hash) {
  * @returns {import('node:fs').ReadStream} 可读流
  */
 export function createChunkReadStream(hash) {
-	return fs.createReadStream(chunkStorePath(hash))
+	return trackFileStream(fs.createReadStream(chunkStorePath(hash)))
 }
 
 /**
@@ -72,5 +73,5 @@ export async function putChunk(hash, data) {
 export async function putChunkFromStream(hash, readable) {
 	const filePath = chunkStorePath(hash)
 	await fsp.mkdir(dirname(filePath), { recursive: true })
-	await pipeline(readable, fs.createWriteStream(filePath))
+	await pipeline(readable, trackFileStream(fs.createWriteStream(filePath)))
 }

@@ -110,9 +110,7 @@ test('nostr link dial/accept exchanges an envelope over type:link', async () => 
 	})
 	aliceLink.ensureListening({
 		localIdentity: alice,
-		/**
-		 * @returns {void}
-		 */
+		/** 忽略入站连接 */
 		onInbound() { },
 	})
 

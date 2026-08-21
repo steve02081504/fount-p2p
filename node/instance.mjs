@@ -1,6 +1,7 @@
 import path from 'node:path'
 
 import { createFsEntityStore } from './entity_store.mjs'
+import { closeAllFileStreams } from './handles.mjs'
 import { defaultSignalingRuntimeConfig, resolveSignalingRuntimeConfig } from './signaling_config.mjs'
 
 /** @typedef {{ warn?: (...args: unknown[]) => void, error?: (...args: unknown[]) => void, info?: (...args: unknown[]) => void, log?: (...args: unknown[]) => void }} NodeLogger */
@@ -37,7 +38,7 @@ export function getRtcPolyfillCacheEpoch() {
  * @returns {NodeRuntime} 初始化后的运行时
  */
 export function initNode(options) {
-	if (runtime) throw new Error('p2p: initNode already called — use setNodeLogger / setSignalingRuntimeConfig or resetNodeForTests')
+	if (runtime) throw new Error('p2p: initNode already called — use setNodeLogger / setSignalingRuntimeConfig or closeNode')
 	if (options?.logger !== undefined || options?.signaling !== undefined)
 		throw new Error('p2p: initNode only accepts nodeDir/entityStore — use setNodeLogger / setSignalingRuntimeConfig')
 	const nodeDir = path.resolve(options.nodeDir)
@@ -138,11 +139,13 @@ export function onNodeChange(listener) {
 }
 
 /**
- * 测试专用：重置节点运行时。
- * @returns {void}
+ * 关闭节点：释放全部文件句柄（chunk 读/写流等）并清空运行时与监听器。
+ * 之后可用 initNode 重新引导。
+ * @returns {Promise<void>}
  */
-export function resetNodeForTests() {
+export async function closeNode() {
 	runtime = null
 	changeListeners.clear()
 	rtcPolyfillCacheEpoch++
+	await closeAllFileStreams()
 }

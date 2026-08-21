@@ -1,4 +1,4 @@
-import { initNode, resetNodeForTests } from '../../node/instance.mjs'
+import { closeNode, initNode } from '../../node/instance.mjs'
 import { resetLinkRegistryForTests } from '../../transport/link_registry.mjs'
 import {
 	createDefaultTrustGraphProvider,
@@ -12,7 +12,7 @@ import {
  * @returns {ReturnType<typeof initNode>} 节点运行时
  */
 export function initTestP2pNode(options) {
-	resetNodeForTests()
+	closeNode()
 	resetLinkRegistryForTests()
 	const runtime = initNode(options)
 	registerTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER, createDefaultTrustGraphProvider())

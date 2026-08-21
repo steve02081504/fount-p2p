@@ -78,9 +78,7 @@ function normalizeHashList(list) {
 		.filter(id => isHex64(id)))]
 }
 
-/**
- * @returns {void}
- */
+/** 将当前 sync 配置写盘 */
 function persistSyncConfig() {
 	writeNodeJsonSync(SYNC_DATA_NAME, loadSyncConfig())
 }
@@ -304,9 +302,7 @@ export async function pullReputationFromNode(nodeHash) {
 	return await resultPromise
 }
 
-/**
- * @returns {void}
- */
+/** 重置 sync 运行时（测试用） */
 export function resetReputationSyncForTests() {
 	syncConfig = null
 	detachReputationSyncWire()

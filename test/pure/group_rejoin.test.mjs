@@ -1,6 +1,3 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { clearDiscoveryProviders, registerDiscoveryProvider } from '../../discovery/index.mjs'
@@ -10,14 +7,14 @@ import { assert, assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'
 import { createMockDiscoveryProvider } from '../helpers/mock_discovery.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 test('group_link_set leave then start rejoins (active + subscriptions)', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'fount-p2p-rejoin-'))
-	await mkdir(dir, { recursive: true })
+	const nodeDir = await mkTestNodeDir('fount-p2p-rejoin-')
 	clearDiscoveryProviders()
 	const mock = createMockDiscoveryProvider()
 	registerDiscoveryProvider(mock)
-	initTestP2pNode({ nodeDir: dir })
+	initTestP2pNode({ nodeDir })
 	const self = identity(51)
 	const peer = identity(52)
 	const roomSecret = 'rejoin-room'
@@ -61,6 +58,6 @@ test('group_link_set leave then start rejoins (active + subscriptions)', async (
 		await group.leave().catch(() => { })
 		await registry.shutdown()
 		clearDiscoveryProviders()
-		await rm(dir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })

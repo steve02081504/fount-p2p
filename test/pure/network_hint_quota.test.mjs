@@ -1,11 +1,9 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { capHintsBySource, loadNetwork, normalizeNetwork, promoteExplorePeer, replaceNetworkPeerPools } from '../../node/network.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 const NODE = `${'a'.repeat(64)}`
 
@@ -34,9 +32,8 @@ test('normalizeNetwork still dedupes peers', () => {
 })
 
 test('saveNetwork caps trustedPeers at 64', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'fount-p2p-trusted-cap-'))
-	await mkdir(dir, { recursive: true })
-	initTestP2pNode({ nodeDir: dir })
+	const nodeDir = await mkTestNodeDir('fount-p2p-trusted-cap-')
+	initTestP2pNode({ nodeDir })
 	const hashes = Array.from({ length: 80 }, (_, i) => {
 		const n = i.toString(16).padStart(2, '0')
 		return n.repeat(32).slice(0, 64)
@@ -46,5 +43,5 @@ test('saveNetwork caps trustedPeers at 64', async () => {
 	promoteExplorePeer(NODE)
 	assertEquals(loadNetwork().trustedPeers.length, 64)
 	assertEquals(loadNetwork().trustedPeers.includes(NODE), true)
-	await rm(dir, { recursive: true, force: true })
+	await teardownTestNodeDir(nodeDir)
 })

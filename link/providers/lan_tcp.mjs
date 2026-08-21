@@ -35,9 +35,7 @@ function connectTcp(host, port, timeoutMs = LAN_TCP_CONNECT_TIMEOUT_MS) {
 			conn.off('connect', onConnect)
 			reject(error)
 		}
-		/**
-		 * @returns {void}
-		 */
+		/** TCP 连接成功并返回 socket */
 		function onConnect() {
 			clearTimeout(timer)
 			conn.off('error', onError)
@@ -111,9 +109,7 @@ function attachLengthPrefix(socket, onPayload) {
 			header.writeUInt32BE(body.length)
 			socket.write(Buffer.concat([header, body]))
 		},
-		/**
-		 * @returns {void}
-		 */
+		/** 仅移除 data 监听器 */
 		destroy() {
 			socket.off('data', onData)
 		},
@@ -149,9 +145,7 @@ function createTcpPipe(options) {
 		sendFrame(_action, frame) {
 			codec.write(frame)
 		},
-		/**
-		 * @returns {void}
-		 */
+		/** 关闭 transport 与 socket */
 		closeTransport() {
 			codec.destroy()
 			socket.destroy()

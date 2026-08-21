@@ -11,6 +11,7 @@ import {
 import { registerLinkProvider } from './link/providers/index.mjs'
 import { ensureNodeDefaults, getNodeHash } from './node/identity.mjs'
 import {
+	closeNode,
 	getNodeDir,
 	initNode,
 	isNodeInitialized,
@@ -58,6 +59,7 @@ import {
 export {
 	attachReputationSyncWire,
 	attachNodeScopeDefaultFeatures,
+	closeNode,
 	configureLinkRegistry,
 	createGroupLinkSet,
 	createScopedLinkRoom,

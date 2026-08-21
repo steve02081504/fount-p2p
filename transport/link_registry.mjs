@@ -719,9 +719,7 @@ export function configureLinkRegistry(options = {}) {
 	pendingRegistryOptions = { ...pendingRegistryOptions, ...options }
 }
 
-/**
- * @returns {void}
- */
+/** 重置 link registry 运行时（测试用） */
 export function resetLinkRegistryForTests() {
 	defaultRegistry = null
 	pendingRegistryOptions = null

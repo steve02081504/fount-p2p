@@ -1,8 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 
@@ -27,7 +25,7 @@ import {
 	stopInfra,
 } from '../../infra/service.mjs'
 import { buildSignedAdvert } from '../../link/handshake.mjs'
-import { initNode, resetNodeForTests } from '../../node/instance.mjs'
+import { closeNode, initNode } from '../../node/instance.mjs'
 import { loadNetwork, replaceNetworkPeerPools } from '../../node/network.mjs'
 import { loadReputation } from '../../node/reputation_store.mjs'
 import {
@@ -54,6 +52,7 @@ import {
 	dispatchNodeScopeAction,
 	hasNodeScopeAction,
 } from '../../transport/node_scope/wire.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 const HASH_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const HASH_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
@@ -62,14 +61,14 @@ const HASH_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
  * @returns {Promise<string>} 临时 nodeDir 路径
  */
 async function tmpNodeDir() {
-	return mkdtemp(path.join(os.tmpdir(), 'p2p-plan-'))
+	return mkTestNodeDir('p2p-plan-')
 }
 
 /**
  * @returns {void} 重置测试用节点 / registry / sync / scope 状态
  */
 function resetAll() {
-	resetNodeForTests()
+	closeNode()
 	resetLinkRegistryForTests()
 	resetReputationSyncForTests()
 	stopNodeScopeRuntime()
@@ -113,7 +112,7 @@ test('stopNodeScopeRuntime disposes rep_sync handlers', async () => {
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -135,7 +134,7 @@ test('lean attach: mailbox only, dispose removes handlers', async () => {
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -159,7 +158,7 @@ test('configureLinkRegistry before create; setMaxActive/setIceServers; second co
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -177,7 +176,7 @@ test('pull≠set: pull failure does not write; setReputationTable writes', async
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -212,7 +211,7 @@ test('pull success returns JSON without writing local table', async () => {
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -279,7 +278,7 @@ test('infra start/stop restores maxActive and removes only mailbox', async () =>
 	finally {
 		await stopInfra().catch(() => { })
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -304,7 +303,7 @@ test('infra + default wires share one mailbox handler; stopInfra keeps user mail
 	finally {
 		await stopInfra().catch(() => { })
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -324,7 +323,7 @@ test('priority weight re-reads reputation table after setReputationTable', async
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -356,7 +355,7 @@ test('cachePublicManifest writes remote public manifest to store', async () => {
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
@@ -392,6 +391,6 @@ test('setRoutingProfile and replaceNetworkPeerPools', async () => {
 	}
 	finally {
 		resetAll()
-		await rm(nodeDir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })

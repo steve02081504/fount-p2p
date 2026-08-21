@@ -28,9 +28,7 @@ export function getInfraPriority() {
 	return { ...priorityConfig }
 }
 
-/**
- * @returns {void}
- */
+/** 将优先级配置应用到 link registry */
 export function applyPriorityToRegistry() {
 	const registry = getLinkRegistry()
 	if (!priorityConfig.useLocalReputation) {

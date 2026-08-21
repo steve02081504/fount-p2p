@@ -1,6 +1,3 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { test } from 'node:test'
 
@@ -11,6 +8,7 @@ import { createLinkRegistry } from '../../transport/link_registry.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
+import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 /** ensureRuntime 仅注册 + 调度后台暖机，不得等 listen / 公网 */
 const COLD_STARTUP_BUDGET_MS = 50
@@ -35,11 +33,9 @@ function openRegistry(dir, localIdentity) {
 test('ensureRuntime cold ≤50ms, warm ≤20ms; listening is background', async () => {
 	clearLinkProviders()
 	clearDiscoveryProviders()
-	const dir = await mkdtemp(join(tmpdir(), 'fount-p2p-startup-'))
+	const nodeDir = await mkTestNodeDir('fount-p2p-startup-')
 	try {
-		await mkdir(dir, { recursive: true })
-
-		const cold = openRegistry(dir, identity(91))
+		const cold = openRegistry(nodeDir, identity(91))
 		const tCold = performance.now()
 		await cold.ensureRuntime()
 		const coldMs = performance.now() - tCold
@@ -60,7 +56,7 @@ test('ensureRuntime cold ≤50ms, warm ≤20ms; listening is background', async 
 		clearLinkProviders()
 		clearDiscoveryProviders()
 
-		const warm = openRegistry(dir, identity(93))
+		const warm = openRegistry(nodeDir, identity(93))
 		const tWarm = performance.now()
 		await warm.ensureRuntime()
 		const warmMs = performance.now() - tWarm
@@ -70,7 +66,7 @@ test('ensureRuntime cold ≤50ms, warm ≤20ms; listening is background', async 
 	finally {
 		clearLinkProviders()
 		clearDiscoveryProviders()
-		await rm(dir, { recursive: true, force: true })
+		await teardownTestNodeDir(nodeDir)
 	}
 })
 
