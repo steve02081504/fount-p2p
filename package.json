@@ -23,13 +23,6 @@
 		"test:live": "node --test --test-concurrency=1 --test-force-exit test/live/*.test.mjs",
 		"test:sim": "node --test --test-concurrency=1 --test-force-exit sim/test/*.test.mjs"
 	},
-	"files": [
-		"**/*.mjs",
-		"**/*.json",
-		"!test/**",
-		"!sim/**",
-		"!scripts/**"
-	],
 	"bin": {
 		"fount-p2p": "infra/cli.mjs"
 	},
