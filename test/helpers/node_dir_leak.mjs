@@ -77,25 +77,25 @@ export function countOpenFdsUnder(directory) {
 async function removeStrict(directory) {
 	/** @type {Error | null} */
 	let lastError = null
-	for (let attempt = 0; attempt <= REMOVE_RETRIES; attempt++) 
-		try {
-			await fsp.rm(directory, { recursive: true })
-			return
-		}
-		catch (error) {
-			// 目录已不存在即视为成功（幂等 teardown）。
-			if (/** @type {NodeJS.ErrnoException} */ error.code === 'ENOENT') return
-			lastError = /** @type {Error} */error
-			if (attempt === REMOVE_RETRIES) break
-			await new Promise(resolve => setTimeout(resolve, REMOVE_RETRY_DELAY_MS))
-		}
-	
+	for (let attempt = 0; attempt <= REMOVE_RETRIES; attempt++) try {
+		await fsp.rm(directory, { recursive: true })
+		return
+	}
+	catch (error) {
+		// 目录已不存在即视为成功（幂等 teardown）。
+		if (/** @type {NodeJS.ErrnoException} */ error.code === 'ENOENT') return
+		lastError = /** @type {Error} */error
+		if (attempt === REMOVE_RETRIES) break
+		await new Promise(resolve => setTimeout(resolve, REMOVE_RETRY_DELAY_MS))
+	}
+
 	const remainingPaths = await collectRemaining(directory)
-	throw new Error(
-		`removeNodeDirStrict: 目录未能删除：${directory}\n` +
-		`cause: ${lastError?.message}\n` +
-		`remaining: ${remainingPaths.length ? remainingPaths.join('\n  ') : '(无法枚举残留)'}\n` +
-		'hint: 大概率有未关闭的文件句柄（Windows 上 open-handle 会阻止删除）'
+	throw new Error(`\
+removeNodeDirStrict: 目录未能删除：${directory}
+cause: ${lastError?.message}
+remaining: ${remainingPaths.length ? remainingPaths.join('\n  ') : '(无法枚举残留)'}
+hint: 大概率有未关闭的文件句柄（Windows 上 open-handle 会阻止删除）
+`
 	)
 }
 
@@ -106,10 +106,6 @@ async function removeStrict(directory) {
 async function collectRemaining(directory) {
 	/** @type {string[]} */
 	const remainingPaths = []
-	/**
-	 *
-	 * @param current
-	 */
 	/** @param {string} current 当前目录路径 */
 	async function walk(current) {
 		let entries
@@ -191,9 +187,10 @@ after(async () => {
 			leftovers.push(`${fullPath} (${leakedFds} 打开句柄)`)
 	}
 	if (leftovers.length)
-		throw new Error(
-			`测试泄漏门禁失败：专用根目录 ${TEST_ROOT} 下仍有 ${leftovers.length} 个残留（句柄泄漏或未清理）：\n` +
-			leftovers.join('\n  ')
+		throw new Error(`\
+测试泄漏门禁失败：专用根目录 ${TEST_ROOT} 下仍有 ${leftovers.length} 个残留（句柄泄漏或未清理）：
+${leftovers.join('\n  ')}
+`
 		)
 	await removeStrict(TEST_ROOT)
 })

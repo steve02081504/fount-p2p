@@ -1,9 +1,11 @@
 import { test } from 'node:test'
 
+import { configureBufferedAmountLowThreshold, onBufferedAmountLow, readBufferedAmount } from '../../link/channel_mux.mjs'
 import { createWebRtcLink } from '../../link/providers/webrtc.mjs'
-import { loadNodeRtcPolyfill } from '../../link/rtc/index.mjs'
+import { waitForChannelState } from '../../link/rtc/index.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'
+import { loadPureJsBackend } from '../helpers/rtc_pure_js_backend.mjs'
 
 /**
  * @returns {{ left: { send: (message: unknown) => void, onRemote: (handler: (message: unknown) => void) => void }, right: { send: (message: unknown) => void, onRemote: (handler: (message: unknown) => void) => void } }} 内存信令对
@@ -69,20 +71,7 @@ test({
 	 * @returns {Promise<void>}
 	 */
 	async fn() {
-		const rtc = await loadNodeRtcPolyfill({
-			backends: [{
-				id: 'node-datachannel',
-				/**
-				 * @returns {Promise<never>} 模拟 native 模块缺失
-				 */
-				async load() {
-					throw Object.assign(
-						new Error('Cannot find module \'../../../build/Release/node_datachannel.node\''),
-						{ code: 'MODULE_NOT_FOUND' },
-					)
-				},
-			}],
-		})
+		const rtc = await loadPureJsBackend()
 		assertEquals(rtc.backend, 'node-rtc-connection')
 
 		const alice = identity(41)
@@ -108,6 +97,78 @@ test({
 			await Promise.all([aliceLink.ready, bobLink.ready])
 			assertEquals(aliceLink.providerId, 'webrtc')
 			assertEquals(bobLink.providerId, 'webrtc')
+		}
+		finally {
+			await Promise.all([aliceLink.close(), bobLink.close()])
+		}
+	},
+})
+
+test({
+	name: 'pure-js backend exposes real bufferedAmount growth + bufferedamountlow backpressure',
+	sanitizeOps: false,
+	sanitizeResources: false,
+	/**
+	 * 验证 node-rtc-connection 的 bufferedAmount/bufferedamountlow 可作背压信号（上游 #17）。
+	 * @returns {Promise<void>}
+	 */
+	async fn() {
+		const rtc = await loadPureJsBackend()
+		const alice = identity(43)
+		const bob = identity(44)
+		const signals = createSignalPair()
+		const aliceLink = await createWebRtcLink({
+			nodeHash: bob.nodeHash,
+			initiator: true,
+			signal: signals.left,
+			iceServers: [],
+			localIdentity: alice,
+			rtc,
+		})
+		const bobLink = await createWebRtcLink({
+			nodeHash: alice.nodeHash,
+			initiator: false,
+			signal: signals.right,
+			iceServers: [],
+			localIdentity: bob,
+			rtc,
+		})
+		try {
+			await Promise.all([aliceLink.ready, bobLink.ready])
+			const sender = aliceLink.channelForTest('bulk')
+			if (!sender) throw new Error('bulk channel unavailable after link ready')
+			await waitForChannelState(sender, 'open', 30_000)
+			const threshold = 64 * 1024
+			assertEquals(configureBufferedAmountLowThreshold(sender, threshold), threshold)
+			let lowFired = false
+			await new Promise((resolve, reject) => {
+				const chunk = new Uint8Array(32 * 1024)
+				/** @type {ReturnType<typeof setTimeout> | null} */
+				let timer = null
+				const stop = onBufferedAmountLow(sender, () => {
+					lowFired = true
+					stop()
+					if (timer) clearTimeout(timer)
+					resolve()
+				})
+				timer = setTimeout(() => { stop(); reject(new Error('bufferedamountlow timeout')) }, 30_000)
+				try {
+					let maxBuffered = 0
+					let sends = 0
+					while (maxBuffered <= threshold && sends < 256) {
+						sender.send(chunk)
+						maxBuffered = Math.max(maxBuffered, readBufferedAmount(sender))
+						sends++
+					}
+					assertEquals(maxBuffered > threshold, true, `buffer never exceeded threshold: max=${maxBuffered}, threshold=${threshold}`)
+				}
+				catch (error) {
+					stop()
+					if (timer) clearTimeout(timer)
+					throw error
+				}
+			})
+			assertEquals(lowFired, true)
 		}
 		finally {
 			await Promise.all([aliceLink.close(), bobLink.close()])
