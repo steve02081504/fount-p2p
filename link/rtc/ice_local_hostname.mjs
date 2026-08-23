@@ -50,8 +50,6 @@ export function filterIceLocalHostnameCandidate(candidate, RTCIceCandidateCtor, 
 export function wrapRtcPeerConnectionForIceLocalHostname(BaseRTC, RTCIceCandidate, policy = 'drop') {
 	if (policy === 'none') return BaseRTC
 
-	const baseRoutesIce = !!BaseRTC.prototype.prepareIceCandidateEvent
-
 	return class IceLocalHostnameFilteredRTCPeerConnection extends BaseRTC {
 		/** @type {((event: RTCPeerConnectionIceEvent) => void) | null} */
 		#userIceHandler = null
@@ -77,9 +75,6 @@ export function wrapRtcPeerConnectionForIceLocalHostname(BaseRTC, RTCIceCandidat
 		 */
 		constructor(config) {
 			super(config)
-			if (baseRoutesIce) return
-
-			// native EventTarget：在派发前规范化，自管 listener，不依赖 stopImmediatePropagation。
 			Object.defineProperty(this, 'onicecandidate', {
 				configurable: true,
 				enumerable: true,
@@ -116,7 +111,7 @@ export function wrapRtcPeerConnectionForIceLocalHostname(BaseRTC, RTCIceCandidat
 		 * @returns {void}
 		 */
 		addEventListener(type, listener, options) {
-			if (!baseRoutesIce && type === 'icecandidate') {
+			if (type === 'icecandidate') {
 				this.#iceListeners.add(listener)
 				return
 			}
@@ -130,7 +125,7 @@ export function wrapRtcPeerConnectionForIceLocalHostname(BaseRTC, RTCIceCandidat
 		 * @returns {void}
 		 */
 		removeEventListener(type, listener, options) {
-			if (!baseRoutesIce && type === 'icecandidate') {
+			if (type === 'icecandidate') {
 				this.#iceListeners.delete(listener)
 				return
 			}

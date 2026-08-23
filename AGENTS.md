@@ -30,7 +30,7 @@ Deno / native / BT: [runtime.md](docs/runtime.md).
 
 - Prefer shared helpers under `utils/`, `core/`, `wire/subscribe`, `wire/adapter` — do not reimplement LRU/TTL/inflight/atomic-fs/shuffle.
 - **No pure-forward aliases:** do not add `fooText`/`fooAlias` that only `return foo(sameArgs)` when the callee already accepts those types (e.g. never wrap `sha256Hex` as `sha256TextHex`). Domain names must add logic or type narrowing, not just rename.
-- **Heterogeneous backends:** normalize at the load boundary (e.g. `link/rtc/w3c_bridge.mjs`); call sites speak one contract.
+- **Heterogeneous backends:** normalize at the load boundary (e.g. `link/rtc/ice_local_hostname.mjs` wraps W3C RTC backends); call sites speak one contract.
 - **File naming:** parent directory is scope — short child names. Tunables default `<dir>/tunables.json` (exception: `schemas/part_query.tunables.json`). Subpath `package.json` exports mirror filenames.
 - **Import boundary:** `test/integration/p2p_shell_import_guard.test.mjs`.
 - **No scattered `trim` / `toLowerCase`:** hex IDs must already be lowercase; `normalizeHex64` strips an optional `0x` only — mixed case / whitespace is rejected. Exceptions: JSONL blank lines, SDP fingerprint, CLI/`scripts` parsing.

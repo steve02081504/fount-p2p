@@ -68,8 +68,7 @@ export async function createWebRtcLink(options) {
 	const handshakeTimeoutMs = Number(options.handshakeTimeoutMs) || ms('10s')
 	const channelOpenTimeoutMs = Math.max(handshakeTimeoutMs, ms('30s'))
 	const rtc = options.rtc ?? await loadNodeRtcPolyfill()
-	// 纯 JS 后端只做 trickle（SDP 不含 candidate）；强制开启 trickle。
-	const trickleIceOff = !rtc.forcesTrickleIce && getSignalingRuntimeConfig().trickleIceOff === true
+	const trickleIceOff = getSignalingRuntimeConfig().trickleIceOff === true
 	const peerConnection = new rtc.RTCPeerConnection(options.iceServers?.length ? { iceServers: options.iceServers } : undefined)
 	const remoteSignalQueue = []
 	const seenRemoteSignals = createLruMap(1024)

@@ -1,12 +1,13 @@
-import { EventEmitter } from 'node:events'
 import { test } from 'node:test'
+
+const EventTargetCtor = globalThis.EventTarget
+const EventCtor = globalThis.Event
 
 import {
 	applyIceLocalHostnamePolicy,
 	filterIceLocalHostnameCandidate,
 	wrapRtcPeerConnectionForIceLocalHostname,
 } from '../../link/rtc/index.mjs'
-import { bridgePeerConnection } from '../../link/rtc/w3c_bridge.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 
 /** 测试用 ICE candidate */
@@ -19,14 +20,16 @@ class FakeIceCandidate {
 	}
 }
 
-/** 测试用 EventEmitter RTCPeerConnection */
-class FakeRTC extends EventEmitter {
+/** 测试用 W3C EventTarget RTCPeerConnection（node-rtc-connection ≥2.1.0 原生形态） */
+class FakeRTC extends EventTargetCtor {
 	/**
-	 * @param {{ candidate: string } | null} candidate 要派发的 candidate
-	 * @returns {boolean} emit 是否成功
+	 * @param {{ candidate: string, sdpMid?: string, sdpMLineIndex?: number } | null} candidate 要派发的 candidate
+	 * @returns {boolean} dispatch 是否成功
 	 */
 	emitIce(candidate) {
-		return this.emit('icecandidate', { candidate })
+		const event = new EventCtor('icecandidate')
+		event.candidate = candidate
+		return this.dispatchEvent(event)
 	}
 }
 
@@ -36,9 +39,7 @@ class FakeRTC extends EventEmitter {
  */
 function createWrappedPeerConnection(policy) {
 	const Wrapped = wrapRtcPeerConnectionForIceLocalHostname(
-		/** @type {typeof RTCPeerConnection} */ /** @type {unknown} */ bridgePeerConnection(
-			/** @type {typeof RTCPeerConnection} */ /** @type {unknown} */ FakeRTC,
-		),
+		/** @type {typeof RTCPeerConnection} */ /** @type {unknown} */ FakeRTC,
 		/** @type {typeof RTCIceCandidate} */ /** @type {unknown} */ FakeIceCandidate,
 		policy,
 	)
@@ -65,7 +66,7 @@ test('filterIceLocalHostnameCandidate returns null when dropped', () => {
 	)
 })
 
-test('bridged wrap drops .local host before listeners see it', () => {
+test('W3C wrap drops .local host before listeners see it', () => {
 	const peerConnection = createWrappedPeerConnection('drop')
 	/** @type {unknown[]} */
 	const seen = []
@@ -87,7 +88,7 @@ test('bridged wrap drops .local host before listeners see it', () => {
 	assertEquals(/** @type {['listener', { candidate: null }]} */ seen[3][1].candidate, null)
 })
 
-test('bridged wrap rewrite-loopback only dispatches rewritten candidate', () => {
+test('W3C wrap rewrite-loopback only dispatches rewritten candidate', () => {
 	const peerConnection = createWrappedPeerConnection('rewrite-loopback')
 	/** @type {string[]} */
 	const seen = []

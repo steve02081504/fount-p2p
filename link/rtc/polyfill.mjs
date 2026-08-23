@@ -4,7 +4,6 @@ import { getRtcPolyfillCacheEpoch, getSignalingRuntimeConfig } from '../../node/
 import { nodeDebug } from '../../node/log.mjs'
 
 import { wrapRtcPeerConnectionForIceLocalHostname } from './ice_local_hostname.mjs'
-import { bridgePeerConnection } from './w3c_bridge.mjs'
 
 /** @type {boolean} */
 let exitCleanupHooked = false
@@ -20,11 +19,9 @@ let cachedDefaultPolyfillEpoch = -1
  *   RTCPeerConnection: typeof RTCPeerConnection,
  *   RTCIceCandidate: typeof RTCIceCandidate,
  *   backend: string,
- *   forcesTrickleIce: boolean,
  * }} LoadedRtcPolyfill
  * @typedef {{
  *   id: string,
- *   forcesTrickleIce?: boolean,
  *   load: () => Promise<{ RTCPeerConnection: typeof RTCPeerConnection, RTCIceCandidate: typeof RTCIceCandidate }>,
  * }} RtcBackend
  */
@@ -57,12 +54,9 @@ async function ensureNodeDatachannelExitCleanup() {
  * @returns {Promise<{ RTCPeerConnection: typeof RTCPeerConnection, RTCIceCandidate: typeof RTCIceCandidate }>} node-datachannel 构造器
  */
 async function loadNodeDatachannelBackend() {
-	const mod = await import('node-datachannel/polyfill')
+	const module = await import('node-datachannel/polyfill')
 	await ensureNodeDatachannelExitCleanup()
-	return {
-		RTCPeerConnection: mod.RTCPeerConnection,
-		RTCIceCandidate: mod.RTCIceCandidate,
-	}
+	return module
 }
 
 /**
@@ -70,17 +64,12 @@ async function loadNodeDatachannelBackend() {
  * @returns {Promise<{ RTCPeerConnection: typeof RTCPeerConnection, RTCIceCandidate: typeof RTCIceCandidate }>} node-rtc-connection 构造器
  */
 async function loadNodeRtcConnectionBackend() {
-	const module = await import('node-rtc-connection')
-	return {
-		RTCPeerConnection: /** @type {typeof RTCPeerConnection} */ bridgePeerConnection(module.RTCPeerConnection),
-		RTCIceCandidate: module.RTCIceCandidate,
-	}
+	return import('node-rtc-connection')
 }
 
 /** @type {RtcBackend} */
 const PURE_JS_BACKEND = {
 	id: 'node-rtc-connection',
-	forcesTrickleIce: true,
 	load: loadNodeRtcConnectionBackend,
 }
 
@@ -119,7 +108,6 @@ async function loadNodeRtcPolyfillUncached(options) {
 				),
 				RTCIceCandidate: mod.RTCIceCandidate,
 				backend: backend.id,
-				forcesTrickleIce: backend.forcesTrickleIce === true,
 			}
 		}
 		catch (error) {
