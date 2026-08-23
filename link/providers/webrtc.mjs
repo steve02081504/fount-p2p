@@ -183,7 +183,7 @@ export async function createWebRtcLink(options) {
 		while (peerConnection.iceGatheringState !== 'complete' && Date.now() < deadline)
 			await new Promise(resolve => setTimeout(resolve, 50))
 		if (peerConnection.iceGatheringState !== 'complete') {
-			try { await peerConnection.close() } catch { /* ignore */ }
+			await pipe.close('ice-gathering-timeout')
 			throw new Error(`p2p: ice gathering incomplete after ${handshakeTimeoutMs}ms`)
 		}
 	}

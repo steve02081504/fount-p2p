@@ -19,7 +19,7 @@ test('pure-js backend folds candidates into SDP after gathering completes (non-t
 	/** @type {RTCPeerConnection} */
 	const peerConnection = new rtc.RTCPeerConnection(/** @type {RTCConfiguration} */ { iceServers: [] })
 	try {
-		peerConnection.createDataChannel('c')
+		peerConnection.createDataChannel('ice-gathering')
 		await peerConnection.setLocalDescription(await peerConnection.createOffer())
 		const deadline = Date.now() + 30_000
 		while (peerConnection.iceGatheringState !== 'complete' && Date.now() < deadline)

@@ -152,14 +152,14 @@ test({
 					resolve()
 				})
 				timer = setTimeout(() => { stop(); reject(new Error('bufferedamountlow timeout')) }, 30_000)
-				let maxBuffered = 0
-				let sends = 0
-				while (maxBuffered <= threshold && sends < 256) {
-					sender.send(chunk)
-					maxBuffered = Math.max(maxBuffered, readBufferedAmount(sender))
-					sends++
-				}
 				try {
+					let maxBuffered = 0
+					let sends = 0
+					while (maxBuffered <= threshold && sends < 256) {
+						sender.send(chunk)
+						maxBuffered = Math.max(maxBuffered, readBufferedAmount(sender))
+						sends++
+					}
 					assertEquals(maxBuffered > threshold, true, `buffer never exceeded threshold: max=${maxBuffered}, threshold=${threshold}`)
 				}
 				catch (error) {
