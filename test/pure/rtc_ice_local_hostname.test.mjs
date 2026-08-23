@@ -1,8 +1,5 @@
 import { test } from 'node:test'
 
-const EventTargetCtor = globalThis.EventTarget
-const EventCtor = globalThis.Event
-
 import {
 	applyIceLocalHostnamePolicy,
 	filterIceLocalHostnameCandidate,
@@ -21,13 +18,13 @@ class FakeIceCandidate {
 }
 
 /** 测试用 W3C EventTarget RTCPeerConnection（node-rtc-connection ≥2.1.0 原生形态） */
-class FakeRTC extends EventTargetCtor {
+class FakeRTC extends globalThis.EventTarget {
 	/**
 	 * @param {{ candidate: string, sdpMid?: string, sdpMLineIndex?: number } | null} candidate 要派发的 candidate
 	 * @returns {boolean} dispatch 是否成功
 	 */
 	emitIce(candidate) {
-		const event = new EventCtor('icecandidate')
+		const event = new globalThis.Event('icecandidate')
 		event.candidate = candidate
 		return this.dispatchEvent(event)
 	}

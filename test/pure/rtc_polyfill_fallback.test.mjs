@@ -1,30 +1,7 @@
 import { test } from 'node:test'
 
-import { loadNodeRtcPolyfill } from '../../link/rtc/index.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
-
-/**
- * 强制走纯 JS 后端（native MODULE_NOT_FOUND）
- * @returns {Promise<import('../../link/rtc/index.mjs').NodeRtcPolyfill>}
- */
-async function loadPureJsBackend() {
-	return loadNodeRtcPolyfill({
-		backends: [
-			{
-				id: 'node-datachannel',
-				/**
-				 * @returns {Promise<never>} 模拟 native 模块缺失
-				 */
-				async load() {
-					throw Object.assign(
-						new Error('Cannot find module \'../../../build/Release/node_datachannel.node\''),
-						{ code: 'MODULE_NOT_FOUND' },
-					)
-				},
-			},
-		],
-	})
-}
+import { loadPureJsBackend } from '../helpers/rtc_pure_js_backend.mjs'
 
 /**
  * 复现 Termux / 无 prebuild 平台：native addon MODULE_NOT_FOUND。
@@ -37,21 +14,24 @@ test('loadNodeRtcPolyfill falls back when node-datachannel native is missing', a
 	assertEquals(rtc.backend, 'node-rtc-connection')
 })
 
-test('pure-js backend folds candidates into SDP after gathering completes (non-trickle contract)', async () => {
-	const rtc = await loadPureJsBackend()
-	/** @type {RTCPeerConnection} */
-	const pc = new rtc.RTCPeerConnection(/** @type {RTCConfiguration} */ { iceServers: [] })
-	try {
-		pc.createDataChannel('c')
-		await pc.setLocalDescription(await pc.createOffer())
-		while (pc.iceGatheringState !== 'complete')
-			await new Promise(resolve => setTimeout(resolve, 50))
-		const sdp = /** @type {RTCSessionDescription} */ pc.localDescription.sdp
-		assertEquals(pc.iceGatheringState, 'complete')
-		assertEquals(/^a=candidate:/gm.test(sdp), true)
-		assertEquals(/a=end-of-candidates/.test(sdp), true)
-	}
-	finally {
-		pc.close()
-	}
-})
+	test('pure-js backend folds candidates into SDP after gathering completes (non-trickle contract)', async () => {
+		const rtc = await loadPureJsBackend()
+		/** @type {RTCPeerConnection} */
+		const peerConnection = new rtc.RTCPeerConnection(/** @type {RTCConfiguration} */ { iceServers: [] })
+		try {
+			peerConnection.createDataChannel('c')
+			await peerConnection.setLocalDescription(await peerConnection.createOffer())
+			const deadline = Date.now() + 30_000
+			while (peerConnection.iceGatheringState !== 'complete' && Date.now() < deadline)
+				await new Promise(resolve => setTimeout(resolve, 50))
+			if (peerConnection.iceGatheringState !== 'complete')
+				throw new Error(`ice gathering did not complete within deadline: ${peerConnection.iceGatheringState}`)
+			const sdp = /** @type {RTCSessionDescription} */ peerConnection.localDescription.sdp
+			assertEquals(peerConnection.iceGatheringState, 'complete')
+			assertEquals(/^a=candidate:/gm.test(sdp), true)
+			assertEquals(/a=end-of-candidates/.test(sdp), true)
+		}
+		finally {
+			peerConnection.close()
+		}
+	})

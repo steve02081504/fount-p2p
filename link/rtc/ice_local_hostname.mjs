@@ -53,13 +53,9 @@ export function wrapRtcPeerConnectionForIceLocalHostname(BaseRTC, RTCIceCandidat
 	return class IceLocalHostnameFilteredRTCPeerConnection extends BaseRTC {
 		/** @type {((event: RTCPeerConnectionIceEvent) => void) | null} */
 		#userIceHandler = null
-		/** @type {Set<(event: unknown) => void>} */
-		#iceListeners = new Set()
-		/** 去重：同一次 native 派发可能既走 attribute 又走 listener */
-		#lastIceEvent = null
 
 		/**
-		 * drop：不派发；rewrite：仅派发替换 candidate 后的事件。
+		 * drop：不派发；rewrite：构造仅携带替换 candidate 的派生事件。
 		 * @param {RTCPeerConnectionIceEvent | { candidate?: unknown }} event 原始 ICE 事件
 		 * @returns {RTCPeerConnectionIceEvent | { candidate?: unknown } | null} 规范化后的事件；drop 时为 null
 		 */
@@ -67,7 +63,10 @@ export function wrapRtcPeerConnectionForIceLocalHostname(BaseRTC, RTCIceCandidat
 			if (!event?.candidate) return event
 			const filtered = filterIceLocalHostnameCandidate(event.candidate, RTCIceCandidate, policy)
 			if (!filtered) return null
-			return filtered === event.candidate ? event : { candidate: filtered }
+			if (filtered === event.candidate) return event
+			const rewritten = new event.constructor('icecandidate')
+			rewritten.candidate = filtered
+			return rewritten
 		}
 
 		/**
@@ -88,48 +87,22 @@ export function wrapRtcPeerConnectionForIceLocalHostname(BaseRTC, RTCIceCandidat
 				 */
 				set: handler => { this.#userIceHandler = handler },
 			})
-			super.addEventListener('icecandidate', event => this.#deliverIce(event))
 		}
 
 		/**
-		 * @param {RTCPeerConnectionIceEvent | { candidate?: unknown }} event 原始 ICE 事件
-		 * @returns {void}
+		 * 先完成 candidate 转换，再走标准 EventTarget 派发（保留 once/AbortSignal/capture 语义）。
+		 * addEventListener / removeEventListener 交由基类，故 once / AbortSignal / capture 均保留。
+		 * drop：不派发；pass-through：派发原事件；rewrite：派发替换 candidate 后的派生事件。
+		 * @param {Event} event 待派发事件
+		 * @returns {boolean} 事件是否未被取消
 		 */
-		#deliverIce = event => {
-			if (this.#lastIceEvent === event) return
-			this.#lastIceEvent = event
+		dispatchEvent(event) {
+			if (event?.type !== 'icecandidate') return super.dispatchEvent(event)
 			const normalized = this.prepareIceCandidateEvent(event)
-			if (normalized == null) return
+			if (normalized == null) return true
 			this.#userIceHandler?.(normalized)
-			for (const listener of this.#iceListeners) listener(normalized)
-		}
-
-		/**
-		 * @param {string} type 事件名
-		 * @param {(event: unknown) => void} listener 回调
-		 * @param {boolean | AddEventListenerOptions} [options] 监听选项
-		 * @returns {void}
-		 */
-		addEventListener(type, listener, options) {
-			if (type === 'icecandidate') {
-				this.#iceListeners.add(listener)
-				return
-			}
-			return super.addEventListener(type, listener, options)
-		}
-
-		/**
-		 * @param {string} type 事件名
-		 * @param {(event: unknown) => void} listener 回调
-		 * @param {boolean | EventListenerOptions} [options] 监听选项
-		 * @returns {void}
-		 */
-		removeEventListener(type, listener, options) {
-			if (type === 'icecandidate') {
-				this.#iceListeners.delete(listener)
-				return
-			}
-			return super.removeEventListener(type, listener, options)
+			if (normalized === event) return super.dispatchEvent(event)
+			return super.dispatchEvent(normalized)
 		}
 	}
 }

@@ -2,29 +2,10 @@ import { test } from 'node:test'
 
 import { configureBufferedAmountLowThreshold, onBufferedAmountLow, readBufferedAmount } from '../../link/channel_mux.mjs'
 import { createWebRtcLink } from '../../link/providers/webrtc.mjs'
-import { loadNodeRtcPolyfill, waitForChannelState } from '../../link/rtc/index.mjs'
+import { waitForChannelState } from '../../link/rtc/index.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'
-
-/**
- * @returns {Promise<import('../../link/rtc/index.mjs').LoadedRtcPolyfill>} 强制纯 JS 后端
- */
-async function loadPureJsBackend() {
-	return loadNodeRtcPolyfill({
-		backends: [{
-			id: 'node-datachannel',
-			/**
-			 * @returns {Promise<never>} 模拟 native 模块缺失
-			 */
-			async load() {
-				throw Object.assign(
-					new Error('Cannot find module \'../../../build/Release/node_datachannel.node\''),
-					{ code: 'MODULE_NOT_FOUND' },
-				)
-			},
-		}],
-	})
-}
+import { loadPureJsBackend } from '../helpers/rtc_pure_js_backend.mjs'
 
 /**
  * @returns {{ left: { send: (message: unknown) => void, onRemote: (handler: (message: unknown) => void) => void }, right: { send: (message: unknown) => void, onRemote: (handler: (message: unknown) => void) => void } }} 内存信令对
@@ -161,9 +142,16 @@ test({
 			assertEquals(configureBufferedAmountLowThreshold(sender, threshold), threshold)
 			let lowFired = false
 			await new Promise((resolve, reject) => {
-				const stop = onBufferedAmountLow(sender, () => { lowFired = true; stop(); resolve() })
-				const timer = setTimeout(() => { stop(); reject(new Error('bufferedamountlow timeout')) }, 30_000)
 				const chunk = new Uint8Array(32 * 1024)
+				/** @type {ReturnType<typeof setTimeout> | null} */
+				let timer = null
+				const stop = onBufferedAmountLow(sender, () => {
+					lowFired = true
+					stop()
+					if (timer) clearTimeout(timer)
+					resolve()
+				})
+				timer = setTimeout(() => { stop(); reject(new Error('bufferedamountlow timeout')) }, 30_000)
 				let maxBuffered = 0
 				let sends = 0
 				while (maxBuffered <= threshold && sends < 256) {
@@ -171,8 +159,14 @@ test({
 					maxBuffered = Math.max(maxBuffered, readBufferedAmount(sender))
 					sends++
 				}
-				assertEquals(maxBuffered > threshold, true, `buffer never exceeded threshold: max=${maxBuffered}, threshold=${threshold}`)
-				queueMicrotask(() => clearTimeout(timer))
+				try {
+					assertEquals(maxBuffered > threshold, true, `buffer never exceeded threshold: max=${maxBuffered}, threshold=${threshold}`)
+				}
+				catch (error) {
+					stop()
+					if (timer) clearTimeout(timer)
+					throw error
+				}
 			})
 			assertEquals(lowFired, true)
 		}
