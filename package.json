@@ -6,7 +6,10 @@
 		"network",
 		"p2p",
 		"fount",
-		"AI"
+		"AI",
+		"nostr",
+		"LAN",
+		"bluetooth"
 	],
 	"type": "module",
 	"repository": {
