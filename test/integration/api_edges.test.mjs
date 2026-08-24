@@ -57,15 +57,16 @@ function resetAll() {
 	stopNodeScopeRuntime()
 }
 
-test('resolveSignalingRuntimeConfig merges patch including relayOverride', () => {
+test('resolveSignalingRuntimeConfig merges patch including channel relay', () => {
 	const config = resolveSignalingRuntimeConfig({
-		relayOverride: ['wss://relay.example/'],
-		iceLocalHostnamePolicy: 'none',
-		trickleIceOff: false,
+		channels: {
+			nostr: { relay: ['wss://relay.example/'] },
+			webrtc: { iceLocalHostnamePolicy: 'none', trickleIceOff: false },
+		},
 	})
-	assert.deepEqual(config.relayOverride, ['wss://relay.example/'])
-	assert.equal(config.iceLocalHostnamePolicy, 'none')
-	assert.equal(config.trickleIceOff, false)
+	assert.deepEqual(config.channels.nostr.relay, ['wss://relay.example/'])
+	assert.equal(config.channels.webrtc.iceLocalHostnamePolicy, 'none')
+	assert.equal(config.channels.webrtc.trickleIceOff, false)
 })
 
 test('setNodeLogger(null) disables logger; second initNode throws', async () => {
@@ -143,11 +144,30 @@ test('startNode after init rejects conflicting options; setSignalingRuntimeConfi
 		await assert.rejects(() => startNode({ nodeDir }), /ignored after initNode/)
 		let saw = null
 		const off = onNodeChange((event, payload) => { saw = { event, payload } })
-		setSignalingRuntimeConfig({ relayOverride: ['wss://hot.example/'] })
+		setSignalingRuntimeConfig({ channels: { nostr: { relay: ['wss://hot.example/'] } } })
 		off()
 		assert.equal(saw?.event, 'signaling-changed')
-		assert.deepEqual(getSignalingRuntimeConfig().relayOverride, ['wss://hot.example/'])
+		assert.deepEqual(getSignalingRuntimeConfig().channels.nostr.relay, ['wss://hot.example/'])
 		assert.equal(typeof getLinkRegistry().reloadDiscoveryRelays, 'function')
+	}
+	finally {
+		resetAll()
+		await teardownTestNodeDir(nodeDir)
+	}
+})
+
+test('setSignalingRuntimeConfig merges channels preserving disabled/customized settings on partial update', async () => {
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
+	try {
+		resetAll()
+		initNode({ nodeDir })
+		setSignalingRuntimeConfig({ channels: { bt: false, webrtc: { trickleIceOff: true } } })
+		setSignalingRuntimeConfig({ channels: { nostr: { relay: ['wss://hot.example/'] } } })
+		const channels = getSignalingRuntimeConfig().channels
+		assert.equal(channels.bt, false)
+		assert.equal(channels.webrtc.trickleIceOff, true)
+		assert.deepEqual(channels.nostr.relay, ['wss://hot.example/'])
+		assert.notEqual(channels.lan, false)
 	}
 	finally {
 		resetAll()

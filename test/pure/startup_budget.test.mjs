@@ -13,7 +13,7 @@ import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs
 /** ensureRuntime 仅注册 + 调度后台暖机，不得等 listen / 公网 */
 const COLD_STARTUP_BUDGET_MS = 50
 /** 同进程再次 ensureRuntime（模块已热；含调度方差） */
-const WARM_STARTUP_BUDGET_MS = 20
+const WARM_STARTUP_BUDGET_MS = 5
 
 /**
  * @param {string} dir nodeDir

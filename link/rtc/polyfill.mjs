@@ -99,7 +99,7 @@ async function loadNodeRtcPolyfillUncached(options) {
 	for (const backend of backends)
 		try {
 			const mod = await backend.load()
-			const { iceLocalHostnamePolicy } = getSignalingRuntimeConfig()
+			const iceLocalHostnamePolicy = getSignalingRuntimeConfig().channels.webrtc?.iceLocalHostnamePolicy
 			return {
 				RTCPeerConnection: wrapRtcPeerConnectionForIceLocalHostname(
 					mod.RTCPeerConnection,

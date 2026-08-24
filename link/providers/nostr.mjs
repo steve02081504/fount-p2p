@@ -4,9 +4,7 @@ import { randomBytes } from 'node:crypto'
 import { base64ToBytes, bytesToBase64 } from '../../core/bytes_codec.mjs'
 import { normalizeHex64 } from '../../core/hexIds.mjs'
 import { getDiscoveryProvider, sendNodeSignalPacket } from '../../discovery/index.mjs'
-import { mergeSignalingRelayUrls } from '../../discovery/nostr.mjs'
-import { getNodeTransportSettings } from '../../node/identity.mjs'
-import { getSignalingRuntimeConfig } from '../../node/instance.mjs'
+import { resolveNostrRelayUrls } from '../../discovery/nostr.mjs'
 import { ms } from '../../utils/duration.mjs'
 import { createLruMap } from '../../utils/lru.mjs'
 import { asLinkHandle } from '../pipe.mjs'
@@ -26,14 +24,6 @@ const NOSTR_HEARTBEAT_MS = ms('60s')
 const NOSTR_IDLE_TIMEOUT_MS = ms('3m')
 
 /**
- * @returns {string[]} 当前可用中继 URL
- */
-function resolveDefaultRelayUrls() {
-	return getSignalingRuntimeConfig().relayOverride
-		?? mergeSignalingRelayUrls(getNodeTransportSettings().relayUrls)
-}
-
-/**
  * @param {string} remoteNodeHash 对端
  * @param {object} packet link 包
  * @returns {Promise<void>}
@@ -48,7 +38,7 @@ async function publishLinkPacket(remoteNodeHash, packet) {
  * @returns {import('./index.mjs').LinkProvider & { deliverPacket: (packet: object) => void }} provider
  */
 export function createNostrLinkProvider(options = {}) {
-	const resolveRelayUrls = options.getRelayUrls || resolveDefaultRelayUrls
+	const resolveRelayUrls = options.getRelayUrls || resolveNostrRelayUrls
 
 	/** @type {((link: import('./index.mjs').LinkHandle) => void) | null} */
 	let onInbound = null

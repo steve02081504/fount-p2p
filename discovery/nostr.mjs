@@ -6,6 +6,8 @@ import WebSocket from 'ws'
 import { base64ToBytes, hexToBytes, bytesToBase64, bytesToHex } from '../core/bytes_codec.mjs'
 import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
 import { sha256Hex } from '../crypto/crypto.mjs'
+import { getNodeTransportSettings } from '../node/identity.mjs'
+import { getSignalingRuntimeConfig } from '../node/instance.mjs'
 import { nodeDebug, shortHash } from '../node/log.mjs'
 
 import { noteAdvertPeerHints } from './advert_peer_hints.mjs'
@@ -198,6 +200,15 @@ function dedupeRelayUrls(urls) {
 export function mergeSignalingRelayUrls(userRelayUrls) {
 	const merged = dedupeRelayUrls([...DEFAULT_RELAY_URLS, ...userRelayUrls || []])
 	return merged.length ? merged : [...DEFAULT_RELAY_URLS]
+}
+
+/**
+ * 当前可用 nostr 中继：nostr 通道配置 relay（替换默认），否则节点默认 + 公共中继。
+ * @returns {string[]} relay URL 列表
+ */
+export function resolveNostrRelayUrls() {
+	const relay = getSignalingRuntimeConfig().channels?.nostr?.relay
+	return relay?.length ? relay : mergeSignalingRelayUrls(getNodeTransportSettings().relayUrls)
 }
 
 /**

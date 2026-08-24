@@ -33,7 +33,7 @@ Topic / rendezvous / signal crypto live under `discovery/` (`nostr.mjs`, `intern
 | **Discovery** (`discovery/`) | Per medium: `listVisibleNodeHashes` + `connectToNode`. Encrypted adverts/signals via `adverts.mjs` + `index.mjs` helpers. |
 | **Link providers** (`link/providers/`) | Open a duplex pipe; sorted by **`level` (descending)** — not a shell import |
 | **Registry** (`transport/link_registry.mjs`) | fount-network facade: dial fallback, scope/overlay, one canonical link per peer |
-| **Bootstrap** (`transport/runtime_bootstrap.mjs`) | `ensureRuntime` register + progressive listen/discovery/BT warm; `reloadDiscoveryRelays` on `signaling-changed` |
+| **Bootstrap** (`transport/runtime_bootstrap.mjs`) | `ensureRuntime` register + progressive listen/discovery; `ensureChannelAvailable` for BT discovery; `reloadDiscoveryRelays` on `signaling-changed` |
 | **Offer/answer** (`transport/offer_answer.mjs`) | Discovery-signal glare path for `caps.needsOfferAnswer` (**internal**; uses `sendNodeSignalPacket`) |
 | **Mesh keepalive** (`transport/mesh_keepalive.mjs`) | N/K pool, explore eviction, stable promote to `trustedPeers` |
 
