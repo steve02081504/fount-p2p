@@ -12,7 +12,7 @@ Returns after registering lan / nostr / bt discovery providers (subject to the s
 | `buildLocalAdvert` / `whenListening` | Local lan_tcp listen only |
 | `ensureLinkToNode` | `whenSignalListening` (Nostr `listenNodeSignals` attached) before dial, so offer/answer does not drop the first signal |
 
-Nostr / LAN / BT hooks are progressive. BT discovery / `ble_gatt` always warm in the background.
+Nostr / LAN / BT hooks are progressive. BT discovery / `ble_gatt` background warm runs only when the `bt` channel is enabled.
 
 ### Fast-listen & dial path
 

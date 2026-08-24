@@ -90,8 +90,8 @@ export function createRuntimeBootstrap(deps) {
 	let stopPresence = null
 	/** @type {(() => void) | null} */
 	let stopSignalListener = null
-	/** @type {Array<() => void>} */
-	const stopLinkListeners = []
+	/** @type {Map<string, () => void>} */
+	const stopLinkListeners = new Map()
 	/** @type {ReturnType<typeof createLanTcpLinkProvider> | null} */
 	let ownedLanTcp = null
 	/** @type {ReturnType<typeof createBleGattLinkProvider> | null} */
@@ -195,12 +195,13 @@ export function createRuntimeBootstrap(deps) {
 	 */
 	async function startProviderListening(provider) {
 		if (!provider.ensureListening) return
+		stopLinkListeners.get(provider.id)?.()
 		try {
 			const stop = await provider.ensureListening({
 				localIdentity,
 				onInbound: onInboundLink,
 			})
-			if (stop) stopLinkListeners.push(stop)
+			if (stop) stopLinkListeners.set(provider.id, stop)
 		}
 		catch { /* provider listen unavailable */ }
 	}
@@ -305,20 +306,94 @@ export function createRuntimeBootstrap(deps) {
 		})()
 	}
 
+	/** 释放指定 id 的 link provider 监听与注册 */
+	function releaseLinkProvider(id) {
+		const stop = stopLinkListeners.get(id)
+		stopLinkListeners.delete(id)
+		try { stop?.() } catch { /* ignore */ }
+		unregisterLinkProvider(id)
+	}
+
+	/** 按 channels 配置同步 link provider（启用注册 / 禁用注销） */
+	function reconcileLinkProviders() {
+		if (!autoRegisterLinkProviders) return
+		const present = new Set(listLinkProviders().map(provider => provider.id.split(':')[0]))
+		if (isChannelEnabled('nostr')) {
+			if (!present.has('nostr'))
+				registerLinkProvider(createNostrLinkProvider({ getRelayUrls: resolveNostrRelayUrls }))
+		}
+		else {
+			releaseLinkProvider('nostr')
+		}
+		if (isChannelEnabled('lan')) {
+			if (!ownedLanTcp) {
+				ownedLanTcp = createLanTcpLinkProvider()
+				registerLinkProvider(ownedLanTcp)
+			}
+		}
+		else if (ownedLanTcp) {
+			releaseLinkProvider(ownedLanTcp.id)
+			ownedLanTcp = null
+		}
+		if (isChannelEnabled('bt')) {
+			if (!ownedBleGatt) {
+				ownedBleGatt = createBleGattLinkProvider()
+				registerLinkProvider(ownedBleGatt)
+			}
+		}
+		else if (ownedBleGatt) {
+			releaseLinkProvider(ownedBleGatt.id)
+			ownedBleGatt = null
+		}
+		if (!listLinkProviders().some(provider => provider.id.split(':')[0] === 'webrtc'))
+			registerLinkProvider(createWebRtcLinkProvider())
+	}
+
+	/** 按 channels 配置同步 discovery provider（启用注册 / 禁用注销） */
+	async function reconcileDiscoveryProviders() {
+		if (!autoRegisterDiscoveryProviders) return
+		const present = new Set(listDiscoveryProviders().map(provider => provider.id))
+		if (isChannelEnabled('lan')) {
+			if (!present.has('lan'))
+				registerDiscoveryProvider(createLanDiscoveryProvider({ localNodeHash: localIdentity.nodeHash }))
+		}
+		else {
+			unregisterDiscoveryProvider('lan')
+		}
+		if (isChannelEnabled('nostr')) registerNostrProvider()
+		else unregisterDiscoveryProvider('nostr')
+		if (isChannelEnabled('bt')) {
+			if (!present.has('bt')) {
+				const bt = await import('../discovery/bt/index.mjs').catch(() => null)
+				if (await bt?.canUseBluetoothRuntime?.())
+					registerDiscoveryProvider(bt.createBluetoothDiscoveryProvider())
+			}
+		}
+		else {
+			unregisterDiscoveryProvider('bt')
+		}
+	}
+
 	/**
 	 * @returns {Promise<void>}
 	 */
 	async function reloadDiscoveryRelays() {
-		if (!runtimeStarted || !autoRegisterDiscoveryProviders || !isChannelEnabled('nostr')) return
 		if (reloadInflight) return await reloadInflight
 		reloadInflight = (async () => {
 			const gen = generation
+			if (!isLive()) return
 			stopPresence?.()
 			stopSignalListener?.()
 			stopPresence = null
 			stopSignalListener = null
-			registerNostrProvider()
+			reconcileLinkProviders()
+			await reconcileDiscoveryProviders()
 			if (generation !== gen || !isLive()) return
+			if (ownedLanTcp && !stopLinkListeners.has(ownedLanTcp.id))
+				await startProviderListening(ownedLanTcp)
+			if (ownedBleGatt && !stopLinkListeners.has(ownedBleGatt.id)
+				&& await Promise.resolve(ownedBleGatt.isAvailable()))
+				await startProviderListening(ownedBleGatt)
 			signalListenReady = (async () => {
 				if (generation !== gen || !isLive()) return
 				if (!listDiscoveryProviders().length) return
@@ -394,8 +469,9 @@ export function createRuntimeBootstrap(deps) {
 			runtimeWarm?.catch(() => { }) ?? Promise.resolve(),
 			new Promise(resolve => setTimeout(resolve, 500)),
 		])
-		for (const stop of stopLinkListeners.splice(0))
+		for (const stop of stopLinkListeners.values())
 			try { stop() } catch { /* ignore */ }
+		stopLinkListeners.clear()
 		clearDiscoveryProviders()
 		if (ownedLanTcp) {
 			unregisterLinkProvider(ownedLanTcp.id)
