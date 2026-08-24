@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 
+import { canUseBluetoothRuntime } from '../../discovery/bt/index.mjs'
 import { clearDiscoveryProviders, listDiscoveryProviders } from '../../discovery/index.mjs'
 import { clearLinkProviders, listLinkProviders } from '../../link/providers/index.mjs'
 import { setSignalingRuntimeConfig } from '../../node/instance.mjs'
@@ -25,83 +26,10 @@ function openRegistry(nodeDir, localIdentity) {
 	})
 }
 
-test('disableAllChannels re-enabling nostr registers only nostr + webrtc', async () => {
-	clearLinkProviders()
-	clearDiscoveryProviders()
-	const nodeDir = await mkTestNodeDir('fount-p2p-channels-')
-	try {
-		const registry = openRegistry(nodeDir, identity(81))
-		setSignalingRuntimeConfig({ channels: disableAllChannels({ nostr: true }) })
-		await registry.ensureRuntime()
-		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['nostr'])
-		assertEquals(
-			listLinkProviders().map(provider => provider.id.split(':')[0]).sort(),
-			['nostr', 'webrtc'],
-		)
-		await registry.shutdown()
-	}
-	finally {
-		clearLinkProviders()
-		clearDiscoveryProviders()
-		await teardownTestNodeDir(nodeDir)
-	}
-})
-
-test('omitted channels keeps all discovery/link channels active', async () => {
-	clearLinkProviders()
-	clearDiscoveryProviders()
-	const nodeDir = await mkTestNodeDir('fount-p2p-channels-')
-	try {
-		const registry = openRegistry(nodeDir, identity(82))
-		await registry.ensureRuntime()
-		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['lan', 'nostr'])
-		assertEquals(
-			listLinkProviders().map(provider => provider.id.split(':')[0]).sort(),
-			['ble_gatt', 'lan_tcp', 'nostr', 'webrtc'],
-		)
-		await registry.shutdown()
-	}
-	finally {
-		clearLinkProviders()
-		clearDiscoveryProviders()
-		await teardownTestNodeDir(nodeDir)
-	}
-})
-
-test('channels { lan: false } disables only the lan channel', async () => {
-	clearLinkProviders()
-	clearDiscoveryProviders()
-	const nodeDir = await mkTestNodeDir('fount-p2p-channels-')
-	try {
-		const registry = openRegistry(nodeDir, identity(83))
-		setSignalingRuntimeConfig({ channels: { lan: false } })
-		await registry.ensureRuntime()
-		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['nostr'])
-		assertEquals(
-			listLinkProviders().map(provider => provider.id.split(':')[0]).sort(),
-			['ble_gatt', 'nostr', 'webrtc'],
-		)
-		await registry.shutdown()
-	}
-	finally {
-		clearLinkProviders()
-		clearDiscoveryProviders()
-		await teardownTestNodeDir(nodeDir)
-	}
-})
-
-test('resolve merges channel config; disableAllChannels off except overrides', () => {
-	const config = resolveSignalingRuntimeConfig({
-		channels: disableAllChannels({ nostr: { relay: ['wss://loopback/'] } }),
-	})
-	assertEquals(config.channels, {
-		nostr: { relay: ['wss://loopback/'] },
-		lan: false,
-		bt: false,
-	})
-})
-
-/** 当前全局 discovery / link provider 状态。 */
+/**
+ * 当前全局 discovery / link provider 状态。
+ * @returns {{ discovery: string[], link: string[] }} provider 状态
+ */
 function channelState() {
 	return {
 		discovery: listDiscoveryProviders().map(provider => provider.id).sort(),
@@ -121,71 +49,88 @@ async function toggleChannels(registry, channels) {
 }
 
 /**
- * 打开指定 channels 注册的运行时。基线默认关闭 bt，避免启动期异步 warm 的 bt discovery 竞态。
- * @param {string} nodeDir nodeDir
+ * 打开指定 channels 的运行时，执行断言后清理。基线默认关闭 bt，避免启动期异步 warm 的 bt discovery 竞态。
  * @param {number} seed 身份种子
- * @param {Record<string, boolean>} [channels] 通道开关
- * @returns {Promise<{ registry: ReturnType<typeof createLinkRegistry> }>} 句柄
+ * @param {Record<string, boolean> | undefined} channels 初始通道配置
+ * @param {(registry: ReturnType<typeof createLinkRegistry>) => Promise<void>} run 断言回调
+ * @returns {Promise<void>}
  */
-async function openRuntime(nodeDir, seed, channels = { nostr: true, lan: true, bt: false }) {
+async function withRuntime(seed, channels, run) {
 	clearLinkProviders()
 	clearDiscoveryProviders()
-	const registry = openRegistry(nodeDir, identity(seed))
-	setSignalingRuntimeConfig({ channels })
-	await registry.ensureRuntime()
-	return { registry }
-}
-
-test('reload toggles nostr channel off and back on after startup', async () => {
 	const nodeDir = await mkTestNodeDir('fount-p2p-channels-')
 	try {
-		const { registry } = await openRuntime(nodeDir, 84)
+		const registry = openRegistry(nodeDir, identity(seed))
+		setSignalingRuntimeConfig({ channels })
+		await registry.ensureRuntime()
+		await run(registry)
+		await registry.shutdown()
+	}
+	finally {
+		clearLinkProviders()
+		clearDiscoveryProviders()
+		await teardownTestNodeDir(nodeDir)
+	}
+}
+
+test('disableAllChannels re-enabling nostr registers only nostr + webrtc', async () => {
+	await withRuntime(81, disableAllChannels({ nostr: true }), async () => {
+		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['nostr'])
+		assertEquals(listLinkProviders().map(provider => provider.id.split(':')[0]).sort(), ['nostr', 'webrtc'])
+	})
+})
+
+test('omitted channels keeps all discovery/link channels active', async () => {
+	await withRuntime(82, undefined, async () => {
+		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['lan', 'nostr'])
+		assertEquals(listLinkProviders().map(provider => provider.id.split(':')[0]).sort(), ['ble_gatt', 'lan_tcp', 'nostr', 'webrtc'])
+	})
+})
+
+test('channels { lan: false } disables only the lan channel', async () => {
+	await withRuntime(83, { lan: false }, async () => {
+		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['nostr'])
+		assertEquals(listLinkProviders().map(provider => provider.id.split(':')[0]).sort(), ['ble_gatt', 'nostr', 'webrtc'])
+	})
+})
+
+test('resolve merges channel config; disableAllChannels off except overrides', () => {
+	const config = resolveSignalingRuntimeConfig({
+		channels: disableAllChannels({ nostr: { relay: ['wss://loopback/'] } }),
+	})
+	assertEquals(config.channels, {
+		nostr: { relay: ['wss://loopback/'] },
+		lan: false,
+		bt: false,
+	})
+})
+
+test('reload toggles nostr channel off and back on after startup', async () => {
+	await withRuntime(84, { nostr: true, lan: true, bt: false }, async registry => {
 		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['lan_tcp', 'nostr', 'webrtc'] })
 		await toggleChannels(registry, { nostr: false, lan: true, bt: false })
 		assertEquals(channelState(), { discovery: ['lan'], link: ['lan_tcp', 'webrtc'] })
 		await toggleChannels(registry, { nostr: true, lan: true, bt: false })
 		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['lan_tcp', 'nostr', 'webrtc'] })
-		await registry.shutdown()
-	}
-	finally {
-		clearLinkProviders()
-		clearDiscoveryProviders()
-		await teardownTestNodeDir(nodeDir)
-	}
+	})
 })
 
 test('reload toggles lan channel off and back on after startup', async () => {
-	const nodeDir = await mkTestNodeDir('fount-p2p-channels-')
-	try {
-		const { registry } = await openRuntime(nodeDir, 85)
+	await withRuntime(85, { nostr: true, lan: true, bt: false }, async registry => {
 		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['lan_tcp', 'nostr', 'webrtc'] })
 		await toggleChannels(registry, { nostr: true, lan: false, bt: false })
 		assertEquals(channelState(), { discovery: ['nostr'], link: ['nostr', 'webrtc'] })
 		await toggleChannels(registry, { nostr: true, lan: true, bt: false })
 		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['lan_tcp', 'nostr', 'webrtc'] })
-		await registry.shutdown()
-	}
-	finally {
-		clearLinkProviders()
-		clearDiscoveryProviders()
-		await teardownTestNodeDir(nodeDir)
-	}
+	})
 })
 
 test('reload toggles bt channel off and back on after startup', async () => {
-	const nodeDir = await mkTestNodeDir('fount-p2p-channels-')
-	try {
-		const { registry } = await openRuntime(nodeDir, 86)
+	await withRuntime(86, { nostr: true, lan: true, bt: false }, async registry => {
 		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['lan_tcp', 'nostr', 'webrtc'] })
 		await toggleChannels(registry, { nostr: true, lan: true, bt: true })
 		assertEquals(channelState(), { discovery: ['bt', 'lan', 'nostr'], link: ['ble_gatt', 'lan_tcp', 'nostr', 'webrtc'] })
 		await toggleChannels(registry, { nostr: true, lan: true, bt: false })
 		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['lan_tcp', 'nostr', 'webrtc'] })
-		await registry.shutdown()
-	}
-	finally {
-		clearLinkProviders()
-		clearDiscoveryProviders()
-		await teardownTestNodeDir(nodeDir)
-	}
+	})
 })

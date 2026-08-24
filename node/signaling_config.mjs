@@ -4,7 +4,6 @@ import process from 'node:process'
 
 /**
  * @typedef {{
- *   relayOverride: string[] | null
  *   iceLocalHostnamePolicy: IceLocalHostnamePolicy
  *   trickleIceOff: boolean
  *   channels: ChannelsConfig
@@ -55,7 +54,6 @@ const ICE_LOCAL_HOSTNAME_POLICIES = new Set(['none', 'rewrite-loopback', 'drop']
 export function defaultSignalingRuntimeConfig() {
 	const iceLocalHostnamePolicy = process.platform === 'win32' ? 'drop' : 'none'
 	return {
-		relayOverride: null,
 		iceLocalHostnamePolicy,
 		trickleIceOff: iceLocalHostnamePolicy !== 'none',
 		channels: resolveChannels(),
@@ -73,15 +71,7 @@ export function resolveSignalingRuntimeConfig(patch = {}) {
 	const iceLocalHostnamePolicy = ICE_LOCAL_HOSTNAME_POLICIES.has(/** @type {string} */ policyRaw)
 		? /** @type {IceLocalHostnamePolicy} */ policyRaw
 		: base.iceLocalHostnamePolicy
-	let { relayOverride } = base
-	if (Object.prototype.hasOwnProperty.call(patch, 'relayOverride'))
-		relayOverride = patch.relayOverride == null
-			? null
-			: [...new Set((Array.isArray(patch.relayOverride) ? patch.relayOverride : [])
-				.map(url => String(url || ''))
-				.filter(url => url.startsWith('wss://')))]
 	return {
-		relayOverride,
 		iceLocalHostnamePolicy,
 		trickleIceOff: patch.trickleIceOff !== undefined ? !!patch.trickleIceOff : iceLocalHostnamePolicy !== 'none',
 		channels: resolveChannels(patch.channels),

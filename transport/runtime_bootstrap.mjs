@@ -110,17 +110,6 @@ export function createRuntimeBootstrap(deps) {
 		return getSignalingRuntimeConfig().channels[name] !== false
 	}
 
-	/** 注册默认 discovery provider（lan/nostr，按 channels 门控） */
-	function registerDiscoveryDefaults() {
-		const providerIds = new Set(listDiscoveryProviders().map(provider => provider.id))
-		if (!providerIds.has('lan') && isChannelEnabled('lan'))
-			registerDiscoveryProvider(createLanDiscoveryProvider({
-				localNodeHash: localIdentity.nodeHash,
-			}))
-		if (!providerIds.has('nostr') && isChannelEnabled('nostr'))
-			registerNostrProvider()
-	}
-
 	/** 注册/替换 nostr discovery provider */
 	function registerNostrProvider() {
 		unregisterDiscoveryProvider('nostr')
@@ -135,26 +124,6 @@ export function createRuntimeBootstrap(deps) {
 	 */
 	function isLive() {
 		return runtimeStarted
-	}
-
-	/**
-	 * @returns {Promise<void>}
-	 */
-	async function ensureLinkProviders() {
-		if (!autoRegisterLinkProviders) return
-		if (!ownedLanTcp && isChannelEnabled('lan')) {
-			ownedLanTcp = createLanTcpLinkProvider()
-			registerLinkProvider(ownedLanTcp)
-		}
-		if (!ownedBleGatt && isChannelEnabled('bt')) {
-			ownedBleGatt = createBleGattLinkProvider()
-			registerLinkProvider(ownedBleGatt)
-		}
-		const ids = new Set(listLinkProviders().map(provider => provider.id))
-		if (!ids.has('webrtc'))
-			registerLinkProvider(createWebRtcLinkProvider())
-		if (!ids.has('nostr') && isChannelEnabled('nostr'))
-			registerLinkProvider(createNostrLinkProvider({ getRelayUrls: resolveNostrRelayUrls }))
 	}
 
 	/**
@@ -218,49 +187,7 @@ export function createRuntimeBootstrap(deps) {
 	 * @param {number} gen 启动世代
 	 * @returns {Promise<void>}
 	 */
-	async function warmBluetoothTask(gen) {
-		if (autoRegisterDiscoveryProviders && isChannelEnabled('bt')) {
-			const providerIds = new Set(listDiscoveryProviders().map(provider => provider.id))
-			if (!providerIds.has('bt')) {
-				const bt = await import('../discovery/bt/index.mjs').catch(() => null)
-				if (generation !== gen || !isLive()) return
-				if (await bt?.canUseBluetoothRuntime?.()) {
-					if (generation !== gen || !isLive()) return
-					const provider = bt.createBluetoothDiscoveryProvider()
-					registerDiscoveryProvider(provider)
-					if (generation !== gen || !isLive()) return
-					if (provider.startPresence)
-						try {
-							const stop = await provider.startPresence(async () => ({
-								nodeHash: localIdentity.nodeHash,
-								advertBytes: await buildNetworkAdvertBytes(),
-							}))
-							if (stop && generation === gen && isLive()) {
-								const prev = stopPresence
-								/**
-								 * 停止 presence 广播并链式调用上一轮清理。
-								 */
-								stopPresence = () => { try { stop() } catch { /* ignore */ }; prev?.() }
-							}
-						}
-						catch { /* ignore */ }
-					if (provider.caps?.canSignal && provider.listenNodeSignals)
-						try {
-							const stop = await provider.listenNodeSignals(localIdentity.nodeHash, bytes => {
-								void handleIncomingSignal(bytes).catch(() => { })
-							})
-							if (stop && generation === gen && isLive()) {
-								const prev = stopSignalListener
-								/**
-								 * 停止信令监听并链式调用上一轮清理。
-								 */
-								stopSignalListener = () => { try { stop() } catch { /* ignore */ }; prev?.() }
-							}
-						}
-						catch { /* ignore */ }
-				}
-			}
-		}
+	async function warmBleLinkTask(gen) {
 		if (generation !== gen || !isLive()) return
 		if (ownedBleGatt && await Promise.resolve(ownedBleGatt.isAvailable())) {
 			if (generation !== gen || !isLive()) return
@@ -427,9 +354,9 @@ export function createRuntimeBootstrap(deps) {
 		runtimeStart = (async () => {
 			runtimeStarted = true
 			const gen = generation
-			await ensureLinkProviders()
+			reconcileLinkProviders()
 			if (autoRegisterDiscoveryProviders)
-				registerDiscoveryDefaults()
+				await reconcileDiscoveryProviders()
 			if (isConnectivityDebug())
 				nodeDebug('p2p:runtime ensure', {
 					self: shortHash(localIdentity.nodeHash),
@@ -441,7 +368,7 @@ export function createRuntimeBootstrap(deps) {
 					if (event === 'signaling-changed')
 						void reloadDiscoveryRelays().catch(() => { })
 				})
-			bluetoothWarm = warmBluetoothTask(gen).catch(() => { })
+			bluetoothWarm = warmBleLinkTask(gen).catch(() => { })
 			runtimeWarm = warmListenAndDiscovery(gen)
 			void runtimeWarm.catch(() => { })
 		})()

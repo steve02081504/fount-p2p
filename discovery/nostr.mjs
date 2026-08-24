@@ -203,14 +203,12 @@ export function mergeSignalingRelayUrls(userRelayUrls) {
 }
 
 /**
- * 当前可用 nostr 中继：nostr 通道配置 relay > 全局 relayOverride > 节点默认。
+ * 当前可用 nostr 中继：nostr 通道配置 relay（替换默认），否则节点默认 + 公共中继。
  * @returns {string[]} relay URL 列表
  */
 export function resolveNostrRelayUrls() {
-	const channelRelay = getSignalingRuntimeConfig().channels?.nostr?.relay
-	if (channelRelay?.length) return channelRelay
-	return getSignalingRuntimeConfig().relayOverride
-		?? mergeSignalingRelayUrls(getNodeTransportSettings().relayUrls)
+	const relay = getSignalingRuntimeConfig().channels?.nostr?.relay
+	return relay?.length ? relay : mergeSignalingRelayUrls(getNodeTransportSettings().relayUrls)
 }
 
 /**

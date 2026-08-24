@@ -57,13 +57,13 @@ function resetAll() {
 	stopNodeScopeRuntime()
 }
 
-test('resolveSignalingRuntimeConfig merges patch including relayOverride', () => {
+test('resolveSignalingRuntimeConfig merges patch including channel relay', () => {
 	const config = resolveSignalingRuntimeConfig({
-		relayOverride: ['wss://relay.example/'],
+		channels: { nostr: { relay: ['wss://relay.example/'] } },
 		iceLocalHostnamePolicy: 'none',
 		trickleIceOff: false,
 	})
-	assert.deepEqual(config.relayOverride, ['wss://relay.example/'])
+	assert.deepEqual(config.channels.nostr.relay, ['wss://relay.example/'])
 	assert.equal(config.iceLocalHostnamePolicy, 'none')
 	assert.equal(config.trickleIceOff, false)
 })
@@ -143,10 +143,10 @@ test('startNode after init rejects conflicting options; setSignalingRuntimeConfi
 		await assert.rejects(() => startNode({ nodeDir }), /ignored after initNode/)
 		let saw = null
 		const off = onNodeChange((event, payload) => { saw = { event, payload } })
-		setSignalingRuntimeConfig({ relayOverride: ['wss://hot.example/'] })
+		setSignalingRuntimeConfig({ channels: { nostr: { relay: ['wss://hot.example/'] } } })
 		off()
 		assert.equal(saw?.event, 'signaling-changed')
-		assert.deepEqual(getSignalingRuntimeConfig().relayOverride, ['wss://hot.example/'])
+		assert.deepEqual(getSignalingRuntimeConfig().channels.nostr.relay, ['wss://hot.example/'])
 		assert.equal(typeof getLinkRegistry().reloadDiscoveryRelays, 'function')
 	}
 	finally {
