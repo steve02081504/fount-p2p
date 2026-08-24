@@ -156,6 +156,25 @@ test('startNode after init rejects conflicting options; setSignalingRuntimeConfi
 	}
 })
 
+test('setSignalingRuntimeConfig merges channels preserving disabled/customized settings on partial update', async () => {
+	const nodeDir = await mkTestNodeDir('p2p-edge-')
+	try {
+		resetAll()
+		initNode({ nodeDir })
+		setSignalingRuntimeConfig({ channels: { bt: false, webrtc: { trickleIceOff: true } } })
+		setSignalingRuntimeConfig({ channels: { nostr: { relay: ['wss://hot.example/'] } } })
+		const channels = getSignalingRuntimeConfig().channels
+		assert.equal(channels.bt, false)
+		assert.equal(channels.webrtc.trickleIceOff, true)
+		assert.deepEqual(channels.nostr.relay, ['wss://hot.example/'])
+		assert.notEqual(channels.lan, false)
+	}
+	finally {
+		resetAll()
+		await teardownTestNodeDir(nodeDir)
+	}
+})
+
 test('ensureUserRoom default does not attach full wires', async () => {
 	const nodeDir = await mkTestNodeDir('p2p-edge-')
 	try {

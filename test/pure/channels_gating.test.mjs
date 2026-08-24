@@ -51,14 +51,50 @@ async function ensureEnabledChannels(registry, channels) {
 }
 
 /**
- * 用指定 channels 重载运行时。
+ * 按 channels 配置推导 reconcile 后的 provider 状态。
+ * BT discovery 由 ensureChannelAvailable 显式注册，故不在此等待。
+ * @param {Record<string, boolean> | undefined} channels 通道配置
+ * @returns {{ discovery: string[], link: string[] }} 期望状态
+ */
+function expectedChannelState(channels) {
+	const config = resolveSignalingRuntimeConfig({ channels })
+	const discovery = []
+	const link = []
+	if (config.channels.lan !== false) { discovery.push('lan'); link.push('lan_tcp') }
+	if (config.channels.nostr !== false) { discovery.push('nostr'); link.push('nostr') }
+	if (config.channels.bt !== false) link.push('ble_gatt')
+	if (config.channels.webrtc !== false) link.push('webrtc')
+	return { discovery: discovery.sort(), link: link.sort() }
+}
+
+/**
+ * 等待 provider 状态收敛到 expected（signaling-changed 事件触发的 reload 是异步的）。
+ * @param {{ discovery: string[], link: string[] }} expected 期望状态
+ * @returns {Promise<void>}
+ */
+async function waitForChannelState(expected) {
+	const deadline = Date.now() + 5000
+	while (Date.now() < deadline) {
+		const state = channelState()
+		if (state.discovery.length === expected.discovery.length
+			&& state.link.length === expected.link.length
+			&& state.discovery.every((value, i) => value === expected.discovery[i])
+			&& state.link.every((value, i) => value === expected.link[i]))
+			return
+		await new Promise(resolve => setTimeout(resolve, 10))
+	}
+	throw new Error(`channel state did not settle; got ${JSON.stringify(channelState())} want ${JSON.stringify(expected)}`)
+}
+
+/**
+ * 用指定 channels 重载运行时，走 signaling-changed 触发的异步 reload 路径。
  * @param {ReturnType<typeof createLinkRegistry>} registry registry
  * @param {Record<string, boolean>} channels 通道开关
  * @returns {Promise<void>}
  */
 async function toggleChannels(registry, channels) {
 	setSignalingRuntimeConfig({ channels })
-	await registry.reloadDiscoveryRelays()
+	await waitForChannelState(expectedChannelState(channels))
 	await ensureEnabledChannels(registry, channels)
 }
 
@@ -79,8 +115,12 @@ async function withRuntime(seed, channels, run) {
 		setSignalingRuntimeConfig({ channels })
 		await registry.ensureRuntime()
 		await ensureEnabledChannels(registry, channels)
-		await run(registry)
-		await registry.shutdown()
+		try {
+			await run(registry)
+		}
+		finally {
+			await registry.shutdown()
+		}
 	}
 	finally {
 		clearLinkProviders()
@@ -97,17 +137,17 @@ test('disableAllChannels re-enabling nostr registers only nostr + webrtc', async
 })
 
 test('omitted channels keeps all discovery/link channels active', async () => {
-	const bt = await canUseBluetoothRuntime()
+	const bluetoothAvailable = await canUseBluetoothRuntime()
 	await withRuntime(82, undefined, async () => {
-		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['lan', 'nostr', ...bt ? ['bt'] : []].sort())
+		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['lan', 'nostr', ...bluetoothAvailable ? ['bt'] : []].sort())
 		assertEquals(listLinkProviders().map(provider => provider.id.split(':')[0]).sort(), ['ble_gatt', 'lan_tcp', 'nostr', 'webrtc'])
 	})
 })
 
 test('channels { lan: false } disables only the lan channel', async () => {
-	const bt = await canUseBluetoothRuntime()
+	const bluetoothAvailable = await canUseBluetoothRuntime()
 	await withRuntime(83, { lan: false }, async () => {
-		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['nostr', ...bt ? ['bt'] : []].sort())
+		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['nostr', ...bluetoothAvailable ? ['bt'] : []].sort())
 		assertEquals(listLinkProviders().map(provider => provider.id.split(':')[0]).sort(), ['ble_gatt', 'nostr', 'webrtc'])
 	})
 })

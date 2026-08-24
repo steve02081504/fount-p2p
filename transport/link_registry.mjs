@@ -760,7 +760,11 @@ export const ensureOverlayRouter = bindRegistryMethod('ensureOverlayRouter')
 export const reloadDiscoveryRelays = bindRegistryMethod('reloadDiscoveryRelays')
 /** 确保到 nodeHash 的活跃链路。 @type {(...methodArguments: unknown[]) => unknown} */
 export const ensureLinkToNode = bindRegistryMethod('ensureLinkToNode')
-/** 确保指定 channel 可用。 @type {(...methodArguments: unknown[]) => unknown} */
+/**
+ * 确保指定 channel 可用。
+ * @param {string} channel 通道名
+ * @returns {Promise<boolean>} 该 channel 可用为 true
+ */
 export const ensureChannelAvailable = bindRegistryMethod('ensureChannelAvailable')
 /** @type {(...methodArguments: unknown[]) => unknown} */
 export const getLink = bindRegistryMethod('getLink')

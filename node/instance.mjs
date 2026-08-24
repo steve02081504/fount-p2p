@@ -84,7 +84,11 @@ export function setNodeLogger(logger) {
 export function setSignalingRuntimeConfig(config) {
 	if (!runtime) throw new Error('p2p: setSignalingRuntimeConfig requires initNode')
 	const previousPolicy = runtime.signaling.channels.webrtc?.iceLocalHostnamePolicy
-	runtime.signaling = resolveSignalingRuntimeConfig({ ...runtime.signaling, ...config })
+	runtime.signaling = resolveSignalingRuntimeConfig({
+		...runtime.signaling,
+		...config,
+		channels: { ...runtime.signaling.channels, ...config?.channels },
+	})
 	if (runtime.signaling.channels.webrtc?.iceLocalHostnamePolicy !== previousPolicy)
 		rtcPolyfillCacheEpoch++
 	emitNodeChange('signaling-changed', runtime.signaling)
