@@ -36,6 +36,7 @@ import { getRoutingProfile, setRoutingProfile } from './node/routing_profile.mjs
 import { createGroupLinkSet } from './transport/group_link_set.mjs'
 import {
 	configureLinkRegistry,
+	ensureChannelAvailable,
 	ensureLinkToNode,
 	ensureOverlayRouter,
 	getLinkRegistry,
@@ -63,6 +64,7 @@ export {
 	configureLinkRegistry,
 	createGroupLinkSet,
 	createScopedLinkRoom,
+	ensureChannelAvailable,
 	ensureLinkToNode,
 	ensureNodeDefaults,
 	ensureNodeScope,

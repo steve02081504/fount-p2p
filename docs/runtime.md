@@ -4,15 +4,27 @@
 
 ## `ensureRuntime` contract
 
-Returns after registering lan / nostr / bt discovery providers (subject to the signaling `channels` whitelist) and scheduling background warm — does **not** await lan_tcp listen, Nostr relays, or BT.
+Returns after registering lan / nostr discovery providers (subject to the signaling `channels` whitelist), registering all enabled link providers (including `ble_gatt`), and scheduling background warm — does **not** await lan_tcp listen, Nostr relays, or BT availability.
 
 | Who waits | For what |
 | --- | --- |
 | Shells (`startNode` / `ensureUserRoom`) | Nothing beyond `ensureRuntime` itself — never read `lanTcpPort` or await public-signaling warm-up |
 | `buildLocalAdvert` / `whenListening` | Local lan_tcp listen only |
 | `ensureLinkToNode` | `whenSignalListening` (Nostr `listenNodeSignals` attached) before dial, so offer/answer does not drop the first signal |
+| `ensureChannelAvailable('bt')` | BT discovery provider registered and BT signal/presence fan-in restarted |
 
-Nostr / LAN / BT hooks are progressive. BT discovery / `ble_gatt` background warm runs only when the `bt` channel is enabled.
+Nostr / LAN hooks are progressive. The `bt` discovery provider is **not** registered by `ensureRuntime`; it is registered on demand via `ensureChannelAvailable('bt')`.
+
+## `ensureChannelAvailable(channel)` contract
+
+Await this to make a specific channel available:
+
+- `bt` — probes the Bluetooth runtime, registers the `bt` discovery provider if available, and restarts the signal/presence fan-in so BT participates.
+- `lan` — awaits `whenListening` (local lan_tcp listen).
+- `nostr` — awaits `whenSignalListening` (Nostr `listenNodeSignals` attached).
+- `webrtc` — awaits `whenSignalListening` (the shared signal medium WebRTC depends on).
+
+`startNode` does not call `ensureChannelAvailable` automatically; shells that need BT discovery should `await getLinkRegistry().ensureChannelAvailable('bt')` (or the top-level `ensureChannelAvailable('bt')` export) after `startNode`.
 
 ### Fast-listen & dial path
 
@@ -24,7 +36,7 @@ Nostr / LAN / BT hooks are progressive. BT discovery / `ble_gatt` background war
 | Check | Bound | Test |
 | --- | --- | --- |
 | Cold `ensureRuntime` | ≤50ms | `test/pure/startup_budget.test.mjs` |
-| Warm `ensureRuntime` | ≤5ms | same |
+| Warm `ensureRuntime` | ≤20ms | same |
 | init → shutdown → natural exit | ≤10s | `test/pure/shutdown_exit.test.mjs` |
 | 10s warm → shutdown → exit | ≤2s | same |
 

@@ -38,6 +38,19 @@ function channelState() {
 }
 
 /**
+ * 确保启用 channel 均可用（BT discovery 需显式 ensureChannelAvailable 才注册）。
+ * @param {ReturnType<typeof createLinkRegistry>} registry registry
+ * @param {Record<string, boolean> | undefined} channels 通道配置
+ * @returns {Promise<void>}
+ */
+async function ensureEnabledChannels(registry, channels) {
+	const config = resolveSignalingRuntimeConfig({ channels })
+	for (const name of ['lan', 'nostr', 'bt', 'webrtc'])
+		if (config.channels[name] !== false)
+			await registry.ensureChannelAvailable(name)
+}
+
+/**
  * 用指定 channels 重载运行时。
  * @param {ReturnType<typeof createLinkRegistry>} registry registry
  * @param {Record<string, boolean>} channels 通道开关
@@ -46,10 +59,12 @@ function channelState() {
 async function toggleChannels(registry, channels) {
 	setSignalingRuntimeConfig({ channels })
 	await registry.reloadDiscoveryRelays()
+	await ensureEnabledChannels(registry, channels)
 }
 
 /**
- * 打开指定 channels 的运行时，执行断言后清理。基线默认关闭 bt，避免启动期异步 warm 的 bt discovery 竞态。
+ * 打开指定 channels 的运行时，执行断言后清理。
+ * ensureRuntime 只注册廉价 provider；BT discovery 需显式 ensureChannelAvailable 才注册。
  * @param {number} seed 身份种子
  * @param {Record<string, boolean> | undefined} channels 初始通道配置
  * @param {(registry: ReturnType<typeof createLinkRegistry>) => Promise<void>} run 断言回调
@@ -63,6 +78,7 @@ async function withRuntime(seed, channels, run) {
 		const registry = openRegistry(nodeDir, identity(seed))
 		setSignalingRuntimeConfig({ channels })
 		await registry.ensureRuntime()
+		await ensureEnabledChannels(registry, channels)
 		await run(registry)
 		await registry.shutdown()
 	}
