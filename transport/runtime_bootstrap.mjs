@@ -86,6 +86,8 @@ export function createRuntimeBootstrap(deps) {
 	let runtimeWarm = null
 	/** @type {Promise<void> | null} */
 	let bluetoothWarm = null
+	/** @type {Promise<void> | null} */
+	let btWarm = null
 	/** @type {(() => void) | null} */
 	let stopPresence = null
 	/** @type {(() => void) | null} */
@@ -281,8 +283,26 @@ export function createRuntimeBootstrap(deps) {
 		}
 	}
 
-	/** 按 channels 配置同步 discovery provider（启用注册 / 禁用注销） */
-	async function reconcileDiscoveryProviders() {
+	/**
+	 * @param {number} gen 启动世代
+	 * @returns {Promise<void>} BT discovery 注册任务（后台，不阻塞关键路径）
+	 */
+	async function warmBtDiscoveryProvider(gen) {
+		if (!autoRegisterDiscoveryProviders) return
+		if (generation !== gen || !isLive()) return
+		const present = new Set(listDiscoveryProviders().map(provider => provider.id))
+		if (!isChannelEnabled('bt')) return
+		if (present.has('bt')) return
+		const bt = await import('../discovery/bt/index.mjs').catch(() => null)
+		if (generation !== gen || !isLive()) return
+		if (await bt?.canUseBluetoothRuntime?.()) {
+			if (generation !== gen || !isLive()) return
+			registerDiscoveryProvider(bt.createBluetoothDiscoveryProvider())
+		}
+	}
+
+	/** 按 channels 配置同步 discovery provider（启用注册 / 禁用注销；BT 后台注册） */
+	function reconcileDiscoveryProviders(gen) {
 		if (!autoRegisterDiscoveryProviders) return
 		const present = new Set(listDiscoveryProviders().map(provider => provider.id))
 		if (isChannelEnabled('lan')) {
@@ -295,11 +315,8 @@ export function createRuntimeBootstrap(deps) {
 		if (isChannelEnabled('nostr')) registerNostrProvider()
 		else unregisterDiscoveryProvider('nostr')
 		if (isChannelEnabled('bt')) {
-			if (!present.has('bt')) {
-				const bt = await import('../discovery/bt/index.mjs').catch(() => null)
-				if (await bt?.canUseBluetoothRuntime?.())
-					registerDiscoveryProvider(bt.createBluetoothDiscoveryProvider())
-			}
+			if (!present.has('bt'))
+				btWarm = warmBtDiscoveryProvider(gen).catch(() => { })
 		}
 		else {
 			unregisterDiscoveryProvider('bt')
@@ -319,7 +336,8 @@ export function createRuntimeBootstrap(deps) {
 			stopPresence = null
 			stopSignalListener = null
 			reconcileLinkProviders()
-			await reconcileDiscoveryProviders()
+			reconcileDiscoveryProviders(gen)
+			await btWarm?.catch(() => { })
 			if (generation !== gen || !isLive()) return
 			if (ownedLanTcp && !stopLinkListeners.has(ownedLanTcp.id))
 				await startProviderListening(ownedLanTcp)
@@ -361,7 +379,7 @@ export function createRuntimeBootstrap(deps) {
 			const gen = generation
 			reconcileLinkProviders()
 			if (autoRegisterDiscoveryProviders)
-				await reconcileDiscoveryProviders()
+				reconcileDiscoveryProviders(gen)
 			if (isConnectivityDebug())
 				nodeDebug('p2p:runtime ensure', {
 					self: shortHash(localIdentity.nodeHash),
@@ -417,6 +435,7 @@ export function createRuntimeBootstrap(deps) {
 		signalListenReady = null
 		runtimeWarm = null
 		bluetoothWarm = null
+		btWarm = null
 		reloadInflight = null
 	}
 
