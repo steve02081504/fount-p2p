@@ -4,8 +4,6 @@ import process from 'node:process'
 
 /**
  * @typedef {{
- *   iceLocalHostnamePolicy: IceLocalHostnamePolicy
- *   trickleIceOff: boolean
  *   channels: ChannelsConfig
  * }} SignalingRuntimeConfig
  */
@@ -14,8 +12,19 @@ import process from 'node:process'
  * @typedef {Record<string, object | boolean>} ChannelsConfig
  */
 
+/** webrtc 通道默认配置。 */
+function defaultWebRtcConfig() {
+	const iceLocalHostnamePolicy = process.platform === 'win32' ? 'drop' : 'none'
+	return { iceLocalHostnamePolicy, trickleIceOff: iceLocalHostnamePolicy !== 'none' }
+}
+
 /** 各介质的默认 channel 配置；对象值是启用并覆盖默认。 */
-const DEFAULT_CHANNEL_CONFIG = { nostr: true, lan: true, bt: true }
+const DEFAULT_CHANNEL_CONFIG = {
+	nostr: true,
+	lan: true,
+	bt: true,
+	webrtc: defaultWebRtcConfig(),
+}
 
 /**
  * 归一到完整 channels 记录：false 禁用，其余（undefined / true / object）启用并合并默认配置。
@@ -45,19 +54,11 @@ export function disableAllChannels(overrides = {}) {
 	return { ...disabledChannels, ...overrides }
 }
 
-const ICE_LOCAL_HOSTNAME_POLICIES = new Set(['none', 'rewrite-loopback', 'drop'])
-
 /**
- * 生产默认：win32 丢弃 `.local` host candidate；其它平台不过滤。
  * @returns {SignalingRuntimeConfig} 默认信令运行时配置
  */
 export function defaultSignalingRuntimeConfig() {
-	const iceLocalHostnamePolicy = process.platform === 'win32' ? 'drop' : 'none'
-	return {
-		iceLocalHostnamePolicy,
-		trickleIceOff: iceLocalHostnamePolicy !== 'none',
-		channels: resolveChannels(),
-	}
+	return { channels: resolveChannels() }
 }
 
 /**
@@ -65,15 +66,6 @@ export function defaultSignalingRuntimeConfig() {
  * @returns {SignalingRuntimeConfig} 合并后的信令运行时配置
  */
 export function resolveSignalingRuntimeConfig(patch = {}) {
-	const base = defaultSignalingRuntimeConfig()
-	if (!patch || typeof patch !== 'object') return base
-	const policyRaw = patch.iceLocalHostnamePolicy
-	const iceLocalHostnamePolicy = ICE_LOCAL_HOSTNAME_POLICIES.has(/** @type {string} */ policyRaw)
-		? /** @type {IceLocalHostnamePolicy} */ policyRaw
-		: base.iceLocalHostnamePolicy
-	return {
-		iceLocalHostnamePolicy,
-		trickleIceOff: patch.trickleIceOff !== undefined ? !!patch.trickleIceOff : iceLocalHostnamePolicy !== 'none',
-		channels: resolveChannels(patch.channels),
-	}
+	if (!patch || typeof patch !== 'object') return defaultSignalingRuntimeConfig()
+	return { channels: resolveChannels(patch.channels) }
 }

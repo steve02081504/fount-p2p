@@ -272,8 +272,13 @@ export function createRuntimeBootstrap(deps) {
 			releaseLinkProvider(ownedBleGatt.id)
 			ownedBleGatt = null
 		}
-		if (!listLinkProviders().some(provider => provider.id.split(':')[0] === 'webrtc'))
-			registerLinkProvider(createWebRtcLinkProvider())
+		if (isChannelEnabled('webrtc')) {
+			if (!listLinkProviders().some(provider => provider.id.split(':')[0] === 'webrtc'))
+				registerLinkProvider(createWebRtcLinkProvider())
+		}
+		else {
+			releaseLinkProvider('webrtc')
+		}
 	}
 
 	/** 按 channels 配置同步 discovery provider（启用注册 / 禁用注销） */

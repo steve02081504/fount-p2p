@@ -1,7 +1,7 @@
 /**
  * 子进程：init → ensureRuntime → shutdown，然后自然退出。
  * 由 `shutdown_exit.test.mjs` spawn；勿在父测试进程内直接跑（`--test-force-exit` 会掩盖泄漏）。
- * 与生产相同：默认公网 nostr + lan + BT 暖机（无 relayOverride）。
+ * 与生产相同：默认公网 nostr + lan + BT 暖机（不设每通道 relay）。
  *
  * argv[2]：ensureRuntime 后、shutdown 前额外等待（毫秒）；写出一行 `shutdown` 到 stdout，供父进程计量 shutdown→exit。
  */

@@ -28,7 +28,7 @@ Nostr / LAN / BT hooks are progressive. BT discovery / `ble_gatt` background war
 | init → shutdown → natural exit | ≤10s | `test/pure/shutdown_exit.test.mjs` |
 | 10s warm → shutdown → exit | ≤2s | same |
 
-Shutdown-exit tests use the production path (default public Nostr + lan). Do not use `relayOverride` / dead-relay crutches there.
+Shutdown-exit tests use the production path (default public Nostr + lan). Do not use per-channel relay / dead-relay crutches there.
 
 ## Nostr cleanup
 

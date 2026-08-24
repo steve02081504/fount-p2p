@@ -68,7 +68,7 @@ export async function createWebRtcLink(options) {
 	const handshakeTimeoutMs = Number(options.handshakeTimeoutMs) || ms('10s')
 	const channelOpenTimeoutMs = Math.max(handshakeTimeoutMs, ms('30s'))
 	const rtc = options.rtc ?? await loadNodeRtcPolyfill()
-	const trickleIceOff = getSignalingRuntimeConfig().trickleIceOff === true
+	const trickleIceOff = getSignalingRuntimeConfig().channels.webrtc?.trickleIceOff === true
 	const peerConnection = new rtc.RTCPeerConnection(options.iceServers?.length ? { iceServers: options.iceServers } : undefined)
 	const remoteSignalQueue = []
 	const seenRemoteSignals = createLruMap(1024)

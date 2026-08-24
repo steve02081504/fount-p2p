@@ -74,23 +74,32 @@ async function withRuntime(seed, channels, run) {
 }
 
 test('disableAllChannels re-enabling nostr registers only nostr + webrtc', async () => {
-	await withRuntime(81, disableAllChannels({ nostr: true }), async () => {
+	await withRuntime(81, disableAllChannels({ nostr: true, webrtc: true }), async () => {
 		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['nostr'])
 		assertEquals(listLinkProviders().map(provider => provider.id.split(':')[0]).sort(), ['nostr', 'webrtc'])
 	})
 })
 
 test('omitted channels keeps all discovery/link channels active', async () => {
+	const bt = await canUseBluetoothRuntime()
 	await withRuntime(82, undefined, async () => {
-		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['lan', 'nostr'])
+		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['lan', 'nostr', ...(bt ? ['bt'] : [])].sort())
 		assertEquals(listLinkProviders().map(provider => provider.id.split(':')[0]).sort(), ['ble_gatt', 'lan_tcp', 'nostr', 'webrtc'])
 	})
 })
 
 test('channels { lan: false } disables only the lan channel', async () => {
+	const bt = await canUseBluetoothRuntime()
 	await withRuntime(83, { lan: false }, async () => {
-		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['nostr'])
+		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['nostr', ...(bt ? ['bt'] : [])].sort())
 		assertEquals(listLinkProviders().map(provider => provider.id.split(':')[0]).sort(), ['ble_gatt', 'nostr', 'webrtc'])
+	})
+})
+
+test('channels { webrtc: false } drops the webrtc link fallback', async () => {
+	await withRuntime(87, { nostr: true, lan: true, bt: false, webrtc: false }, async () => {
+		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['lan', 'nostr'])
+		assertEquals(listLinkProviders().map(provider => provider.id.split(':')[0]).sort(), ['lan_tcp', 'nostr'])
 	})
 })
 
@@ -102,6 +111,7 @@ test('resolve merges channel config; disableAllChannels off except overrides', (
 		nostr: { relay: ['wss://loopback/'] },
 		lan: false,
 		bt: false,
+		webrtc: false,
 	})
 })
 

@@ -59,13 +59,14 @@ function resetAll() {
 
 test('resolveSignalingRuntimeConfig merges patch including channel relay', () => {
 	const config = resolveSignalingRuntimeConfig({
-		channels: { nostr: { relay: ['wss://relay.example/'] } },
-		iceLocalHostnamePolicy: 'none',
-		trickleIceOff: false,
+		channels: {
+			nostr: { relay: ['wss://relay.example/'] },
+			webrtc: { iceLocalHostnamePolicy: 'none', trickleIceOff: false },
+		},
 	})
 	assert.deepEqual(config.channels.nostr.relay, ['wss://relay.example/'])
-	assert.equal(config.iceLocalHostnamePolicy, 'none')
-	assert.equal(config.trickleIceOff, false)
+	assert.equal(config.channels.webrtc.iceLocalHostnamePolicy, 'none')
+	assert.equal(config.channels.webrtc.trickleIceOff, false)
 })
 
 test('setNodeLogger(null) disables logger; second initNode throws', async () => {
