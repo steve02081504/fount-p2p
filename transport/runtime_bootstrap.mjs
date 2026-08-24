@@ -219,7 +219,10 @@ export function createRuntimeBootstrap(deps) {
 		})()
 	}
 
-	/** 释放指定 id 的 link provider 监听与注册 */
+	/**
+	 * 释放指定 id 的 link provider 监听与注册
+	 * @param {id: string} id link provider id
+	 */
 	function releaseLinkProvider(id) {
 		const stop = stopLinkListeners.get(id)
 		stopLinkListeners.delete(id)
@@ -235,9 +238,8 @@ export function createRuntimeBootstrap(deps) {
 			if (!present.has('nostr'))
 				registerLinkProvider(createNostrLinkProvider({ getRelayUrls: resolveNostrRelayUrls }))
 		}
-		else {
-			releaseLinkProvider('nostr')
-		}
+		else releaseLinkProvider('nostr')
+
 		if (isChannelEnabled('lan')) {
 			if (!ownedLanTcp) {
 				ownedLanTcp = createLanTcpLinkProvider()
@@ -262,9 +264,7 @@ export function createRuntimeBootstrap(deps) {
 			if (!listLinkProviders().some(provider => provider.id.split(':')[0] === 'webrtc'))
 				registerLinkProvider(createWebRtcLinkProvider())
 		}
-		else {
-			releaseLinkProvider('webrtc')
-		}
+		else releaseLinkProvider('webrtc')
 	}
 
 	/** 按 channels 配置同步 discovery provider（启用注册 / 禁用注销；BT discovery 由 ensureChannelAvailable 显式注册） */
@@ -275,9 +275,8 @@ export function createRuntimeBootstrap(deps) {
 			if (!present.has('lan'))
 				registerDiscoveryProvider(createLanDiscoveryProvider({ localNodeHash: localIdentity.nodeHash }))
 		}
-		else {
-			unregisterDiscoveryProvider('lan')
-		}
+		else unregisterDiscoveryProvider('lan')
+
 		if (isChannelEnabled('nostr')) registerNostrProvider()
 		else unregisterDiscoveryProvider('nostr')
 		if (!isChannelEnabled('bt')) unregisterDiscoveryProvider('bt')

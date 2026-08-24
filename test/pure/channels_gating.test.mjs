@@ -99,7 +99,7 @@ test('disableAllChannels re-enabling nostr registers only nostr + webrtc', async
 test('omitted channels keeps all discovery/link channels active', async () => {
 	const bt = await canUseBluetoothRuntime()
 	await withRuntime(82, undefined, async () => {
-		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['lan', 'nostr', ...(bt ? ['bt'] : [])].sort())
+		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['lan', 'nostr', ...bt ? ['bt'] : []].sort())
 		assertEquals(listLinkProviders().map(provider => provider.id.split(':')[0]).sort(), ['ble_gatt', 'lan_tcp', 'nostr', 'webrtc'])
 	})
 })
@@ -107,7 +107,7 @@ test('omitted channels keeps all discovery/link channels active', async () => {
 test('channels { lan: false } disables only the lan channel', async () => {
 	const bt = await canUseBluetoothRuntime()
 	await withRuntime(83, { lan: false }, async () => {
-		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['nostr', ...(bt ? ['bt'] : [])].sort())
+		assertEquals(listDiscoveryProviders().map(provider => provider.id).sort(), ['nostr', ...bt ? ['bt'] : []].sort())
 		assertEquals(listLinkProviders().map(provider => provider.id.split(':')[0]).sort(), ['ble_gatt', 'nostr', 'webrtc'])
 	})
 })

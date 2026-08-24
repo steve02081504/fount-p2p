@@ -12,7 +12,10 @@ import process from 'node:process'
  * @typedef {Record<string, object | boolean>} ChannelsConfig
  */
 
-/** webrtc 通道默认配置。 */
+/**
+ * webrtc 通道默认配置。
+ * @returns {{ iceLocalHostnamePolicy: IceLocalHostnamePolicy, trickleIceOff: boolean }} webrtc 通道默认配置
+ */
 function defaultWebRtcConfig() {
 	const iceLocalHostnamePolicy = process.platform === 'win32' ? 'drop' : 'none'
 	return { iceLocalHostnamePolicy, trickleIceOff: iceLocalHostnamePolicy !== 'none' }
