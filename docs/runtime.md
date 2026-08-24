@@ -36,7 +36,7 @@ Await this to make a specific channel available:
 | Check | Bound | Test |
 | --- | --- | --- |
 | Cold `ensureRuntime` | ≤50ms | `test/pure/startup_budget.test.mjs` |
-| Warm `ensureRuntime` | ≤20ms | same |
+| Warm `ensureRuntime` | ≤5ms | same |
 | init → shutdown → natural exit | ≤10s | `test/pure/shutdown_exit.test.mjs` |
 | 10s warm → shutdown → exit | ≤2s | same |
 
