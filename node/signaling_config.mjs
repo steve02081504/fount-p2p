@@ -29,7 +29,7 @@ function resolveChannels(raw = {}) {
 	const out = {}
 	for (const name of Object.keys(DEFAULT_CHANNEL_CONFIG)) {
 		const value = raw[name]
-		out[name] = Boolean(value) && { ...Object(DEFAULT_CHANNEL_CONFIG[name]), ...Object(value) }
+		out[name] = value !== false && { ...Object(DEFAULT_CHANNEL_CONFIG[name]), ...Object(value) }
 	}
 	return out
 }
