@@ -4,7 +4,7 @@
 
 ## `ensureRuntime` contract
 
-Returns after registering lan / nostr / bt discovery providers and scheduling background warm — does **not** await lan_tcp listen, Nostr relays, or BT.
+Returns after registering lan / nostr / bt discovery providers (subject to the signaling `channels` whitelist) and scheduling background warm — does **not** await lan_tcp listen, Nostr relays, or BT.
 
 | Who waits | For what |
 | --- | --- |

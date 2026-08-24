@@ -10,7 +10,7 @@ import {
 	unregisterDiscoveryProvider,
 } from '../discovery/index.mjs'
 import { createLanDiscoveryProvider } from '../discovery/lan.mjs'
-import { mergeSignalingRelayUrls, createNostrDiscoveryProvider } from '../discovery/nostr.mjs'
+import { createNostrDiscoveryProvider, resolveNostrRelayUrls } from '../discovery/nostr.mjs'
 import { createBleGattLinkProvider } from '../link/providers/ble_gatt.mjs'
 import {
 	listLinkProviders,
@@ -20,7 +20,6 @@ import {
 import { createLanTcpLinkProvider } from '../link/providers/lan_tcp.mjs'
 import { createNostrLinkProvider } from '../link/providers/nostr.mjs'
 import { createWebRtcLinkProvider } from '../link/providers/webrtc.mjs'
-import { getNodeTransportSettings } from '../node/identity.mjs'
 import { getSignalingRuntimeConfig, onNodeChange } from '../node/instance.mjs'
 import { isConnectivityDebug, nodeDebug, shortHash } from '../node/log.mjs'
 
@@ -104,21 +103,21 @@ export function createRuntimeBootstrap(deps) {
 	let stopSignalingWatch = null
 
 	/**
-	 * @returns {string[]} 当前 Nostr relay URL 列表
+	 * @param {string} name 通道名
+	 * @returns {boolean} 该通道是否启用（默认启用，false 禁用）
 	 */
-	function resolveNostrRelayUrls() {
-		return getSignalingRuntimeConfig().relayOverride
-			?? mergeSignalingRelayUrls(getNodeTransportSettings().relayUrls)
+	function isChannelEnabled(name) {
+		return getSignalingRuntimeConfig().channels[name] !== false
 	}
 
-	/** 注册默认 discovery provider（lan/nostr） */
+	/** 注册默认 discovery provider（lan/nostr，按 channels 门控） */
 	function registerDiscoveryDefaults() {
 		const providerIds = new Set(listDiscoveryProviders().map(provider => provider.id))
-		if (!providerIds.has('lan'))
+		if (!providerIds.has('lan') && isChannelEnabled('lan'))
 			registerDiscoveryProvider(createLanDiscoveryProvider({
 				localNodeHash: localIdentity.nodeHash,
 			}))
-		if (!providerIds.has('nostr'))
+		if (!providerIds.has('nostr') && isChannelEnabled('nostr'))
 			registerNostrProvider()
 	}
 
@@ -143,18 +142,18 @@ export function createRuntimeBootstrap(deps) {
 	 */
 	async function ensureLinkProviders() {
 		if (!autoRegisterLinkProviders) return
-		if (!ownedLanTcp) {
+		if (!ownedLanTcp && isChannelEnabled('lan')) {
 			ownedLanTcp = createLanTcpLinkProvider()
 			registerLinkProvider(ownedLanTcp)
 		}
-		if (!ownedBleGatt) {
+		if (!ownedBleGatt && isChannelEnabled('bt')) {
 			ownedBleGatt = createBleGattLinkProvider()
 			registerLinkProvider(ownedBleGatt)
 		}
 		const ids = new Set(listLinkProviders().map(provider => provider.id))
 		if (!ids.has('webrtc'))
 			registerLinkProvider(createWebRtcLinkProvider())
-		if (!ids.has('nostr'))
+		if (!ids.has('nostr') && isChannelEnabled('nostr'))
 			registerLinkProvider(createNostrLinkProvider({ getRelayUrls: resolveNostrRelayUrls }))
 	}
 
@@ -219,7 +218,7 @@ export function createRuntimeBootstrap(deps) {
 	 * @returns {Promise<void>}
 	 */
 	async function warmBluetoothTask(gen) {
-		if (autoRegisterDiscoveryProviders) {
+		if (autoRegisterDiscoveryProviders && isChannelEnabled('bt')) {
 			const providerIds = new Set(listDiscoveryProviders().map(provider => provider.id))
 			if (!providerIds.has('bt')) {
 				const bt = await import('../discovery/bt/index.mjs').catch(() => null)
@@ -310,7 +309,7 @@ export function createRuntimeBootstrap(deps) {
 	 * @returns {Promise<void>}
 	 */
 	async function reloadDiscoveryRelays() {
-		if (!runtimeStarted || !autoRegisterDiscoveryProviders) return
+		if (!runtimeStarted || !autoRegisterDiscoveryProviders || !isChannelEnabled('nostr')) return
 		if (reloadInflight) return await reloadInflight
 		reloadInflight = (async () => {
 			const gen = generation
