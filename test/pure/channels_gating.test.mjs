@@ -101,7 +101,7 @@ test('resolve merges channel config; disableAllChannels off except overrides', (
 	})
 })
 
-/** 当前全局 discovery / link provider 状态（bt runtime 在纯测试中不可用，故无 bt discovery）。 */
+/** 当前全局 discovery / link provider 状态。 */
 function channelState() {
 	return {
 		discovery: listDiscoveryProviders().map(provider => provider.id).sort(),
@@ -121,16 +121,17 @@ async function toggleChannels(registry, channels) {
 }
 
 /**
- * 打开全通道注册的运行时并返回 state 断言对象。
+ * 打开指定 channels 注册的运行时。基线默认关闭 bt，避免启动期异步 warm 的 bt discovery 竞态。
  * @param {string} nodeDir nodeDir
  * @param {number} seed 身份种子
+ * @param {Record<string, boolean>} [channels] 通道开关
  * @returns {Promise<{ registry: ReturnType<typeof createLinkRegistry> }>} 句柄
  */
-async function openAllChannels(nodeDir, seed) {
+async function openRuntime(nodeDir, seed, channels = { nostr: true, lan: true, bt: false }) {
 	clearLinkProviders()
 	clearDiscoveryProviders()
 	const registry = openRegistry(nodeDir, identity(seed))
-	setSignalingRuntimeConfig({ channels: { nostr: true, lan: true, bt: true } })
+	setSignalingRuntimeConfig({ channels })
 	await registry.ensureRuntime()
 	return { registry }
 }
@@ -138,12 +139,12 @@ async function openAllChannels(nodeDir, seed) {
 test('reload toggles nostr channel off and back on after startup', async () => {
 	const nodeDir = await mkTestNodeDir('fount-p2p-channels-')
 	try {
-		const { registry } = await openAllChannels(nodeDir, 84)
-		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['ble_gatt', 'lan_tcp', 'nostr', 'webrtc'] })
-		await toggleChannels(registry, { nostr: false })
-		assertEquals(channelState(), { discovery: ['lan'], link: ['ble_gatt', 'lan_tcp', 'webrtc'] })
-		await toggleChannels(registry, { nostr: true })
-		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['ble_gatt', 'lan_tcp', 'nostr', 'webrtc'] })
+		const { registry } = await openRuntime(nodeDir, 84)
+		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['lan_tcp', 'nostr', 'webrtc'] })
+		await toggleChannels(registry, { nostr: false, lan: true, bt: false })
+		assertEquals(channelState(), { discovery: ['lan'], link: ['lan_tcp', 'webrtc'] })
+		await toggleChannels(registry, { nostr: true, lan: true, bt: false })
+		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['lan_tcp', 'nostr', 'webrtc'] })
 		await registry.shutdown()
 	}
 	finally {
@@ -156,12 +157,12 @@ test('reload toggles nostr channel off and back on after startup', async () => {
 test('reload toggles lan channel off and back on after startup', async () => {
 	const nodeDir = await mkTestNodeDir('fount-p2p-channels-')
 	try {
-		const { registry } = await openAllChannels(nodeDir, 85)
-		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['ble_gatt', 'lan_tcp', 'nostr', 'webrtc'] })
-		await toggleChannels(registry, { lan: false })
-		assertEquals(channelState(), { discovery: ['nostr'], link: ['ble_gatt', 'nostr', 'webrtc'] })
-		await toggleChannels(registry, { lan: true })
-		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['ble_gatt', 'lan_tcp', 'nostr', 'webrtc'] })
+		const { registry } = await openRuntime(nodeDir, 85)
+		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['lan_tcp', 'nostr', 'webrtc'] })
+		await toggleChannels(registry, { nostr: true, lan: false, bt: false })
+		assertEquals(channelState(), { discovery: ['nostr'], link: ['nostr', 'webrtc'] })
+		await toggleChannels(registry, { nostr: true, lan: true, bt: false })
+		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['lan_tcp', 'nostr', 'webrtc'] })
 		await registry.shutdown()
 	}
 	finally {
@@ -174,12 +175,12 @@ test('reload toggles lan channel off and back on after startup', async () => {
 test('reload toggles bt channel off and back on after startup', async () => {
 	const nodeDir = await mkTestNodeDir('fount-p2p-channels-')
 	try {
-		const { registry } = await openAllChannels(nodeDir, 86)
-		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['ble_gatt', 'lan_tcp', 'nostr', 'webrtc'] })
-		await toggleChannels(registry, { bt: false })
+		const { registry } = await openRuntime(nodeDir, 86)
 		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['lan_tcp', 'nostr', 'webrtc'] })
-		await toggleChannels(registry, { bt: true })
-		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['ble_gatt', 'lan_tcp', 'nostr', 'webrtc'] })
+		await toggleChannels(registry, { nostr: true, lan: true, bt: true })
+		assertEquals(channelState(), { discovery: ['bt', 'lan', 'nostr'], link: ['ble_gatt', 'lan_tcp', 'nostr', 'webrtc'] })
+		await toggleChannels(registry, { nostr: true, lan: true, bt: false })
+		assertEquals(channelState(), { discovery: ['lan', 'nostr'], link: ['lan_tcp', 'nostr', 'webrtc'] })
 		await registry.shutdown()
 	}
 	finally {
