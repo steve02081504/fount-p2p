@@ -25,6 +25,10 @@ export const DEFAULT_RELAY_URLS = [
 	'wss://relay.damus.io',
 	'wss://nos.lol',
 	'wss://relay.nostr.band',
+	'wss://relay.nostr.com',
+	'wss://nostr.bitcoiner.social',
+	'wss://nostr.mom',
+	'wss://relay.snort.social',
 ]
 
 /** 单中继 WebSocket 首连超时（短超时 + 并行，避免串行 10s×N）。 */
