@@ -2,7 +2,7 @@ import { test } from 'node:test'
 
 import { bytesToBase64 } from '../../core/bytes_codec.mjs'
 import { normalizeHex64 } from '../../core/hexIds.mjs'
-import { FRAME_HEADER_BYTES, MIN_FRAME_CHUNK_BYTES } from '../../link/frame.mjs'
+import { FRAME_HEADER_BYTES, maxFrameChunkBytesForPayload, MIN_FRAME_CHUNK_BYTES } from '../../link/frame.mjs'
 import {
 	clearDiscoveryProviders,
 	decryptNodeSignalPacket,
@@ -16,6 +16,7 @@ import {
 } from '../../link/providers/index.mjs'
 import {
 	createNostrLinkProvider,
+	estimateEventMessageBytes,
 	MAX_LINK_PAYLOAD_CHARS,
 	MIN_USABLE_RELAY_CAP_CHARS,
 	minUsablePayloadCap,
@@ -136,7 +137,7 @@ test('nostr link dial/accept exchanges an envelope over type:link', async () => 
 		let received = null
 		inbound.onEnvelope(envelope => { received = envelope })
 		assertEquals(await dialed.send({ scope: 'test', action: 'ping-payload', payload: { n: 1 } }), true)
-		for (let i = 0; i < 50 && !received; i++)
+		for (let pollAttempt = 0; pollAttempt < 50 && !received; pollAttempt++)
 			await new Promise(resolve => setTimeout(resolve, 10))
 		assertEquals(received?.scope, 'test')
 		assertEquals(received?.action, 'ping-payload')
@@ -164,6 +165,19 @@ test('MIN_USABLE_RELAY_CAP_CHARS can carry a minimum-chunk frame and is below th
 	const frame = new Uint8Array(FRAME_HEADER_BYTES + MIN_FRAME_CHUNK_BYTES)
 	assertEquals(bytesToBase64(frame).length === MIN_USABLE_RELAY_CAP_CHARS, true)
 	assertEquals(MIN_USABLE_RELAY_CAP_CHARS < MAX_LINK_PAYLOAD_CHARS, true)
+})
+
+test('estimateEventMessageBytes measures the full EVENT message; chunk budget hits the cap exactly', () => {
+	const cap = MAX_LINK_PAYLOAD_CHARS
+	const from = 'aa'.repeat(32)
+	const linkId = 'bb'.repeat(32)
+	/** @param {Uint8Array} frame 完整帧（帧头 + chunk） */
+	const packetForFrame = frame => ({ type: 'link', op: 'b', from, linkId, payload: bytesToBase64(frame) })
+	const chunk = maxFrameChunkBytesForPayload(cap, frame => 'x'.repeat(estimateEventMessageBytes(packetForFrame(frame))))
+	// 达到上限：整帧消息恰好不超过 cap。
+	assertEquals(estimateEventMessageBytes(packetForFrame(new Uint8Array(FRAME_HEADER_BYTES + chunk))) <= cap, true)
+	// 超出上限：多一字节 chunk 即超过。
+	assertEquals(estimateEventMessageBytes(packetForFrame(new Uint8Array(FRAME_HEADER_BYTES + chunk + 1))) > cap, true)
 })
 
 test('nostr link chunks and reassembles a large envelope under the payload cap', async () => {
@@ -212,7 +226,7 @@ test('nostr link chunks and reassembles a large envelope under the payload cap',
 		let received = null
 		inbound.onEnvelope(envelope => { received = envelope })
 		assertEquals(await dialed.send(big), true)
-		for (let i = 0; i < 200 && !received; i++)
+		for (let pollAttempt = 0; pollAttempt < 200 && !received; pollAttempt++)
 			await new Promise(resolve => setTimeout(resolve, 10))
 		assertEquals(received?.scope, 'test')
 		assertEquals(received?.action, 'big-payload')

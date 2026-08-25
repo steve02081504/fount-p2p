@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto'
 import { base64ToBytes, bytesToBase64 } from '../../core/bytes_codec.mjs'
 import { normalizeHex64 } from '../../core/hexIds.mjs'
 import { getDiscoveryProvider, sendNodeSignalPacket } from '../../discovery/index.mjs'
-import { resolveNostrRelayUrls } from '../../discovery/nostr.mjs'
+import { NOSTR_SIGNAL_KIND, resolveNostrRelayUrls } from '../../discovery/nostr.mjs'
 import { ms } from '../../utils/duration.mjs'
 import { createLruMap } from '../../utils/lru.mjs'
 import { FRAME_HEADER_BYTES, maxFrameChunkBytesForPayload, MIN_FRAME_CHUNK_BYTES } from '../frame.mjs'
@@ -26,12 +26,40 @@ const PAYLOAD_CAP_CACHE_TTL_MS = ms('10m')
  *  这类 relay 即便能传也无法携带有效数据，参与取最小值只会无谓拖低/毒化整条链路。 */
 export const MIN_USABLE_RELAY_CAP_CHARS = bytesToBase64(new Uint8Array(FRAME_HEADER_BYTES + MIN_FRAME_CHUNK_BYTES)).length
 
-/** @type {number | null} 实测非零最小 payload 上限（NIP-11 max_message_length） */
-let queriedPayloadCap = null
-/** @type {number} 最近一次实测时间戳 */
-let payloadCapQueriedAt = 0
-/** @type {Promise<void> | null} 进行中的探测（去重并发） */
-let payloadCapRefreshPromise = null
+const textEncoder = new TextEncoder()
+/** 固定 64 位 hex 占位（id/pubkey/sig/rendezvousKey/nodeHash 均固定宽度）。 */
+const HEX64 = 'a'.repeat(64)
+/** AES-GCM 封装输出中的固定长度字段占位：iv = base64(12B) = 16，authTag = base64(16B) = 24。 */
+const GCM_IV_BASE64 = 'a'.repeat(16)
+const GCM_AUTH_TAG_BASE64 = 'a'.repeat(24)
+
+/**
+ * 估算把给定 link 包发布为 Nostr EVENT 后，完整 WebSocket 消息（["EVENT", event]）的 UTF-8 字节长度。
+ * id/pubkey/sig/rendezvousKey/nodeHash 均为固定 64 hex，created_at/kind/tags 固定，故长度仅随 packet.payload 变化，
+ * 可同步精确构造（含加密封装壳与 event 字段），无需真正 AES-GCM 封装与 Schnorr 签名。
+ * @param {object} packet link 包
+ * @returns {number} 完整消息字节长度
+ */
+export function estimateEventMessageBytes(packet) {
+	const packetJson = JSON.stringify(packet)
+	// encryptSignalPacket 输出全 ASCII：{"iv":<16>,"authTag":<24>,"ciphertext":base64(packetJson bytes)}。
+	const blob = JSON.stringify({
+		iv: GCM_IV_BASE64,
+		authTag: GCM_AUTH_TAG_BASE64,
+		ciphertext: bytesToBase64(textEncoder.encode(packetJson)),
+	})
+	const content = bytesToBase64(textEncoder.encode(blob))
+	const event = JSON.stringify(['EVENT', {
+		id: HEX64,
+		pubkey: HEX64,
+		created_at: Math.floor(Date.now() / 1000),
+		kind: NOSTR_SIGNAL_KIND,
+		tags: [['t', HEX64], ['x', 'signal'], ['p', HEX64]],
+		content,
+		sig: HEX64,
+	}])
+	return textEncoder.encode(event).length
+}
 
 /**
  * 拉取单个 relay 的 NIP-11 relay info 并读取 max_message_length。
@@ -70,36 +98,6 @@ export function minUsablePayloadCap(caps) {
 	return usable.length ? Math.min(...usable) : null
 }
 
-/**
- * 探测各 relay 的 payload 上限，缓存「可用 relay」的最小值（TTL 内不重复探测）。
- * 仅在实际 wss/ws/https/http 中继上探测；失败或未声明的 relay 忽略。
- * @param {string[]} relayUrls 中继 URL 列表
- * @returns {Promise<void>}
- */
-async function refreshPayloadCap(relayUrls) {
-	if (payloadCapRefreshPromise) return payloadCapRefreshPromise
-	if (queriedPayloadCap != null && Date.now() - payloadCapQueriedAt < PAYLOAD_CAP_CACHE_TTL_MS) return
-	const urls = [...new Set((relayUrls || []).filter(url => /^(wss?|https?):\/\//i.test(String(url))))]
-	if (!urls.length) return
-	payloadCapRefreshPromise = Promise.allSettled(urls.map(queryRelayMaxMessageLength))
-		.then(results => {
-			const value = minUsablePayloadCap(results.map(result => result.status === 'fulfilled' ? result.value : null))
-			if (value != null) {
-				queriedPayloadCap = value
-				payloadCapQueriedAt = Date.now()
-			}
-		})
-		.finally(() => { payloadCapRefreshPromise = null })
-	return payloadCapRefreshPromise
-}
-
-/**
- * 当前生效的单包字符上限：有 relay 实测非零最小值则用它（最大化载荷利用率），否则用默认兜底。
- * @returns {number} 字符上限
- */
-function currentMaxPayloadChars() {
-	return queriedPayloadCap ?? MAX_LINK_PAYLOAD_CHARS
-}
 /** open 到达前为同一 linkId 暂存的 c/b 包上限。 */
 const PENDING_PACKETS_MAX = 32
 /** Nostr 链握手超时（relay RTT 更慢）。 */
@@ -121,10 +119,48 @@ async function publishLinkPacket(remoteNodeHash, packet) {
 /**
  * 创建 Nostr 末位数据链路 provider（level = -∞）。
  * @param {{ getRelayUrls?: () => string[] }} [options] 中继解析（测试可注入）
- * @returns {import('./index.mjs').LinkProvider & { deliverPacket: (packet: object) => void }} provider
+	 * @returns {import('./index.mjs').LinkProvider & { deliverPacket: (packet: object) => void | Promise<void> }} provider
  */
 export function createNostrLinkProvider(options = {}) {
 	const resolveRelayUrls = options.getRelayUrls || resolveNostrRelayUrls
+
+	/** @type {number | null} 本实例实测非零最小 payload 上限（NIP-11 max_message_length） */
+	let queriedPayloadCap = null
+	/** @type {number} 本实例最近一次实测时间戳 */
+	let payloadCapQueriedAt = 0
+	/** @type {Promise<void> | null} 本实例进行中的探测（去重并发） */
+	let payloadCapRefreshPromise = null
+
+	/**
+	 * 探测各 relay 的 payload 上限，缓存「可用 relay」的最小值（TTL 内不重复探测）。
+	 * 仅在实际 wss/ws/https/http 中继上探测；失败或未声明的 relay 忽略。
+	 * @param {string[]} relayUrls 中继 URL 列表
+	 * @returns {Promise<void>}
+	 */
+	async function refreshPayloadCap(relayUrls) {
+		if (payloadCapRefreshPromise) return payloadCapRefreshPromise
+		if (queriedPayloadCap != null && Date.now() - payloadCapQueriedAt < PAYLOAD_CAP_CACHE_TTL_MS) return
+		const urls = [...new Set(relayUrls.filter(url => /^(wss?|https?):\/\//i.test(url)))]
+		if (!urls.length) return
+		payloadCapRefreshPromise = Promise.allSettled(urls.map(queryRelayMaxMessageLength))
+			.then(results => {
+				const value = minUsablePayloadCap(results.map(result => result.status === 'fulfilled' ? result.value : null))
+				if (value != null) {
+					queriedPayloadCap = value
+					payloadCapQueriedAt = Date.now()
+				}
+			})
+			.finally(() => { payloadCapRefreshPromise = null })
+		return payloadCapRefreshPromise
+	}
+
+	/**
+	 * 当前生效的单包上限：有 relay 实测非零最小值则用它（最大化载荷利用率），否则用默认兜底。
+	 * @returns {number} 上限（针对完整 Nostr EVENT 消息的字节数）
+	 */
+	function currentMaxPayloadChars() {
+		return queriedPayloadCap ?? MAX_LINK_PAYLOAD_CHARS
+	}
 
 	/** @type {((link: import('./index.mjs').LinkHandle) => void) | null} */
 	let onInbound = null
@@ -199,8 +235,6 @@ export function createNostrLinkProvider(options = {}) {
 	 * @returns {Promise<void>}
 	 */
 	async function sendOp(remoteNodeHash, linkId, op, payload, maxChars = MAX_LINK_PAYLOAD_CHARS) {
-		if (payload != null && payload.length > maxChars)
-			throw new Error('p2p: nostr link payload too large')
 		const packet = {
 			type: 'link',
 			op,
@@ -208,6 +242,8 @@ export function createNostrLinkProvider(options = {}) {
 			linkId,
 		}
 		if (payload != null) packet.payload = payload
+		if (estimateEventMessageBytes(packet) > maxChars)
+			throw new Error('p2p: nostr link payload too large')
 		await publishLinkPacket(remoteNodeHash, packet)
 	}
 
@@ -217,9 +253,19 @@ export function createNostrLinkProvider(options = {}) {
 	 */
 	function openPipe(opts) {
 		const { linkId, remoteNodeHash, initiator } = opts
-		// 冻结该 pipe 的字符上限：切帧尺寸与发送校验共用同一值，保持自洽。
+		// 冻结该 pipe 的字符上限：按完整 Nostr EVENT 消息字节数切帧，与发送校验共用同一上限，保持自洽。
 		const payloadChars = currentMaxPayloadChars()
-		const maxFrameBytes = maxFrameChunkBytesForPayload(payloadChars)
+		const maxFrameBytes = maxFrameChunkBytesForPayload(
+			payloadChars,
+			// maxFrameChunkBytesForPayload 用 encode(...).length 度量载荷，故返回等长字符串。
+			frameBytes => 'x'.repeat(estimateEventMessageBytes({
+				type: 'link',
+				op: 'b',
+				from: (opts.localIdentity || localIdentity)?.nodeHash || '',
+				linkId,
+				payload: bytesToBase64(frameBytes),
+			})),
+		)
 		const pipe = createLinkIdBoundPipe({
 			providerId: 'nostr',
 			level: LINK_LEVEL_NOSTR,
@@ -265,9 +311,9 @@ export function createNostrLinkProvider(options = {}) {
 	/**
 	 * 入站已解密的 link 包（由信令 demux 调用）。
 	 * @param {object} packet link 包
-	 * @returns {void}
+	 * @returns {Promise<void>}
 	 */
-	function deliverPacket(packet) {
+	async function deliverPacket(packet) {
 		if (packet?.type !== 'link') return
 		const linkId = normalizeHex64(packet.linkId)
 		const from = normalizeHex64(packet.from)
@@ -278,6 +324,8 @@ export function createNostrLinkProvider(options = {}) {
 		if (op === 'open') {
 			if (sessions.has(linkId)) return
 			if (!onInbound || !localIdentity) return
+			await refreshPayloadCap(resolveRelayUrls())
+			if (sessions.has(linkId)) return
 			const pipe = openPipe({
 				linkId,
 				remoteNodeHash: from,
@@ -329,7 +377,7 @@ export function createNostrLinkProvider(options = {}) {
 			if (!remoteNodeHash) return null
 			localIdentity = dialOptions.localIdentity || localIdentity
 			if (!localIdentity?.nodeHash) throw new Error('p2p: nostr dial requires localIdentity')
-			void refreshPayloadCap(resolveRelayUrls())
+			await refreshPayloadCap(resolveRelayUrls())
 			const linkId = randomBytes(32).toString('hex')
 			const pipe = openPipe({
 				linkId,

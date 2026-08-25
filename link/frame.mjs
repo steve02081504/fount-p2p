@@ -54,14 +54,14 @@ export function randomFrameIdHex() {
  */
 export function maxFrameChunkBytesForPayload(maxPayloadChars, encode = bytesToBase64, headerBytes = FRAME_HEADER_BYTES) {
 	const limit = Math.max(1, Math.floor(Number(maxPayloadChars) || 0))
-	let lo = 0
-	let hi = limit
-	while (lo < hi) {
-		const mid = Math.ceil((lo + hi + 1) / 2)
-		if (encode(new Uint8Array(headerBytes + mid)).length <= limit) lo = mid
-		else hi = mid - 1
+	let lowerBound = 0
+	let upperBound = limit
+	while (lowerBound < upperBound) {
+		const candidateChunkBytes = Math.ceil((lowerBound + upperBound + 1) / 2)
+		if (encode(new Uint8Array(headerBytes + candidateChunkBytes)).length <= limit) lowerBound = candidateChunkBytes
+		else upperBound = candidateChunkBytes - 1
 	}
-	return lo
+	return lowerBound
 }
 
 /**
@@ -74,7 +74,7 @@ export function maxFrameChunkBytesForPayload(maxPayloadChars, encode = bytesToBa
 export function encodeFrames(frameId, bytes, maxChunkBytes = DEFAULT_MAX_FRAME_CHUNK_BYTES) {
 	const body = toBytes(bytes)
 	const idBytes = normalizeFrameIdBytes(frameId)
-	const chunkBytes = Math.max(MIN_FRAME_CHUNK_BYTES, Math.min(DEFAULT_MAX_MESSAGE_BYTES, Number(maxChunkBytes) || DEFAULT_MAX_FRAME_CHUNK_BYTES))
+	const chunkBytes = Math.min(DEFAULT_MAX_MESSAGE_BYTES, Number(maxChunkBytes) || DEFAULT_MAX_FRAME_CHUNK_BYTES)
 	const total = Math.max(1, Math.ceil(body.byteLength / chunkBytes))
 	/** @type {Uint8Array[]} */
 	const frames = []

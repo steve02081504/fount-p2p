@@ -4,7 +4,7 @@ import { ms } from '../utils/duration.mjs'
 import { emitSafe } from '../utils/emit_safe.mjs'
 import { createLruMap } from '../utils/lru.mjs'
 
-import { createReassembler, DEFAULT_MAX_FRAME_CHUNK_BYTES, encodeFrames, MIN_FRAME_CHUNK_BYTES, randomFrameIdHex } from './frame.mjs'
+import { createReassembler, DEFAULT_MAX_FRAME_CHUNK_BYTES, encodeFrames, FRAME_HEADER_BYTES, randomFrameIdHex } from './frame.mjs'
 import { buildAuth, buildHello, parseHello, verifyAuth } from './handshake.mjs'
 
 const encoder = new TextEncoder()
@@ -86,7 +86,9 @@ export function asLinkHandle(pipe, extras = {}) {
  */
 export function createLinkPipe(options) {
 	const { providerId, level } = options
-	const maxFrameBytes = Math.max(MIN_FRAME_CHUNK_BYTES, Number(options.maxFrameBytes) || DEFAULT_MAX_FRAME_CHUNK_BYTES)
+	const maxFrameBytes = Number(options.maxFrameBytes) || DEFAULT_MAX_FRAME_CHUNK_BYTES
+	if (maxFrameBytes < FRAME_HEADER_BYTES)
+		throw new Error(`p2p: ${providerId} maxFrameBytes too small to carry a frame header`)
 	const heartbeatMs = Number(options.heartbeatMs) || ms('15s')
 	const idleTimeoutMs = Number(options.idleTimeoutMs) || ms('45s')
 	const handshakeTimeoutMs = Number(options.handshakeTimeoutMs) || ms('10s')
