@@ -44,6 +44,9 @@ export const NOSTR_ADVERT_KIND = 30787
 /** Nostr signal 事件 kind（ephemeral，实时转发）。 */
 export const NOSTR_SIGNAL_KIND = 20787
 
+/** 打广告用的话题 tag（hashtag，NIP-01），公开可被搜索聚合。 */
+const NOSTR_TOPIC_TAG = ['t', 'fount']
+
 const ADVERT_TTL_MS = 10 * 60_000
 
 /** @type {Map<string, number>} 网络域 nodeHash → lastSeenAt */
@@ -925,7 +928,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 				const bytes = encryptSignalPacket(rendezvousKey, { type: 'advert', body: advertBody })
 				const event = await signNostrEvent(
 					NOSTR_ADVERT_KIND,
-					[['t', rendezvousKey], ['x', 'advert'], ['d', rendezvousKey]],
+					[NOSTR_TOPIC_TAG, ['t', rendezvousKey], ['x', 'advert'], ['d', rendezvousKey]],
 					bytesToBase64(bytes),
 					secretKey,
 				)
@@ -957,7 +960,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 			const rendezvousKey = nodeRendezvousKey(hash)
 			const event = await signNostrEvent(
 				NOSTR_SIGNAL_KIND,
-				[['t', rendezvousKey], ['x', 'signal'], ['p', hash]],
+				[NOSTR_TOPIC_TAG, ['t', rendezvousKey], ['x', 'signal'], ['p', hash]],
 				bytesToBase64(bytes),
 				secretKey,
 			)
@@ -1019,7 +1022,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 				const bytes = encryptSignalPacket(rendezvousKey, { type: 'advert', body: advertBody })
 				const event = await signNostrEvent(
 					NOSTR_ADVERT_KIND,
-					[['t', rendezvousKey], ['x', 'advert'], ['d', rendezvousKey]],
+					[NOSTR_TOPIC_TAG, ['t', rendezvousKey], ['x', 'advert'], ['d', rendezvousKey]],
 					bytesToBase64(bytes),
 					secretKey,
 				)
