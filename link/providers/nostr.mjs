@@ -74,7 +74,7 @@ async function queryRelayMaxMessageLength(relayUrl) {
 	try {
 		const response = await fetch(httpUrl, { headers: { Accept: 'application/nostr+json' }, signal: controller.signal })
 		const info = await response.json()
-		const limit = { ...(info?.limit || {}), ...(info?.limitation || {}) }
+		const limit = { ...info?.limit || {}, ...info?.limitation || {} }
 		const value = Number(limit.max_message_length)
 		return Number.isFinite(value) && value > 0 ? value : null
 	}

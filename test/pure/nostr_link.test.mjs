@@ -2,12 +2,12 @@ import { test } from 'node:test'
 
 import { bytesToBase64 } from '../../core/bytes_codec.mjs'
 import { normalizeHex64 } from '../../core/hexIds.mjs'
-import { FRAME_HEADER_BYTES, maxFrameChunkBytesForPayload, MIN_FRAME_CHUNK_BYTES } from '../../link/frame.mjs'
 import {
 	clearDiscoveryProviders,
 	decryptNodeSignalPacket,
 	registerDiscoveryProvider,
 } from '../../discovery/index.mjs'
+import { FRAME_HEADER_BYTES, maxFrameChunkBytesForPayload, MIN_FRAME_CHUNK_BYTES } from '../../link/frame.mjs'
 import {
 	clearLinkProviders,
 	LINK_LEVEL_NOSTR,
@@ -171,7 +171,10 @@ test('estimateEventMessageBytes measures the full EVENT message; chunk budget hi
 	const cap = MAX_LINK_PAYLOAD_CHARS
 	const from = 'aa'.repeat(32)
 	const linkId = 'bb'.repeat(32)
-	/** @param {Uint8Array} frame 完整帧（帧头 + chunk） */
+	/**
+	 * @param {Uint8Array} frame 完整帧（帧头 + chunk）
+	 * @returns {object} 事件消息
+	 */
 	const packetForFrame = frame => ({ type: 'link', op: 'b', from, linkId, payload: bytesToBase64(frame) })
 	const chunk = maxFrameChunkBytesForPayload(cap, frame => 'x'.repeat(estimateEventMessageBytes(packetForFrame(frame))))
 	// 达到上限：整帧消息恰好不超过 cap。
