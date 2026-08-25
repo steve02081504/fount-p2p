@@ -6,6 +6,8 @@ import { bytesToBase64, bytesToHex, hexToBytes, toBytes } from '../core/bytes_co
 export const FRAME_ID_BYTES = 16
 /** 帧头：frameId(16) + seq(4) + total(4)。 */
 export const FRAME_HEADER_BYTES = FRAME_ID_BYTES + 4 + 4
+/** 单帧 chunk 最小字节数（低于此上限无承载价值）。 */
+export const MIN_FRAME_CHUNK_BYTES = 256
 /** 默认单帧最大 chunk 大小（15 KiB）。 */
 export const DEFAULT_MAX_FRAME_CHUNK_BYTES = 15 * 1024
 /** 重组后消息最大字节数（8 MiB）。 */
@@ -72,7 +74,7 @@ export function maxFrameChunkBytesForPayload(maxPayloadChars, encode = bytesToBa
 export function encodeFrames(frameId, bytes, maxChunkBytes = DEFAULT_MAX_FRAME_CHUNK_BYTES) {
 	const body = toBytes(bytes)
 	const idBytes = normalizeFrameIdBytes(frameId)
-	const chunkBytes = Math.max(256, Math.min(DEFAULT_MAX_MESSAGE_BYTES, Number(maxChunkBytes) || DEFAULT_MAX_FRAME_CHUNK_BYTES))
+	const chunkBytes = Math.max(MIN_FRAME_CHUNK_BYTES, Math.min(DEFAULT_MAX_MESSAGE_BYTES, Number(maxChunkBytes) || DEFAULT_MAX_FRAME_CHUNK_BYTES))
 	const total = Math.max(1, Math.ceil(body.byteLength / chunkBytes))
 	/** @type {Uint8Array[]} */
 	const frames = []

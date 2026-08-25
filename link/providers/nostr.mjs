@@ -7,7 +7,7 @@ import { getDiscoveryProvider, sendNodeSignalPacket } from '../../discovery/inde
 import { resolveNostrRelayUrls } from '../../discovery/nostr.mjs'
 import { ms } from '../../utils/duration.mjs'
 import { createLruMap } from '../../utils/lru.mjs'
-import { maxFrameChunkBytesForPayload } from '../frame.mjs'
+import { FRAME_HEADER_BYTES, maxFrameChunkBytesForPayload, MIN_FRAME_CHUNK_BYTES } from '../frame.mjs'
 import { asLinkHandle } from '../pipe.mjs'
 
 import { LINK_LEVEL_NOSTR } from './levels.mjs'
@@ -22,6 +22,9 @@ export const MAX_LINK_PAYLOAD_CHARS = 131072
 const RELAY_INFO_TIMEOUT_MS = ms('4s')
 /** 实测 payload 上限缓存有效期。 */
 const PAYLOAD_CAP_CACHE_TTL_MS = ms('10m')
+/** relay cap 低于此字符数视为无法承载最小帧（帧头 + 最小 chunk 的 base64 长度），从统一上限中剔除。
+ *  这类 relay 即便能传也无法携带有效数据，参与取最小值只会无谓拖低/毒化整条链路。 */
+export const MIN_USABLE_RELAY_CAP_CHARS = bytesToBase64(new Uint8Array(FRAME_HEADER_BYTES + MIN_FRAME_CHUNK_BYTES)).length
 
 /** @type {number | null} 实测非零最小 payload 上限（NIP-11 max_message_length） */
 let queriedPayloadCap = null
@@ -56,7 +59,19 @@ async function queryRelayMaxMessageLength(relayUrl) {
 }
 
 /**
- * 探测各 relay 的 payload 上限，缓存非零最小值（TTL 内不重复探测）。
+ * 从各 relay 上报的 cap 中取「可用」（>= 最小可用帧）的非零最小值。
+ * cap 过低的 relay 无法承载最小帧，取最小值只会拖低/毒化整条链路，故剔除；
+ * 剩余 relay 的最小值保证任意一个可用 relay 都能传该帧（publishEvent 只要求任一 relay 接受）。
+ * @param {Array<number | null | undefined>} caps 各 relay 上报的 cap
+ * @returns {number | null} 可用最小值；无可用 relay 返回 null
+ */
+export function minUsablePayloadCap(caps) {
+	const usable = caps.filter(value => Number.isFinite(value) && value >= MIN_USABLE_RELAY_CAP_CHARS)
+	return usable.length ? Math.min(...usable) : null
+}
+
+/**
+ * 探测各 relay 的 payload 上限，缓存「可用 relay」的最小值（TTL 内不重复探测）。
  * 仅在实际 wss/ws/https/http 中继上探测；失败或未声明的 relay 忽略。
  * @param {string[]} relayUrls 中继 URL 列表
  * @returns {Promise<void>}
@@ -68,11 +83,9 @@ async function refreshPayloadCap(relayUrls) {
 	if (!urls.length) return
 	payloadCapRefreshPromise = Promise.allSettled(urls.map(queryRelayMaxMessageLength))
 		.then(results => {
-			const values = results
-				.map(result => result.status === 'fulfilled' ? result.value : null)
-				.filter(value => Number.isFinite(value) && value > 0)
-			if (values.length) {
-				queriedPayloadCap = Math.min(...values)
+			const value = minUsablePayloadCap(results.map(result => result.status === 'fulfilled' ? result.value : null))
+			if (value != null) {
+				queriedPayloadCap = value
 				payloadCapQueriedAt = Date.now()
 			}
 		})

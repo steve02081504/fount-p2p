@@ -1,6 +1,8 @@
 import { test } from 'node:test'
 
+import { bytesToBase64 } from '../../core/bytes_codec.mjs'
 import { normalizeHex64 } from '../../core/hexIds.mjs'
+import { FRAME_HEADER_BYTES, MIN_FRAME_CHUNK_BYTES } from '../../link/frame.mjs'
 import {
 	clearDiscoveryProviders,
 	decryptNodeSignalPacket,
@@ -12,7 +14,12 @@ import {
 	listLinkProviders,
 	registerLinkProvider,
 } from '../../link/providers/index.mjs'
-import { createNostrLinkProvider } from '../../link/providers/nostr.mjs'
+import {
+	createNostrLinkProvider,
+	MAX_LINK_PAYLOAD_CHARS,
+	MIN_USABLE_RELAY_CAP_CHARS,
+	minUsablePayloadCap,
+} from '../../link/providers/nostr.mjs'
 import { createLinkRegistry } from '../../transport/link_registry.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'
@@ -140,6 +147,23 @@ test('nostr link dial/accept exchanges an envelope over type:link', async () => 
 		clearDiscoveryProviders()
 		clearLinkProviders()
 	}
+})
+
+test('minUsablePayloadCap ignores unusably-low relays and takes min of the rest', () => {
+	// 过低 relay 无法承载最小帧，剔除后取剩余可用 relay 的最小值。
+	const usable = 64 * 1024
+	assertEquals(minUsablePayloadCap([1, MIN_USABLE_RELAY_CAP_CHARS - 1, usable, 1 * 1024 * 1024]), usable)
+	assertEquals(minUsablePayloadCap([usable, 2 * usable]), usable)
+	// 全部过低或无有效值时回退 null。
+	assertEquals(minUsablePayloadCap([1, 2, MIN_USABLE_RELAY_CAP_CHARS - 1]), null)
+	assertEquals(minUsablePayloadCap([null, undefined, NaN, 0]), null)
+})
+
+test('MIN_USABLE_RELAY_CAP_CHARS can carry a minimum-chunk frame and is below the default cap', () => {
+	// 该下限的 base64 长度正好能装下最小帧（帧头 + 最小 chunk）。
+	const frame = new Uint8Array(FRAME_HEADER_BYTES + MIN_FRAME_CHUNK_BYTES)
+	assertEquals(bytesToBase64(frame).length === MIN_USABLE_RELAY_CAP_CHARS, true)
+	assertEquals(MIN_USABLE_RELAY_CAP_CHARS < MAX_LINK_PAYLOAD_CHARS, true)
 })
 
 test('nostr link chunks and reassembles a large envelope under the payload cap', async () => {
