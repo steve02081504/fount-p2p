@@ -25,6 +25,10 @@ export const DEFAULT_RELAY_URLS = [
 	'wss://relay.damus.io',
 	'wss://nos.lol',
 	'wss://relay.nostr.band',
+	'wss://relay.nostr.com',
+	'wss://nostr.bitcoiner.social',
+	'wss://nostr.mom',
+	'wss://relay.snort.social',
 ]
 
 /** 单中继 WebSocket 首连超时（短超时 + 并行，避免串行 10s×N）。 */
@@ -43,6 +47,9 @@ export const NOSTR_IDLE_DROP_MS = 2_000
 export const NOSTR_ADVERT_KIND = 30787
 /** Nostr signal 事件 kind（ephemeral，实时转发）。 */
 export const NOSTR_SIGNAL_KIND = 20787
+
+/** 打广告用的话题 tag（hashtag，NIP-01），公开可被搜索聚合。 */
+const NOSTR_TOPIC_TAG = ['t', 'fount']
 
 const ADVERT_TTL_MS = 10 * 60_000
 
@@ -925,7 +932,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 				const bytes = encryptSignalPacket(rendezvousKey, { type: 'advert', body: advertBody })
 				const event = await signNostrEvent(
 					NOSTR_ADVERT_KIND,
-					[['t', rendezvousKey], ['x', 'advert'], ['d', rendezvousKey]],
+					[NOSTR_TOPIC_TAG, ['t', rendezvousKey], ['x', 'advert'], ['d', rendezvousKey]],
 					bytesToBase64(bytes),
 					secretKey,
 				)
@@ -957,7 +964,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 			const rendezvousKey = nodeRendezvousKey(hash)
 			const event = await signNostrEvent(
 				NOSTR_SIGNAL_KIND,
-				[['t', rendezvousKey], ['x', 'signal'], ['p', hash]],
+				[NOSTR_TOPIC_TAG, ['t', rendezvousKey], ['x', 'signal'], ['p', hash]],
 				bytesToBase64(bytes),
 				secretKey,
 			)
@@ -1019,7 +1026,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 				const bytes = encryptSignalPacket(rendezvousKey, { type: 'advert', body: advertBody })
 				const event = await signNostrEvent(
 					NOSTR_ADVERT_KIND,
-					[['t', rendezvousKey], ['x', 'advert'], ['d', rendezvousKey]],
+					[NOSTR_TOPIC_TAG, ['t', rendezvousKey], ['x', 'advert'], ['d', rendezvousKey]],
 					bytesToBase64(bytes),
 					secretKey,
 				)

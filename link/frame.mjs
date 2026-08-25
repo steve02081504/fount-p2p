@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 
-import { bytesToHex, hexToBytes, toBytes } from '../core/bytes_codec.mjs'
+import { bytesToBase64, bytesToHex, hexToBytes, toBytes } from '../core/bytes_codec.mjs'
 
 /** frameId 字段字节长度（128 位）。 */
 export const FRAME_ID_BYTES = 16
@@ -41,6 +41,28 @@ export function randomFrameIdHex() {
 }
 
 /**
+ * 在单包字符上限下，求单片最大可承载 chunk 字节数。
+ * 以 base64 逐片精确贴合上限为目标，用二分在 [0, limit] 内找最大 chunkBytes，
+ * 使 base64Len(headerBytes + chunkBytes) <= limit —— 最大化单帧载荷利用率，
+ * 而不是按 base64 膨胀预留固定比例（预留比例会浪费余量且对帧头/填充不精确）。
+ * @param {number} maxPayloadChars 单包载荷字符上限（编码后）
+ * @param {(bytes: Uint8Array) => string} [encode] 载荷编码函数（默认 base64）
+ * @param {number} [headerBytes=FRAME_HEADER_BYTES] 帧头字节数
+ * @returns {number} 最大 chunk 字节数（>=0）
+ */
+export function maxFrameChunkBytesForPayload(maxPayloadChars, encode = bytesToBase64, headerBytes = FRAME_HEADER_BYTES) {
+	const limit = Math.max(1, Math.floor(Number(maxPayloadChars) || 0))
+	let lowerBound = 0
+	let upperBound = limit
+	while (lowerBound < upperBound) {
+		const candidateChunkBytes = Math.ceil((lowerBound + upperBound + 1) / 2)
+		if (encode(new Uint8Array(headerBytes + candidateChunkBytes)).length <= limit) lowerBound = candidateChunkBytes
+		else upperBound = candidateChunkBytes - 1
+	}
+	return lowerBound
+}
+
+/**
  * 将消息切成带帧头的分片。
  * @param {string | Uint8Array} frameId 消息 id（hex 或 16 字节）
  * @param {Uint8Array | ArrayBuffer | ArrayBufferView} bytes 消息体
@@ -50,7 +72,7 @@ export function randomFrameIdHex() {
 export function encodeFrames(frameId, bytes, maxChunkBytes = DEFAULT_MAX_FRAME_CHUNK_BYTES) {
 	const body = toBytes(bytes)
 	const idBytes = normalizeFrameIdBytes(frameId)
-	const chunkBytes = Math.max(256, Math.min(DEFAULT_MAX_MESSAGE_BYTES, Number(maxChunkBytes) || DEFAULT_MAX_FRAME_CHUNK_BYTES))
+	const chunkBytes = Math.min(DEFAULT_MAX_MESSAGE_BYTES, Number(maxChunkBytes) || DEFAULT_MAX_FRAME_CHUNK_BYTES)
 	const total = Math.max(1, Math.ceil(body.byteLength / chunkBytes))
 	/** @type {Uint8Array[]} */
 	const frames = []

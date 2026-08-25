@@ -4,7 +4,7 @@ import { ms } from '../utils/duration.mjs'
 import { emitSafe } from '../utils/emit_safe.mjs'
 import { createLruMap } from '../utils/lru.mjs'
 
-import { createReassembler, encodeFrames, randomFrameIdHex } from './frame.mjs'
+import { createReassembler, DEFAULT_MAX_FRAME_CHUNK_BYTES, encodeFrames, FRAME_HEADER_BYTES, randomFrameIdHex } from './frame.mjs'
 import { buildAuth, buildHello, parseHello, verifyAuth } from './handshake.mjs'
 
 const encoder = new TextEncoder()
@@ -81,10 +81,14 @@ export function asLinkHandle(pipe, extras = {}) {
  * @param {number} [options.idleTimeoutMs] 空闲超时
  * @param {number} [options.handshakeTimeoutMs] 握手超时
  * @param {number} [options.rttWindowSize] RTT 样本滑动窗口大小
+ * @param {number} [options.maxFrameBytes] 单帧最大字节数（provider 按其传输载荷上限折算；默认 15 KiB）
  * @returns {object} link 句柄 + 入站 API
  */
 export function createLinkPipe(options) {
 	const { providerId, level } = options
+	const maxFrameBytes = options.maxFrameBytes == null ? DEFAULT_MAX_FRAME_CHUNK_BYTES : Number(options.maxFrameBytes)
+	if (maxFrameBytes < FRAME_HEADER_BYTES)
+		throw new Error(`p2p: ${providerId} maxFrameBytes too small to carry a frame header`)
 	const heartbeatMs = Number(options.heartbeatMs) || ms('15s')
 	const idleTimeoutMs = Number(options.idleTimeoutMs) || ms('45s')
 	const handshakeTimeoutMs = Number(options.handshakeTimeoutMs) || ms('10s')
@@ -348,7 +352,7 @@ export function createLinkPipe(options) {
 			payload: envelope.payload ?? null,
 			frameId,
 		}))
-		for (const frame of encodeFrames(frameId, bytes)) {
+		for (const frame of encodeFrames(frameId, bytes, maxFrameBytes)) {
 			const sent = options.sendFrame(envelope.action, frame)
 			if (sent?.then) await sent
 			sentFrames++

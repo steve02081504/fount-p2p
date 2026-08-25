@@ -1,18 +1,26 @@
 import { test } from 'node:test'
 
+import { bytesToBase64 } from '../../core/bytes_codec.mjs'
 import { normalizeHex64 } from '../../core/hexIds.mjs'
 import {
 	clearDiscoveryProviders,
 	decryptNodeSignalPacket,
 	registerDiscoveryProvider,
 } from '../../discovery/index.mjs'
+import { FRAME_HEADER_BYTES, maxFrameChunkBytesForPayload } from '../../link/frame.mjs'
 import {
 	clearLinkProviders,
 	LINK_LEVEL_NOSTR,
 	listLinkProviders,
 	registerLinkProvider,
 } from '../../link/providers/index.mjs'
-import { createNostrLinkProvider } from '../../link/providers/nostr.mjs'
+import {
+	createNostrLinkProvider,
+	estimateEventMessageBytes,
+	MAX_LINK_PAYLOAD_CHARS,
+	MIN_USABLE_RELAY_CAP_CHARS,
+	minUsablePayloadCap,
+} from '../../link/providers/nostr.mjs'
 import { createLinkRegistry } from '../../transport/link_registry.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'
@@ -129,11 +137,110 @@ test('nostr link dial/accept exchanges an envelope over type:link', async () => 
 		let received = null
 		inbound.onEnvelope(envelope => { received = envelope })
 		assertEquals(await dialed.send({ scope: 'test', action: 'ping-payload', payload: { n: 1 } }), true)
-		for (let i = 0; i < 50 && !received; i++)
+		for (let pollAttempt = 0; pollAttempt < 50 && !received; pollAttempt++)
 			await new Promise(resolve => setTimeout(resolve, 10))
 		assertEquals(received?.scope, 'test')
 		assertEquals(received?.action, 'ping-payload')
 		assertEquals(received?.payload?.n, 1)
+	}
+	finally {
+		stopListen()
+		clearDiscoveryProviders()
+		clearLinkProviders()
+	}
+})
+
+test('minUsablePayloadCap ignores unusably-low relays and takes min of the rest', () => {
+	// 过低 relay 无法承载最小帧，剔除后取剩余可用 relay 的最小值。
+	const usable = 64 * 1024
+	assertEquals(minUsablePayloadCap([1, MIN_USABLE_RELAY_CAP_CHARS - 1, usable, 1 * 1024 * 1024]), usable)
+	assertEquals(minUsablePayloadCap([usable, 2 * usable]), usable)
+	// 全部过低或无有效值时回退 null。
+	assertEquals(minUsablePayloadCap([1, 2, MIN_USABLE_RELAY_CAP_CHARS - 1]), null)
+	assertEquals(minUsablePayloadCap([null, undefined, NaN, 0]), null)
+})
+
+test('MIN_USABLE_RELAY_CAP_CHARS can carry a minimum-chunk frame and is below the default cap', () => {
+	// 该下限等于装下最小正 chunk（帧头 + 1 字节 chunk）的完整 EVENT 字节数。
+	const packetForFrame = frame => ({ type: 'link', op: 'b', from: 'aa'.repeat(32), linkId: 'bb'.repeat(32), payload: bytesToBase64(frame) })
+	assertEquals(estimateEventMessageBytes(packetForFrame(new Uint8Array(FRAME_HEADER_BYTES + 1))), MIN_USABLE_RELAY_CAP_CHARS)
+	assertEquals(MIN_USABLE_RELAY_CAP_CHARS < MAX_LINK_PAYLOAD_CHARS, true)
+	// 小于 256 但为正数的 chunk 也能在该上限下承载（base64 粒度下 budget 为正且 < 256）。
+	const eventEncoder = frame => 'x'.repeat(estimateEventMessageBytes(packetForFrame(frame)))
+	const budget = maxFrameChunkBytesForPayload(MIN_USABLE_RELAY_CAP_CHARS, eventEncoder)
+	assertEquals(budget > 0, true)
+	assertEquals(budget < 256, true)
+	// 无法容纳完整 EVENT 的 cap（低 1）得到 0 chunk budget，应被 minUsablePayloadCap 剔除。
+	assertEquals(maxFrameChunkBytesForPayload(MIN_USABLE_RELAY_CAP_CHARS - 1, eventEncoder), 0)
+})
+
+test('estimateEventMessageBytes measures the full EVENT message; chunk budget hits the cap exactly', () => {
+	const cap = MAX_LINK_PAYLOAD_CHARS
+	const from = 'aa'.repeat(32)
+	const linkId = 'bb'.repeat(32)
+	/**
+	 * @param {Uint8Array} frame 完整帧（帧头 + chunk）
+	 * @returns {object} 事件消息
+	 */
+	const packetForFrame = frame => ({ type: 'link', op: 'b', from, linkId, payload: bytesToBase64(frame) })
+	const chunk = maxFrameChunkBytesForPayload(cap, frame => 'x'.repeat(estimateEventMessageBytes(packetForFrame(frame))))
+	// 达到上限：整帧消息恰好不超过 cap。
+	assertEquals(estimateEventMessageBytes(packetForFrame(new Uint8Array(FRAME_HEADER_BYTES + chunk))) <= cap, true)
+	// 超出上限：多一字节 chunk 即超过。
+	assertEquals(estimateEventMessageBytes(packetForFrame(new Uint8Array(FRAME_HEADER_BYTES + chunk + 1))) > cap, true)
+})
+
+test('nostr link chunks and reassembles a large envelope under the payload cap', async () => {
+	clearLinkProviders()
+	clearDiscoveryProviders()
+	const alice = identity(35)
+	const bob = identity(36)
+	const aliceLink = createNostrLinkProvider({
+		/**
+		 * @returns {string[]} relay URL 列表
+		 */
+		getRelayUrls: () => ['ws://memory'],
+	})
+	const bobLink = createNostrLinkProvider({
+		/**
+		 * @returns {string[]} relay URL 列表
+		 */
+		getRelayUrls: () => ['ws://memory'],
+	})
+	registerMemoryNostrDiscovery({ alice, bob, aliceLink, bobLink })
+
+	/** @type {object | null} */
+	let inbound = null
+	const stopListen = bobLink.ensureListening({
+		localIdentity: bob,
+		/**
+		 * @param {object} link 入站
+		 * @returns {void}
+		 */
+		onInbound(link) { inbound = link },
+	})
+	aliceLink.ensureListening({
+		localIdentity: alice,
+		/** 忽略入站连接 */
+		onInbound() { },
+	})
+
+	try {
+		const dialed = await aliceLink.dial({ nodeHash: bob.nodeHash, localIdentity: alice })
+		await dialed.ready
+		await inbound.ready
+
+		// 旧 12KB base64 上限下会抛 `nostr link payload too large` 的大 envelope，现应切帧后完整送达。
+		const big = { scope: 'test', action: 'big-payload', payload: { blob: 'A'.repeat(150_000) } }
+		/** @type {object | null} */
+		let received = null
+		inbound.onEnvelope(envelope => { received = envelope })
+		assertEquals(await dialed.send(big), true)
+		for (let pollAttempt = 0; pollAttempt < 200 && !received; pollAttempt++)
+			await new Promise(resolve => setTimeout(resolve, 10))
+		assertEquals(received?.scope, 'test')
+		assertEquals(received?.action, 'big-payload')
+		assertEquals(received?.payload?.blob?.length, 150_000)
 	}
 	finally {
 		stopListen()
