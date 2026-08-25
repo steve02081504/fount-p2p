@@ -86,7 +86,7 @@ export function asLinkHandle(pipe, extras = {}) {
  */
 export function createLinkPipe(options) {
 	const { providerId, level } = options
-	const maxFrameBytes = Number(options.maxFrameBytes) || DEFAULT_MAX_FRAME_CHUNK_BYTES
+	const maxFrameBytes = options.maxFrameBytes == null ? DEFAULT_MAX_FRAME_CHUNK_BYTES : Number(options.maxFrameBytes)
 	if (maxFrameBytes < FRAME_HEADER_BYTES)
 		throw new Error(`p2p: ${providerId} maxFrameBytes too small to carry a frame header`)
 	const heartbeatMs = Number(options.heartbeatMs) || ms('15s')

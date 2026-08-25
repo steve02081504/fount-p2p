@@ -7,7 +7,7 @@ import { getDiscoveryProvider, sendNodeSignalPacket } from '../../discovery/inde
 import { NOSTR_SIGNAL_KIND, resolveNostrRelayUrls } from '../../discovery/nostr.mjs'
 import { ms } from '../../utils/duration.mjs'
 import { createLruMap } from '../../utils/lru.mjs'
-import { FRAME_HEADER_BYTES, maxFrameChunkBytesForPayload, MIN_FRAME_CHUNK_BYTES } from '../frame.mjs'
+import { FRAME_HEADER_BYTES, maxFrameChunkBytesForPayload } from '../frame.mjs'
 import { asLinkHandle } from '../pipe.mjs'
 
 import { LINK_LEVEL_NOSTR } from './levels.mjs'
@@ -22,10 +22,6 @@ export const MAX_LINK_PAYLOAD_CHARS = 131072
 const RELAY_INFO_TIMEOUT_MS = ms('4s')
 /** 实测 payload 上限缓存有效期。 */
 const PAYLOAD_CAP_CACHE_TTL_MS = ms('10m')
-/** relay cap 低于此字符数视为无法承载最小帧（帧头 + 最小 chunk 的 base64 长度），从统一上限中剔除。
- *  这类 relay 即便能传也无法携带有效数据，参与取最小值只会无谓拖低/毒化整条链路。 */
-export const MIN_USABLE_RELAY_CAP_CHARS = bytesToBase64(new Uint8Array(FRAME_HEADER_BYTES + MIN_FRAME_CHUNK_BYTES)).length
-
 const textEncoder = new TextEncoder()
 /** 固定 64 位 hex 占位（id/pubkey/sig/rendezvousKey/nodeHash 均固定宽度）。 */
 const HEX64 = 'a'.repeat(64)
@@ -41,25 +37,31 @@ const GCM_AUTH_TAG_BASE64 = 'a'.repeat(24)
  * @returns {number} 完整消息字节长度
  */
 export function estimateEventMessageBytes(packet) {
-	const packetJson = JSON.stringify(packet)
 	// encryptSignalPacket 输出全 ASCII：{"iv":<16>,"authTag":<24>,"ciphertext":base64(packetJson bytes)}。
-	const blob = JSON.stringify({
-		iv: GCM_IV_BASE64,
-		authTag: GCM_AUTH_TAG_BASE64,
-		ciphertext: bytesToBase64(textEncoder.encode(packetJson)),
-	})
-	const content = bytesToBase64(textEncoder.encode(blob))
-	const event = JSON.stringify(['EVENT', {
+	return textEncoder.encode(JSON.stringify(['EVENT', {
 		id: HEX64,
 		pubkey: HEX64,
 		created_at: Math.floor(Date.now() / 1000),
 		kind: NOSTR_SIGNAL_KIND,
 		tags: [['t', HEX64], ['x', 'signal'], ['p', HEX64]],
-		content,
+		content: bytesToBase64(textEncoder.encode(JSON.stringify({
+			iv: GCM_IV_BASE64,
+			authTag: GCM_AUTH_TAG_BASE64,
+			ciphertext: bytesToBase64(textEncoder.encode(JSON.stringify(packet))),
+		}))),
 		sig: HEX64,
-	}])
-	return textEncoder.encode(event).length
+	}])).length
 }
+
+/** relay cap 低于此字符数视为无法承载最小正 chunk（帧头 + 1 字节 chunk 的完整 EVENT 封装），从统一上限中剔除。
+ *  这类 relay 即便能传也无法携带有效载荷（maxFrameChunkBytesForPayload 得 0），参与取最小值只会无谓拖低/毒化整条链路。 */
+export const MIN_USABLE_RELAY_CAP_CHARS = estimateEventMessageBytes({
+	type: 'link',
+	op: 'b',
+	from: HEX64,
+	linkId: HEX64,
+	payload: bytesToBase64(new Uint8Array(FRAME_HEADER_BYTES + 1)),
+})
 
 /**
  * 拉取单个 relay 的 NIP-11 relay info 并读取 max_message_length。
@@ -87,8 +89,8 @@ async function queryRelayMaxMessageLength(relayUrl) {
 }
 
 /**
- * 从各 relay 上报的 cap 中取「可用」（>= 最小可用帧）的非零最小值。
- * cap 过低的 relay 无法承载最小帧，取最小值只会拖低/毒化整条链路，故剔除；
+ * 从各 relay 上报的 cap 中取「可用」（>= 最小可用帧，能产生正数 chunk budget）的非零最小值。
+ * cap 过低的 relay 无法承载最小正 chunk（完整 EVENT 封装装不下），取最小值只会拖低/毒化整条链路，故剔除；
  * 剩余 relay 的最小值保证任意一个可用 relay 都能传该帧（publishEvent 只要求任一 relay 接受）。
  * @param {Array<number | null | undefined>} caps 各 relay 上报的 cap
  * @returns {number | null} 可用最小值；无可用 relay 返回 null

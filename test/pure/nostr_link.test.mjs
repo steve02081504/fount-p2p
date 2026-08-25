@@ -7,7 +7,7 @@ import {
 	decryptNodeSignalPacket,
 	registerDiscoveryProvider,
 } from '../../discovery/index.mjs'
-import { FRAME_HEADER_BYTES, maxFrameChunkBytesForPayload, MIN_FRAME_CHUNK_BYTES } from '../../link/frame.mjs'
+import { FRAME_HEADER_BYTES, maxFrameChunkBytesForPayload } from '../../link/frame.mjs'
 import {
 	clearLinkProviders,
 	LINK_LEVEL_NOSTR,
@@ -161,10 +161,17 @@ test('minUsablePayloadCap ignores unusably-low relays and takes min of the rest'
 })
 
 test('MIN_USABLE_RELAY_CAP_CHARS can carry a minimum-chunk frame and is below the default cap', () => {
-	// 该下限的 base64 长度正好能装下最小帧（帧头 + 最小 chunk）。
-	const frame = new Uint8Array(FRAME_HEADER_BYTES + MIN_FRAME_CHUNK_BYTES)
-	assertEquals(bytesToBase64(frame).length === MIN_USABLE_RELAY_CAP_CHARS, true)
+	// 该下限等于装下最小正 chunk（帧头 + 1 字节 chunk）的完整 EVENT 字节数。
+	const packetForFrame = frame => ({ type: 'link', op: 'b', from: 'aa'.repeat(32), linkId: 'bb'.repeat(32), payload: bytesToBase64(frame) })
+	assertEquals(estimateEventMessageBytes(packetForFrame(new Uint8Array(FRAME_HEADER_BYTES + 1))), MIN_USABLE_RELAY_CAP_CHARS)
 	assertEquals(MIN_USABLE_RELAY_CAP_CHARS < MAX_LINK_PAYLOAD_CHARS, true)
+	// 小于 256 但为正数的 chunk 也能在该上限下承载（base64 粒度下 budget 为正且 < 256）。
+	const eventEncoder = frame => 'x'.repeat(estimateEventMessageBytes(packetForFrame(frame)))
+	const budget = maxFrameChunkBytesForPayload(MIN_USABLE_RELAY_CAP_CHARS, eventEncoder)
+	assertEquals(budget > 0, true)
+	assertEquals(budget < 256, true)
+	// 无法容纳完整 EVENT 的 cap（低 1）得到 0 chunk budget，应被 minUsablePayloadCap 剔除。
+	assertEquals(maxFrameChunkBytesForPayload(MIN_USABLE_RELAY_CAP_CHARS - 1, eventEncoder), 0)
 })
 
 test('estimateEventMessageBytes measures the full EVENT message; chunk budget hits the cap exactly', () => {

@@ -6,8 +6,6 @@ import { bytesToBase64, bytesToHex, hexToBytes, toBytes } from '../core/bytes_co
 export const FRAME_ID_BYTES = 16
 /** 帧头：frameId(16) + seq(4) + total(4)。 */
 export const FRAME_HEADER_BYTES = FRAME_ID_BYTES + 4 + 4
-/** 单帧 chunk 最小字节数（低于此上限无承载价值）。 */
-export const MIN_FRAME_CHUNK_BYTES = 256
 /** 默认单帧最大 chunk 大小（15 KiB）。 */
 export const DEFAULT_MAX_FRAME_CHUNK_BYTES = 15 * 1024
 /** 重组后消息最大字节数（8 MiB）。 */
