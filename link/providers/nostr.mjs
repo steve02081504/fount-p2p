@@ -7,13 +7,86 @@ import { getDiscoveryProvider, sendNodeSignalPacket } from '../../discovery/inde
 import { resolveNostrRelayUrls } from '../../discovery/nostr.mjs'
 import { ms } from '../../utils/duration.mjs'
 import { createLruMap } from '../../utils/lru.mjs'
+import { maxFrameChunkBytesForPayload } from '../frame.mjs'
 import { asLinkHandle } from '../pipe.mjs'
 
 import { LINK_LEVEL_NOSTR } from './levels.mjs'
 import { createLinkIdBoundPipe } from './link_id_pipe.mjs'
 
-/** 单包 payload（UTF-8 / base64）上限，避免撞 relay content 限制。 */
-const MAX_LINK_PAYLOAD_CHARS = 12 * 1024
+/** 单包 payload（UTF-8 / base64）上限，避免撞 relay content 限制。
+ *  默认兜底取 2026-08 本机对默认公共 relay 的 NIP-11 `max_message_length` 非零最小值（131072 = nostr.mom）。
+ *  有 relay 信息时用实测非零最小值覆盖（见 refreshPayloadCap），无 relay / 未探测到时用此默认。 */
+export const MAX_LINK_PAYLOAD_CHARS = 131072
+
+/** relay info（NIP-11）单次探测超时。 */
+const RELAY_INFO_TIMEOUT_MS = ms('4s')
+/** 实测 payload 上限缓存有效期。 */
+const PAYLOAD_CAP_CACHE_TTL_MS = ms('10m')
+
+/** @type {number | null} 实测非零最小 payload 上限（NIP-11 max_message_length） */
+let queriedPayloadCap = null
+/** @type {number} 最近一次实测时间戳 */
+let payloadCapQueriedAt = 0
+/** @type {Promise<void> | null} 进行中的探测（去重并发） */
+let payloadCapRefreshPromise = null
+
+/**
+ * 拉取单个 relay 的 NIP-11 relay info 并读取 max_message_length。
+ * @param {string} relayUrl relay URL
+ * @returns {Promise<number | null>} 非零上限；失败/未声明返回 null
+ */
+async function queryRelayMaxMessageLength(relayUrl) {
+	const httpUrl = relayUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:')
+	const controller = new AbortController()
+	const timer = setTimeout(() => controller.abort(), RELAY_INFO_TIMEOUT_MS)
+	timer.unref?.()
+	try {
+		const response = await fetch(httpUrl, { headers: { Accept: 'application/nostr+json' }, signal: controller.signal })
+		const info = await response.json()
+		const limit = { ...(info?.limit || {}), ...(info?.limitation || {}) }
+		const value = Number(limit.max_message_length)
+		return Number.isFinite(value) && value > 0 ? value : null
+	}
+	catch {
+		return null
+	}
+	finally {
+		clearTimeout(timer)
+	}
+}
+
+/**
+ * 探测各 relay 的 payload 上限，缓存非零最小值（TTL 内不重复探测）。
+ * 仅在实际 wss/ws/https/http 中继上探测；失败或未声明的 relay 忽略。
+ * @param {string[]} relayUrls 中继 URL 列表
+ * @returns {Promise<void>}
+ */
+async function refreshPayloadCap(relayUrls) {
+	if (payloadCapRefreshPromise) return payloadCapRefreshPromise
+	if (queriedPayloadCap != null && Date.now() - payloadCapQueriedAt < PAYLOAD_CAP_CACHE_TTL_MS) return
+	const urls = [...new Set((relayUrls || []).filter(url => /^(wss?|https?):\/\//i.test(String(url))))]
+	if (!urls.length) return
+	payloadCapRefreshPromise = Promise.allSettled(urls.map(queryRelayMaxMessageLength))
+		.then(results => {
+			const values = results
+				.map(result => result.status === 'fulfilled' ? result.value : null)
+				.filter(value => Number.isFinite(value) && value > 0)
+			if (values.length) {
+				queriedPayloadCap = Math.min(...values)
+				payloadCapQueriedAt = Date.now()
+			}
+		})
+		.finally(() => { payloadCapRefreshPromise = null })
+	return payloadCapRefreshPromise
+}
+
+/**
+ * 当前生效的单包字符上限：有 relay 实测非零最小值则用它（最大化载荷利用率），否则用默认兜底。
+ * @returns {number} 字符上限
+ */
+function currentMaxPayloadChars() {
+	return queriedPayloadCap ?? MAX_LINK_PAYLOAD_CHARS
+}
 /** open 到达前为同一 linkId 暂存的 c/b 包上限。 */
 const PENDING_PACKETS_MAX = 32
 /** Nostr 链握手超时（relay RTT 更慢）。 */
@@ -109,10 +182,11 @@ export function createNostrLinkProvider(options = {}) {
 	 * @param {string} linkId 链路 id
 	 * @param {string} op open|c|b|close
 	 * @param {string} [payload] 可选载荷
+	 * @param {number} [maxChars=MAX_LINK_PAYLOAD_CHARS] 该 pipe 冻结的字符上限
 	 * @returns {Promise<void>}
 	 */
-	async function sendOp(remoteNodeHash, linkId, op, payload) {
-		if (payload != null && payload.length > MAX_LINK_PAYLOAD_CHARS)
+	async function sendOp(remoteNodeHash, linkId, op, payload, maxChars = MAX_LINK_PAYLOAD_CHARS) {
+		if (payload != null && payload.length > maxChars)
 			throw new Error('p2p: nostr link payload too large')
 		const packet = {
 			type: 'link',
@@ -130,6 +204,9 @@ export function createNostrLinkProvider(options = {}) {
 	 */
 	function openPipe(opts) {
 		const { linkId, remoteNodeHash, initiator } = opts
+		// 冻结该 pipe 的字符上限：切帧尺寸与发送校验共用同一值，保持自洽。
+		const payloadChars = currentMaxPayloadChars()
+		const maxFrameBytes = maxFrameChunkBytesForPayload(payloadChars)
 		const pipe = createLinkIdBoundPipe({
 			providerId: 'nostr',
 			level: LINK_LEVEL_NOSTR,
@@ -137,6 +214,7 @@ export function createNostrLinkProvider(options = {}) {
 			linkId,
 			nodeHash: remoteNodeHash,
 			localIdentity: opts.localIdentity || localIdentity,
+			maxFrameBytes,
 			handshakeTimeoutMs: NOSTR_HANDSHAKE_TIMEOUT_MS,
 			heartbeatMs: NOSTR_HEARTBEAT_MS,
 			idleTimeoutMs: NOSTR_IDLE_TIMEOUT_MS,
@@ -145,7 +223,7 @@ export function createNostrLinkProvider(options = {}) {
 			 * @returns {Promise<void>}
 			 */
 			async sendControlText(text) {
-				await sendOp(remoteNodeHash, linkId, 'c', text)
+				await sendOp(remoteNodeHash, linkId, 'c', text, payloadChars)
 			},
 			/**
 			 * @param {string} _action action
@@ -153,7 +231,7 @@ export function createNostrLinkProvider(options = {}) {
 			 * @returns {Promise<void>}
 			 */
 			async sendFrame(_action, frame) {
-				await sendOp(remoteNodeHash, linkId, 'b', bytesToBase64(frame))
+				await sendOp(remoteNodeHash, linkId, 'b', bytesToBase64(frame), payloadChars)
 			},
 			/**
 			 * @returns {Promise<void>}
@@ -238,6 +316,7 @@ export function createNostrLinkProvider(options = {}) {
 			if (!remoteNodeHash) return null
 			localIdentity = dialOptions.localIdentity || localIdentity
 			if (!localIdentity?.nodeHash) throw new Error('p2p: nostr dial requires localIdentity')
+			void refreshPayloadCap(resolveRelayUrls())
 			const linkId = randomBytes(32).toString('hex')
 			const pipe = openPipe({
 				linkId,
@@ -256,6 +335,7 @@ export function createNostrLinkProvider(options = {}) {
 		ensureListening(handlers) {
 			onInbound = handlers.onInbound
 			localIdentity = handlers.localIdentity
+			void refreshPayloadCap(resolveRelayUrls())
 			return () => {
 				onInbound = null
 				for (const session of sessions.values())

@@ -142,6 +142,65 @@ test('nostr link dial/accept exchanges an envelope over type:link', async () => 
 	}
 })
 
+test('nostr link chunks and reassembles a large envelope under the payload cap', async () => {
+	clearLinkProviders()
+	clearDiscoveryProviders()
+	const alice = identity(35)
+	const bob = identity(36)
+	const aliceLink = createNostrLinkProvider({
+		/**
+		 * @returns {string[]} relay URL 列表
+		 */
+		getRelayUrls: () => ['ws://memory'],
+	})
+	const bobLink = createNostrLinkProvider({
+		/**
+		 * @returns {string[]} relay URL 列表
+		 */
+		getRelayUrls: () => ['ws://memory'],
+	})
+	registerMemoryNostrDiscovery({ alice, bob, aliceLink, bobLink })
+
+	/** @type {object | null} */
+	let inbound = null
+	const stopListen = bobLink.ensureListening({
+		localIdentity: bob,
+		/**
+		 * @param {object} link 入站
+		 * @returns {void}
+		 */
+		onInbound(link) { inbound = link },
+	})
+	aliceLink.ensureListening({
+		localIdentity: alice,
+		/** 忽略入站连接 */
+		onInbound() { },
+	})
+
+	try {
+		const dialed = await aliceLink.dial({ nodeHash: bob.nodeHash, localIdentity: alice })
+		await dialed.ready
+		await inbound.ready
+
+		// 旧 12KB base64 上限下会抛 `nostr link payload too large` 的大 envelope，现应切帧后完整送达。
+		const big = { scope: 'test', action: 'big-payload', payload: { blob: 'A'.repeat(150_000) } }
+		/** @type {object | null} */
+		let received = null
+		inbound.onEnvelope(envelope => { received = envelope })
+		assertEquals(await dialed.send(big), true)
+		for (let i = 0; i < 200 && !received; i++)
+			await new Promise(resolve => setTimeout(resolve, 10))
+		assertEquals(received?.scope, 'test')
+		assertEquals(received?.action, 'big-payload')
+		assertEquals(received?.payload?.blob?.length, 150_000)
+	}
+	finally {
+		stopListen()
+		clearDiscoveryProviders()
+		clearLinkProviders()
+	}
+})
+
 test('ensureLinkToNode falls back to nostr after higher providers fail', async () => {
 	clearLinkProviders()
 	clearDiscoveryProviders()

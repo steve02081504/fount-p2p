@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 
-import { bytesToHex, hexToBytes, toBytes } from '../core/bytes_codec.mjs'
+import { bytesToBase64, bytesToHex, hexToBytes, toBytes } from '../core/bytes_codec.mjs'
 
 /** frameId 字段字节长度（128 位）。 */
 export const FRAME_ID_BYTES = 16
@@ -38,6 +38,28 @@ function normalizeFrameIdBytes(frameId) {
 /** @returns {string} 32 字符 hex frameId */
 export function randomFrameIdHex() {
 	return bytesToHex(randomBytes(FRAME_ID_BYTES))
+}
+
+/**
+ * 在单包字符上限下，求单片最大可承载 chunk 字节数。
+ * 以 base64 逐片精确贴合上限为目标，用二分在 [0, limit] 内找最大 chunkBytes，
+ * 使 base64Len(headerBytes + chunkBytes) <= limit —— 最大化单帧载荷利用率，
+ * 而不是按 base64 膨胀预留固定比例（预留比例会浪费余量且对帧头/填充不精确）。
+ * @param {number} maxPayloadChars 单包载荷字符上限（编码后）
+ * @param {(bytes: Uint8Array) => string} [encode] 载荷编码函数（默认 base64）
+ * @param {number} [headerBytes=FRAME_HEADER_BYTES] 帧头字节数
+ * @returns {number} 最大 chunk 字节数（>=0）
+ */
+export function maxFrameChunkBytesForPayload(maxPayloadChars, encode = bytesToBase64, headerBytes = FRAME_HEADER_BYTES) {
+	const limit = Math.max(1, Math.floor(Number(maxPayloadChars) || 0))
+	let lo = 0
+	let hi = limit
+	while (lo < hi) {
+		const mid = Math.ceil((lo + hi + 1) / 2)
+		if (encode(new Uint8Array(headerBytes + mid)).length <= limit) lo = mid
+		else hi = mid - 1
+	}
+	return lo
 }
 
 /**
