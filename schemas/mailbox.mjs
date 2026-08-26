@@ -1,4 +1,4 @@
-import { normalizeHex64, HEX_ID_64 } from '../core/hexIds.mjs'
+import { isHex64 } from '../core/hexIds.mjs'
 
 /**
  * @typedef {{ ok: true, value: string }} MailboxWireOk
@@ -17,8 +17,8 @@ import { normalizeHex64, HEX_ID_64 } from '../core/hexIds.mjs'
  * @returns {MailboxWireResult} 规范化 hex64 或结构化错误
  */
 export function assertMailboxPubKeyHash(value) {
-	const normalized = normalizeHex64(value)
-	if (!HEX_ID_64.test(normalized))
+	const normalized = isHex64(value)
+	if (!normalized)
 		return { ok: false, code: 'invalid_hex64', field: 'toPubKeyHash' }
 	return { ok: true, value: normalized }
 }

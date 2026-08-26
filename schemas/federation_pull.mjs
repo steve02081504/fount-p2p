@@ -1,7 +1,7 @@
 /**
  * 联邦补拉 attestation / HPKE 响应 wire 解析（无 attestation/envelope 即丢弃）。
  */
-import { isHex64, isSignatureHex128, normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64, isSignatureHex128 } from '../core/hexIds.mjs'
 import { isPlainObject } from '../core/object.mjs'
 import { EVENT_ID_HEX } from '../dag/index.mjs'
 
@@ -23,15 +23,15 @@ function isEnvelopeBlob(value) {
  */
 export function parsePullAttestation(attestation) {
 	if (!isPlainObject(attestation)) return null
-	const requesterPubKeyHash = normalizeHex64(attestation.requesterPubKeyHash)
+	const requesterPubKeyHash = isHex64(attestation.requesterPubKeyHash)
 	const groupId = String(attestation.groupId || '')
 	const requestId = String(attestation.requestId || '')
 	const timestamp = Number(attestation.timestamp)
-	const signature = String(attestation.signature || '')
-	if (!isHex64(requesterPubKeyHash) || !groupId || !Number.isFinite(timestamp) || !isSignatureHex128(signature))
+	const signature = isSignatureHex128(attestation.signature)
+	if (!requesterPubKeyHash || !groupId || !Number.isFinite(timestamp) || !signature)
 		return null
 	const wantIds = attestation.wantIds?.length
-		? [...new Set(attestation.wantIds.map(id => normalizeHex64(id)).filter(id => EVENT_ID_HEX.test(id)))]
+		? [...new Set(attestation.wantIds.filter(id => EVENT_ID_HEX.test(id)))]
 		: undefined
 	return {
 		requesterPubKeyHash,
@@ -50,13 +50,13 @@ export function parsePullAttestation(attestation) {
 export function parsePullResponseEnvelope(envelope) {
 	if (!isPlainObject(envelope)) return null
 	const requestId = String(envelope.requestId || '')
-	const requesterPubKeyHash = normalizeHex64(envelope.requesterPubKeyHash)
+	const requesterPubKeyHash = isHex64(envelope.requesterPubKeyHash)
 	const requesterNodeHash = String(envelope.requesterNodeHash || '')
 	const ephemPub = String(envelope.ephemPub || '')
 	const iv = String(envelope.iv || '')
 	const ciphertext = String(envelope.ciphertext || '')
 	const authTag = String(envelope.authTag || '')
-	if (!requestId || !isHex64(requesterPubKeyHash) || !requesterNodeHash) return null
+	if (!requestId || !requesterPubKeyHash || !requesterNodeHash) return null
 	if (!isEnvelopeBlob(ephemPub) || !isEnvelopeBlob(iv) || !isEnvelopeBlob(ciphertext) || !isEnvelopeBlob(authTag))
 		return null
 	return {

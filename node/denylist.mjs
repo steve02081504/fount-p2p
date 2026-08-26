@@ -1,6 +1,6 @@
 import { compositeKey } from '../core/composite_key.mjs'
 import { isEntityHash128 } from '../core/entity_id.mjs'
-import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64 } from '../core/hexIds.mjs'
 import { withAsyncMutex } from '../utils/async_mutex.mjs'
 
 import { readNodeJsonSync, writeNodeJsonSync } from './storage.mjs'
@@ -79,15 +79,15 @@ export function normalizeDenylist(raw) {
 		const groupId = String(entry.groupId || '')
 		if (!scope) continue
 		if (scope === 'entity') {
-			const value = String(entry?.value || '')
-			if (isEntityHash128(value))
+			const value = isEntityHash128(entry?.value)
+			if (value)
 				blocked.push({ scope: 'entity', value })
 			continue
 		}
-		const value = normalizeHex64(entry?.value)
-		if (scope === 'node' && isHex64(value))
+		const value = isHex64(entry?.value)
+		if (scope === 'node' && value)
 			blocked.push({ scope: 'node', value, ...groupId ? { groupId } : {} })
-		else if (scope === 'subject' && isHex64(value))
+		else if (scope === 'subject' && value)
 			blocked.push({ scope: 'subject', value, ...groupId ? { groupId } : {} })
 	}
 	return { blocked }
@@ -116,12 +116,12 @@ export function saveDenylist(list) {
  * @returns {boolean} 是否命中群级 ban 集合
  */
 export function isSubjectBannedByState(state, subject) {
-	const pk = normalizeHex64(subject?.pubKeyHash)
-	if (isHex64(pk) && state?.bannedMembers?.has?.(pk)) return true
-	const entity = String(subject?.entityHash || '')
-	if (isEntityHash128(entity) && state?.bannedEntities?.has?.(entity)) return true
-	const node = normalizeHex64(subject?.nodeHash)
-	if (isHex64(node) && state?.bannedNodes?.has?.(node)) return true
+	const pk = isHex64(subject?.pubKeyHash)
+	if (pk && state?.bannedMembers?.has?.(pk)) return true
+	const entity = isEntityHash128(subject?.entityHash)
+	if (entity && state?.bannedEntities?.has?.(entity)) return true
+	const node = isHex64(subject?.nodeHash)
+	if (node && state?.bannedNodes?.has?.(node)) return true
 	return false
 }
 
@@ -132,17 +132,17 @@ export function isSubjectBannedByState(state, subject) {
  * @returns {boolean} 是否命中
  */
 function matchesDenylistIndex(index, subject, groupId = '') {
-	const pk = normalizeHex64(subject?.pubKeyHash)
+	const pk = isHex64(subject?.pubKeyHash)
 	const entity = String(subject?.entityHash || '')
-	const node = normalizeHex64(subject?.nodeHash)
+	const node = isHex64(subject?.nodeHash)
 	const { keys } = index
 
 	if (entity && keys.has(denyKey('entity', '*', entity))) return true
-	if (isHex64(node) && keys.has(denyKey('node', '*', node))) return true
-	if (isHex64(pk) && keys.has(denyKey('subject', '*', pk))) return true
+	if (node && keys.has(denyKey('node', '*', node))) return true
+	if (pk && keys.has(denyKey('subject', '*', pk))) return true
 	if (!groupId) return false
-	if (isHex64(pk) && keys.has(denyKey('subject', groupId, pk))) return true
-	if (isHex64(node) && keys.has(denyKey('node', groupId, node))) return true
+	if (pk && keys.has(denyKey('subject', groupId, pk))) return true
+	if (node && keys.has(denyKey('node', groupId, node))) return true
 	return false
 }
 
@@ -161,8 +161,8 @@ export function isSubjectBlocked(subject, groupId = '') {
  * @returns {boolean} 是否拉黑
  */
 export function isPeerKeyBlocked(groupId, peerKey) {
-	const key = normalizeHex64(peerKey)
-	if (!isHex64(key)) return false
+	const key = isHex64(peerKey)
+	if (!key) return false
 	const index = getDenylistIndex()
 	const { keys } = index
 	if (keys.has(denyKey('subject', '*', key))) return true
@@ -200,9 +200,7 @@ export function addDenylistEntry(entry) {
 		throw new Error('scope and value required')
 	if (scope === 'entity' && entry.groupId)
 		throw new Error('entity scope does not use groupId')
-	const normValue = scope === 'node' || scope === 'subject'
-		? normalizeHex64(entry.value)
-		: entry.value
+	const normValue = entry.value
 	if (!normValue)
 		throw new Error('scope and value required')
 	if (scope === 'subject' && !isHex64(normValue))
@@ -234,8 +232,8 @@ export async function addDenylistFromBanContent(banContent, groupId) {
 		await addDenylistEntry({ scope: 'entity', value: banContent.targetEntityHash })
 	if (scope === 'node' && banContent?.targetNodeHash)
 		await addDenylistEntry({ scope: 'node', value: banContent.targetNodeHash })
-	const pk = normalizeHex64(banContent?.targetPubKeyHash)
-	if (isHex64(pk))
+	const pk = isHex64(banContent?.targetPubKeyHash)
+	if (pk)
 		await addDenylistEntry({ scope: 'subject', value: pk, ...sourceGroupId ? { groupId: sourceGroupId } : {} })
 }
 
@@ -259,12 +257,11 @@ export function addGroupBlockedPeer(groupId, scope, value) {
  * @returns {Promise<void>}
  */
 export function removeGroupBlockedPeer(groupId, scope, value) {
-	const id = scope === 'entity' ? value : normalizeHex64(value)
-	if (!scope || !id) return Promise.resolve()
+	if (!scope || !value) return Promise.resolve()
 	return mutateDenylist(() => {
 		const list = loadDenylist()
 		list.blocked = list.blocked.filter(entry => {
-			if (entry.scope !== scope || entry.value !== id) return true
+			if (entry.scope !== scope || entry.value !== value) return true
 			if (scope === 'entity') return false
 			return entry.groupId !== groupId
 		})

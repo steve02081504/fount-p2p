@@ -1,4 +1,3 @@
-import { normalizeHex64 } from '../../core/hexIds.mjs'
 import { createTtlMap } from '../../utils/ttl_map.mjs'
 
 /** BT peer hint 存活时间。 */
@@ -14,9 +13,8 @@ const hints = createTtlMap(BT_PEER_HINT_TTL_MS)
  * @returns {void}
  */
 export function noteBtPeerHint(nodeHash, peripheralId) {
-	const hash = normalizeHex64(nodeHash)
-	if (!hash || !peripheralId) return
-	hints.set(hash, { peripheralId })
+	if (!nodeHash || !peripheralId) return
+	hints.set(nodeHash, { peripheralId })
 }
 
 /**
@@ -26,9 +24,8 @@ export function noteBtPeerHint(nodeHash, peripheralId) {
  * @returns {{ peripheralId: string } | null} hint 或 null
  */
 export function getBtPeerHint(nodeHash, now = Date.now()) {
-	const hash = normalizeHex64(nodeHash)
-	if (!hash) return null
-	return hints.get(hash, now)
+	if (!nodeHash) return null
+	return hints.get(nodeHash, now)
 }
 
 /**

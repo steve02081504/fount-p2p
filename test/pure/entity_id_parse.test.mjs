@@ -13,7 +13,7 @@ const SUBJECT = 'c'.repeat(64)
 const ENTITY = NODE + SUBJECT
 
 test('entity_id_parse roundtrip', () => {
-	assertEquals(isEntityHash128(ENTITY), true)
+	assertEquals(isEntityHash128(ENTITY), ENTITY)
 	assertEquals(parseEntityHash(ENTITY), {
 		entityHash: ENTITY,
 		nodeHash: NODE,
@@ -23,6 +23,6 @@ test('entity_id_parse roundtrip', () => {
 })
 
 test('entity_id_parse rejects malformed input', () => {
-	assertEquals(isEntityHash128('short'), false)
+	assertEquals(isEntityHash128('short'), null)
 	assertEquals(parseEntityHash(''), null)
 })

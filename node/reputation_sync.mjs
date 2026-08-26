@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64 } from '../core/hexIds.mjs'
 import { sendToNodeLink } from '../transport/link_registry.mjs'
 import { attachNodeScopeFeature } from '../transport/node_scope/features.mjs'
 import { ensureNodeScope, getNodeScopeWire } from '../transport/node_scope/wire.mjs'
@@ -55,9 +55,8 @@ function loadSyncConfig() {
 		? raw.lockedMaxPrevByNodeHash
 		: {}
 	for (const [nodeHash, score] of Object.entries(prevRaw)) {
-		const id = normalizeHex64(nodeHash)
 		const n = Number(score)
-		if (id && isHex64(id) && Number.isFinite(n)) lockedMaxPrevByNodeHash[id] = n
+		if (isHex64(nodeHash) && Number.isFinite(n)) lockedMaxPrevByNodeHash[nodeHash] = n
 	}
 	syncConfig = {
 		trustSyncDonors: normalizeHashList(raw.trustSyncDonors),
@@ -73,9 +72,7 @@ function loadSyncConfig() {
  * @returns {string[]} 规范化去重后的 64-hex 列表
  */
 function normalizeHashList(list) {
-	return [...new Set((Array.isArray(list) ? list : [])
-		.map(id => normalizeHex64(id))
-		.filter(id => isHex64(id)))]
+	return [...new Set(list?.map?.(isHex64)?.filter?.(Boolean) || [])]
 }
 
 /** 将当前 sync 配置写盘 */
@@ -93,8 +90,8 @@ export async function setReputationTable(table) {
 	await mutateReputation(data => {
 		data.byNodeHash = data.byNodeHash || {}
 		for (const [nodeHash, row] of Object.entries(incoming)) {
-			const id = normalizeHex64(nodeHash)
-			if (!id || !isHex64(id)) continue
+			const id = isHex64(nodeHash)
+			if (!id) continue
 			const score = Number(row?.score ?? row)
 			if (!Number.isFinite(score)) continue
 			data.byNodeHash[id] = { ...data.byNodeHash[id] || {}, score }
@@ -225,7 +222,7 @@ export function attachReputationSyncWire() {
 		 * @param {string} peerId 对端 nodeHash
 		 */
 		rep_sync_req(payload, peerId) {
-			const requester = normalizeHex64(peerId)
+			const requester = peerId
 			if (!requester || !getReputationExportAllowlist().includes(requester)) return
 			try {
 				wire.send('rep_sync_res', {
@@ -243,7 +240,7 @@ export function attachReputationSyncWire() {
 			const requestId = String(payload?.requestId || '')
 			const pending = pendingPulls.get(requestId)
 			if (!pending) return
-			if (normalizeHex64(peerId) !== pending.donor) return
+			if (peerId !== pending.donor) return
 			clearTimeout(pending.timer)
 			pendingPulls.delete(requestId)
 			pending.resolve(payload)
@@ -273,8 +270,8 @@ export function detachReputationSyncWire() {
  * @returns {Promise<object>} donor 返回的信誉表
  */
 export async function pullReputationFromNode(nodeHash) {
-	const donor = normalizeHex64(nodeHash)
-	if (!donor || !isHex64(donor)) throw new Error('p2p: pullReputationFromNode requires valid nodeHash')
+	const donor = isHex64(nodeHash)
+	if (!donor) throw new Error('p2p: pullReputationFromNode requires valid nodeHash')
 	if (!getTrustSyncDonors().includes(donor))
 		throw new Error('p2p: node not in trustSyncDonors')
 	attachReputationSyncWire()

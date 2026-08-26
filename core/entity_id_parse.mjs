@@ -1,14 +1,14 @@
-import { isHex64, normalizeHex64 } from './hexIds.mjs'
+import { isHex64 } from './hexIds.mjs'
 
 /** 128 位小写 hex：`nodeHash(64)` + `subjectHash(64)`。 */
 export const ENTITY_HASH_RE = /^[\da-f]{128}$/u
 
 /**
  * @param {unknown} value 待校验值
- * @returns {boolean} 是否为合法 128 位 hex
+ * @returns {string | null} 合法时返回原 128 位实体hash，否则 null（含 0x 前缀/大写/空白）
  */
 export function isEntityHash128(value) {
-	return ENTITY_HASH_RE.test(String(value ?? '').replace(/^0x/iu, ''))
+	return ENTITY_HASH_RE.test(value) ? value : null
 }
 
 /**
@@ -16,7 +16,7 @@ export function isEntityHash128(value) {
  * @returns {{ entityHash: string, nodeHash: string, subjectHash: string } | null} 解析结果；非法时 null
  */
 export function parseEntityHash(entityHash) {
-	const raw = String(entityHash ?? '').replace(/^0x/iu, '')
+	const raw = String(entityHash ?? '')
 	if (!ENTITY_HASH_RE.test(raw)) return null
 	return {
 		entityHash: raw,
@@ -31,9 +31,9 @@ export function parseEntityHash(entityHash) {
  * @returns {string} 128 位 entityHash
  */
 export function encodeEntityHash(nodeHash, subjectHash) {
-	const node = normalizeHex64(nodeHash)
-	const subject = normalizeHex64(subjectHash)
-	if (!isHex64(node) || !isHex64(subject))
+	const node = isHex64(nodeHash)
+	const subject = isHex64(subjectHash)
+	if (!node || !subject)
 		throw new Error('invalid entity hash parts')
 	return node + subject
 }

@@ -1,4 +1,4 @@
-import { normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64 } from '../core/hexIds.mjs'
 import { getNodeTransportSettings, getNodeHash } from '../node/identity.mjs'
 import { activeLinkRoster, deliverToUserRoomPeers } from '../transport/user_room.mjs'
 import { DEFAULT_TRUST_GRAPH_OWNER, requireTrustGraphProvider } from '../trust_graph/registry.mjs'
@@ -25,7 +25,7 @@ import {
 async function resolveRemoteNodeHashForPeer(username, peerId) {
 	if (!peerId) return null
 	const entry = activeLinkRoster().find(row => row.peerId === peerId)
-	const remote = normalizeHex64(entry?.remoteNodeHash)
+	const remote = entry?.remoteNodeHash
 	return remote || null
 }
 
@@ -62,8 +62,8 @@ async function resolveRouting(username) {
  */
 export async function deliverOrStoreMailboxPut(username, options) {
 	const routing = await resolveRouting(username)
-	const toPubKeyHash = normalizeHex64(options.toPubKeyHash)
-	if (!toPubKeyHash) return { stored: false, delivered: false, relayed: 0 }
+	const toPubKeyHash = options.toPubKeyHash
+	if (!isHex64(toPubKeyHash)) return { stored: false, delivered: false, relayed: 0 }
 	const hop = normalizeMailboxHop(options.hop)
 	if (hop >= routing.maxHop) return { stored: false, delivered: false, relayed: 0 }
 	const tier = mailboxTierFromHop(hop)
@@ -76,8 +76,8 @@ export async function deliverOrStoreMailboxPut(username, options) {
 		fromNodeHash: options.record?.fromNodeHash || nodeHash,
 	}
 	const stored = await storeMailboxRecord(record)
-	const toNodeHash = normalizeHex64(options.toNodeHash)
-	const delivered = toNodeHash && isMailboxRecordWithinSizeLimit(record)
+	const toNodeHash = options.toNodeHash
+	const delivered = isHex64(toNodeHash) && isMailboxRecordWithinSizeLimit(record)
 		? await requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER).sendToNode(username, toNodeHash, 'mailbox_put', { nodeHash, record })
 		: false
 
@@ -114,8 +114,8 @@ export async function publishMailboxRecord(username, toPubKeyHash, record, toNod
 export async function ingestMailboxPut(wireContext, put, peerId = '') {
 	const { record } = put
 	if (!record?.envelope || !record?.toPubKeyHash) return
-	const fromNode = normalizeHex64(put.nodeHash)
-	if (!fromNode || !takeIncomingMailboxPutSlot(fromNode)) return
+	const fromNode = put.nodeHash
+	if (!isHex64(fromNode) || !takeIncomingMailboxPutSlot(fromNode)) return
 	const username = wireContext.replicaUsername || ''
 	if (!username) return
 	if (peerId) {
@@ -143,8 +143,8 @@ export async function ingestMailboxPut(wireContext, put, peerId = '') {
  */
 export async function respondMailboxWant(want, sendGive, peerId) {
 	const { getMailboxRecords, takeMailboxForRecipient } = await import('./store.mjs')
-	const recipient = normalizeHex64(want.toPubKeyHash)
-	if (!recipient) return
+	const recipient = want.toPubKeyHash
+	if (!isHex64(recipient)) return
 	const ids = want.ids || []
 	const rows = (ids.length
 		? await getMailboxRecords(ids)
@@ -179,7 +179,7 @@ export async function ingestMailboxGive(wireContext, give) {
 export async function requestMailboxFromNetwork(username, toPubKeyHash) {
 	const routing = await resolveRouting(username)
 	const { listMailboxIdsForRecipient } = await import('./store.mjs')
-	const recipient = normalizeHex64(toPubKeyHash)
+	const recipient = toPubKeyHash
 	if (!recipient) return
 	await deliverToUserRoomPeers(username, 'mailbox_want', {
 		toPubKeyHash: recipient,

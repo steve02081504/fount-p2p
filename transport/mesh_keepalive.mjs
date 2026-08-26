@@ -1,4 +1,3 @@
-import { normalizeHex64 } from '../core/hexIds.mjs'
 import { listVisibleNodeHashes as discoveryListVisible } from '../discovery/index.mjs'
 import { nodeDebug, shortHash } from '../node/log.mjs'
 import { applyNetworkHint, loadPeerPoolView, promoteExplorePeer } from '../node/network.mjs'
@@ -54,15 +53,14 @@ export function createMeshKeepalive(deps) {
 	 * @returns {void}
 	 */
 	function syncExploreMark(nodeHash, trustedPeers) {
-		const hash = normalizeHex64(nodeHash)
-		if (!hash) return
+		if (!nodeHash) return
 		const trusted = trustedPeers ?? loadPeerPoolView().trustedPeers
-		if (trusted.includes(hash)) {
-			exploreLinks.delete(hash)
-			exploreStableSince.delete(hash)
+		if (trusted.includes(nodeHash)) {
+			exploreLinks.delete(nodeHash)
+			exploreStableSince.delete(nodeHash)
 			return
 		}
-		exploreLinks.add(hash)
+		exploreLinks.add(nodeHash)
 	}
 
 	/**
@@ -187,10 +185,9 @@ export function createMeshKeepalive(deps) {
 				syncExploreMark(nodeHash)
 			}) ?? null
 			stopLinkDown = registry.onLinkDown((nodeHash, reason) => {
-				const hash = normalizeHex64(nodeHash)
-				exploreLinks.delete(hash)
-				exploreStableSince.delete(hash)
-				nodeDebug('p2p:mesh link down', { peer: shortHash(hash), reason })
+				exploreLinks.delete(nodeHash)
+				exploreStableSince.delete(nodeHash)
+				nodeDebug('p2p:mesh link down', { peer: shortHash(nodeHash), reason })
 				// 主动关链不立刻补洞（避免 budget-evict 刚踢又连）；意外断链用 tick 按 N/K 重选，而非粘住原对端。
 				if (isMeshIntentionalClose(reason)) return
 				void runTick()

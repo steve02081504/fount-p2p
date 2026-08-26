@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 
-import { normalizeHex64 } from '../../core/hexIds.mjs'
+import { isHex64 } from '../../core/hexIds.mjs'
 import { createLinkPipe } from '../pipe.mjs'
 
 /**
@@ -25,7 +25,7 @@ export function parseLinkOpen(raw) {
 	}
 	catch { return null }
 	if (parsed?.type !== 'link-open' || !parsed.linkId) return null
-	return { linkId: String(parsed.linkId), from: normalizeHex64(parsed.from) || null }
+	return { linkId: String(parsed.linkId), from: isHex64(parsed.from) }
 }
 
 /**
@@ -34,7 +34,7 @@ export function parseLinkOpen(raw) {
  * @returns {ReturnType<typeof createLinkPipe>} link pipe
  */
 export function createLinkIdBoundPipe(options) {
-	const linkId = normalizeHex64(options.linkId)
+	const linkId = options.linkId
 	if (!linkId) throw new Error(`p2p: ${options.providerId || 'link'} linkId required`)
 	return createLinkPipe({
 		...options,

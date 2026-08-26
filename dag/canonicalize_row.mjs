@@ -2,17 +2,14 @@
  * DAG / 时间线签名行入库前的共用 hex 规范化（非权限校验）。
  */
 import { isEntityHash128 } from '../core/entity_id.mjs'
-import { assertHex64, HEX_ID_64, normalizeHex64 } from '../core/hexIds.mjs'
+import { assertHex64 } from '../core/hexIds.mjs'
 /**
  * @param {Record<string, unknown>} obj 可变对象
  * @param {string} key 字段名
  */
 function canonicalizeHexField(obj, key) {
 	if (!obj[key]) return
-	const normalized = normalizeHex64(obj[key])
-	if (!HEX_ID_64.test(normalized))
-		throw new Error(`${key} must be 64 hex characters`)
-	obj[key] = normalized
+	obj[key] = assertHex64(obj[key], key)
 }
 
 /**
@@ -28,8 +25,8 @@ export function canonicalizeRowContent(content, hexKeys, entityHashKeys = new Se
 		canonicalizeHexField(out, key)
 	for (const key of entityHashKeys) {
 		if (!out[key]) continue
-		const entityHash = String(out[key] || '')
-		if (!isEntityHash128(entityHash))
+		const entityHash = isEntityHash128(out[key])
+		if (!entityHash)
 			throw new Error(`${key} must be 128 hex characters`)
 		out[key] = entityHash
 	}

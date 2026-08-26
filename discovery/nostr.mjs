@@ -4,7 +4,7 @@ import { schnorr } from '@noble/curves/secp256k1.js'
 import WebSocket from 'ws'
 
 import { base64ToBytes, hexToBytes, bytesToBase64, bytesToHex } from '../core/bytes_codec.mjs'
-import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64 } from '../core/hexIds.mjs'
 import { sha256Hex } from '../crypto/crypto.mjs'
 import { getNodeTransportSettings } from '../node/identity.mjs'
 import { getSignalingRuntimeConfig } from '../node/instance.mjs'
@@ -80,8 +80,8 @@ function listPoolHashes(pool, now, ttlMs) {
  * @returns {void}
  */
 export function noteNostrVisibleNode(nodeHash, now = Date.now()) {
-	const hash = normalizeHex64(nodeHash)
-	if (!isHex64(hash)) return
+	const hash = isHex64(nodeHash)
+	if (!hash) return
 	visibleByHash.set(hash, now)
 }
 
@@ -93,8 +93,8 @@ export function noteNostrVisibleNode(nodeHash, now = Date.now()) {
  * @returns {void}
  */
 export function noteNostrGroupVisibleNode(roomSecret, nodeHash, now = Date.now()) {
-	const hash = normalizeHex64(nodeHash)
-	if (!roomSecret || !isHex64(hash)) return
+	const hash = isHex64(nodeHash)
+	if (!roomSecret || !hash) return
 	let pool = visibleByGroup.get(roomSecret)
 	if (!pool) {
 		pool = new Map()
@@ -137,7 +137,7 @@ export async function acceptNostrAdvert(rendezvousKey, bytes, options = {}) {
 	const ingested = await ingestEncryptedAdvert(rendezvousKey, bytes)
 	if (!ingested) return null
 	const hash = ingested.verifiedNodeHash
-	const skipHash = options.skipNodeHash ? normalizeHex64(options.skipNodeHash) : null
+	const skipHash = isHex64(options.skipNodeHash)
 	if (skipHash && hash === skipHash) return hash
 	const { roomSecret } = options
 	let firstSeen = true
@@ -761,9 +761,8 @@ export function createNostrDiscoveryProvider(options = {}) {
 		return dedupeRelayUrls(options.relayUrls)
 	}
 	const secretKey = randomBytes(32)
-	const seededSelf = normalizeHex64(options.localNodeHash)
 	/** @type {string | null} */
-	let selfNodeHash = isHex64(seededSelf) ? seededSelf : null
+	let selfNodeHash = isHex64(options.localNodeHash)
 	const NETWORK_SUB_KEY = 'network'
 	/**
 	 * @typedef {{ stop: () => void, held: boolean, listeners: Set<(bytes: Uint8Array, meta: object) => void> }} AdvertSubEntry
@@ -778,8 +777,8 @@ export function createNostrDiscoveryProvider(options = {}) {
 	 * @returns {void}
 	 */
 	function noteSelfNodeHash(nodeHash) {
-		const hash = normalizeHex64(nodeHash)
-		if (isHex64(hash)) selfNodeHash = hash
+		const hash = isHex64(nodeHash)
+		if (hash) selfNodeHash = hash
 	}
 
 	/**
@@ -873,8 +872,8 @@ export function createNostrDiscoveryProvider(options = {}) {
 	 * @returns {() => void} 取消 listener
 	 */
 	function ensureNodeAdvertSubscription(nodeHash, listener) {
-		const hash = normalizeHex64(nodeHash)
-		if (!isHex64(hash)) return () => { }
+		const hash = isHex64(nodeHash)
+		if (!hash) return () => { }
 		return ensureAdvertSubscription('node:' + hash, {
 			rendezvousKey: nodeRendezvousKey(hash),
 		}, listener)
@@ -907,8 +906,8 @@ export function createNostrDiscoveryProvider(options = {}) {
 		 * @returns {Promise<boolean>} 是否已准备
 		 */
 		async connectToNode(nodeHash) {
-			const hash = normalizeHex64(nodeHash)
-			if (!isHex64(hash)) return false
+			const hash = isHex64(nodeHash)
+			if (!hash) return false
 			ensureNodeAdvertSubscription(hash)
 			return true
 		},
@@ -959,8 +958,8 @@ export function createNostrDiscoveryProvider(options = {}) {
 		 * @returns {Promise<void>}
 		 */
 		async sendNodeSignal(toNodeHash, bytes) {
-			const hash = normalizeHex64(toNodeHash)
-			if (!isHex64(hash)) throw new Error('nostr: invalid nodeHash')
+			const hash = isHex64(toNodeHash)
+			if (!hash) throw new Error('nostr: invalid nodeHash')
 			const rendezvousKey = nodeRendezvousKey(hash)
 			const event = await signNostrEvent(
 				NOSTR_SIGNAL_KIND,
@@ -976,8 +975,8 @@ export function createNostrDiscoveryProvider(options = {}) {
 		 * @returns {Promise<() => void>} 取消函数
 		 */
 		async listenNodeSignals(localNodeHash, onSignal) {
-			const hash = normalizeHex64(localNodeHash)
-			if (!isHex64(hash)) throw new Error('nostr: invalid nodeHash')
+			const hash = isHex64(localNodeHash)
+			if (!hash) throw new Error('nostr: invalid nodeHash')
 			noteSelfNodeHash(hash)
 			const rendezvousKey = nodeRendezvousKey(hash)
 			const existing = nodeSignalSubs.get(hash)
@@ -1001,8 +1000,8 @@ export function createNostrDiscoveryProvider(options = {}) {
 		 * @returns {Promise<() => void>} 取消函数
 		 */
 		async watchNodeAdvert(nodeHash, onAdvert) {
-			const hash = normalizeHex64(nodeHash)
-			if (!isHex64(hash)) throw new Error('nostr: invalid nodeHash')
+			const hash = isHex64(nodeHash)
+			if (!hash) throw new Error('nostr: invalid nodeHash')
 			return ensureNodeAdvertSubscription(hash, onAdvert)
 		},
 		/**

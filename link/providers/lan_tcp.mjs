@@ -2,7 +2,6 @@ import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 import net from 'node:net'
 
-import { normalizeHex64 } from '../../core/hexIds.mjs'
 import { getLanPeerHint, listLanPeerHints } from '../../discovery/lan_peer_hints.mjs'
 import { asLinkHandle } from '../pipe.mjs'
 
@@ -186,7 +185,7 @@ async function openTcpPipe(options) {
 		pipe.handleInbound(payload)
 
 	if (options.initiator)
-		codec.write(buildLinkOpen(normalizeHex64(options.linkId), options.localIdentity?.nodeHash))
+		codec.write(buildLinkOpen(options.linkId, options.localIdentity?.nodeHash))
 
 	await pipe.startHandshake()
 	return asLinkHandle(pipe)
@@ -198,7 +197,7 @@ async function openTcpPipe(options) {
  * @returns {Promise<import('./index.mjs').LinkHandle>} 已就绪的 link
  */
 async function dialLanTcp(options) {
-	const remoteNodeHash = normalizeHex64(options.nodeHash)
+	const remoteNodeHash = options.nodeHash
 	const hints = listLanPeerHints(remoteNodeHash)
 	if (!hints.length) throw new Error('p2p: lan_tcp no peer hint')
 

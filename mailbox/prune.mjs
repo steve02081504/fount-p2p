@@ -1,7 +1,6 @@
 /**
  * Mailbox 公平淘汰（纯函数，供 store 与单测复用）。
  */
-import { normalizeHex64 } from '../core/hexIds.mjs'
 
 /** 单收件人×发送者桶：条数上限 */
 export const MAX_BUCKET_ENTRIES = 10
@@ -31,9 +30,9 @@ export function mailboxRecordBytes(record) {
  * @returns {string} 公平淘汰桶键
  */
 export function mailboxBucketKey(record) {
-	const to = normalizeHex64(record.toPubKeyHash) || ''
-	const from = normalizeHex64(record.fromNodeHash)
-		|| normalizeHex64(record.envelope?.sender)
+	const to = record.toPubKeyHash || ''
+	const from = record.fromNodeHash
+		|| record.envelope?.sender
 		|| 'unknown'
 	return `${to}\0${from}`
 }

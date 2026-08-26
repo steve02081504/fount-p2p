@@ -3,7 +3,7 @@ import { Buffer } from 'node:buffer'
 import { canonicalStringify } from '../../core/canonical_json.mjs'
 import { hashFromPubKeyHex, parseEntityHash } from '../../core/entity_id.mjs'
 import { assertSafeEvfsLogicalPath } from '../../core/evfs_logical_path.mjs'
-import { isHex64, isSignatureHex128, normalizeHex64 } from '../../core/hexIds.mjs'
+import { isHex64, isSignatureHex128 } from '../../core/hexIds.mjs'
 import { sign, verify } from '../../crypto/crypto.mjs'
 import { putFileManifest, saveFileManifest } from '../evfs.mjs'
 
@@ -39,7 +39,7 @@ export function publicManifestSignBytes(fields) {
  * @returns {Promise<import('./normalize.mjs').FileManifest>} 带 publicSig 的清单
  */
 export async function attachPublicManifestSig(manifest, publishedAt, entitySecretKey, entityPubKeyHex) {
-	const pubKeyHex = normalizeHex64(entityPubKeyHex)
+	const pubKeyHex = entityPubKeyHex
 	const message = publicManifestSignBytes({
 		ownerEntityHash: manifest.ownerEntityHash,
 		logicalPath: manifest.logicalPath,
@@ -73,9 +73,9 @@ export async function verifySignedPublicManifest(input) {
 	const publicSig = input?.meta?.publicSig
 	if (!publicSig || typeof publicSig !== 'object') return null
 	const publishedAt = Number(publicSig.publishedAt) || 0
-	const pubKeyHex = normalizeHex64(publicSig.pubKeyHex)
-	const sigHex = String(publicSig.sigHex || '')
-	if (!isHex64(pubKeyHex) || !isSignatureHex128(sigHex) || publishedAt <= 0) return null
+	const pubKeyHex = isHex64(publicSig.pubKeyHex)
+	const sigHex = isSignatureHex128(publicSig.sigHex)
+	if (!pubKeyHex || !sigHex || publishedAt <= 0) return null
 
 	const parsed = parseEntityHash(manifest.ownerEntityHash)
 	if (!parsed) return null

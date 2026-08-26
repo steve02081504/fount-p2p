@@ -4,7 +4,7 @@
  * **hide**：纯本地隐藏（personal_hide.json，永不联邦）。
  */
 import { parseEntityHash } from '../core/entity_id.mjs'
-import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64 } from '../core/hexIds.mjs'
 
 import { isWritableLocalEntity } from './identity.mjs'
 import { isNodeInitialized, getEntityStore } from './instance.mjs'
@@ -45,8 +45,8 @@ export function normalizePersonalListEntries(raw) {
 				byKey.set(`entity:${parsed.entityHash}`, { scope: 'entity', value: parsed.entityHash })
 		}
 		else if (scope === 'subject') {
-			const value = normalizeHex64(entry?.value)
-			if (isHex64(value))
+			const value = isHex64(entry?.value)
+			if (value)
 				byKey.set(`subject:${value}`, { scope: 'subject', value })
 		}
 	}
@@ -64,7 +64,7 @@ export function normalizePersonalListEntries(raw) {
  */
 export function matchesPersonalListEntries(entries, subject) {
 	const entity = subject?.entityHash || ''
-	const pk = normalizeHex64(subject?.pubKeyHash || subject?.subjectHash || '')
+	const pk = subject?.pubKeyHash || subject?.subjectHash || ''
 	if (entity) {
 		for (const entry of entries)
 			if (entry.scope === 'entity' && entry.value === entity) return true

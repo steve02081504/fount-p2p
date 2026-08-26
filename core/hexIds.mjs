@@ -11,19 +11,11 @@ export const BLOB_STORAGE_LOCATOR_RE = /^blob:([\da-f]{64})$/u
 export const LOCAL_CHUNK_FILE_RE = /^local:[^/]+\/chunks\/([\da-f]{64})\.bin$/u
 
 /**
- * @param {unknown} value 原始字符串
- * @returns {string} 去可选 0x 前缀后的字符串（不修大小写/空白）
- */
-export function normalizeHex64(value) {
-	return String(value ?? '').replace(/^0x/iu, '')
-}
-
-/**
  * @param {unknown} value 待校验值
- * @returns {boolean} 是否为 64 位小写 hex
+ * @returns {string | null} 合法时返回原 64 位 hex，否则 null（含 0x 前缀/大写/空白）
  */
 export function isHex64(value) {
-	return HEX_ID_64.test(normalizeHex64(value))
+	return HEX_ID_64.test(value) ? value : null
 }
 
 /**
@@ -33,28 +25,26 @@ export function isHex64(value) {
  * @returns {number} 排序比较结果
  */
 export function compareHex64Asc(a, b) {
-	const sa = normalizeHex64(a)
-	const sb = normalizeHex64(b)
-	return sa < sb ? -1 : sa > sb ? 1 : 0
+	return a < b ? -1 : a > b ? 1 : 0
 }
 
 /**
- * 外部入站专用：规范化并断言 64 位小写 hex。
+ * 外部入站专用：断言小写 64 位 hex（不清理 0x 前缀，直接拒绝）。
  * @param {unknown} value 原始值
  * @param {string} [label='hex64'] 字段名（错误信息）
  * @returns {string} 小写 64 位 hex
  */
 export function assertHex64(value, label = 'hex64') {
-	const normalized = normalizeHex64(value)
-	if (!HEX_ID_64.test(normalized))
+	if (!HEX_ID_64.test(value))
 		throw new Error(`${label} must be 64 hex characters`)
-	return normalized
+	return value
 }
 
 /**
  * @param {unknown} value 待校验值
- * @returns {boolean} 是否为 128 位签名 hex
+ * @returns {string | null} 合法时返回 128 位签名 hex，否则 null
  */
 export function isSignatureHex128(value) {
-	return SIGNATURE_HEX_128.test(String(value ?? ''))
+	const normalized = String(value ?? '')
+	return SIGNATURE_HEX_128.test(normalized) ? normalized : null
 }

@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 
-import { isHex64, isSignatureHex128, normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64, isSignatureHex128 } from '../core/hexIds.mjs'
 import { normalizeTcpPort } from '../core/tcp_port.mjs'
 import { keyPairFromSeed, pubKeyHash, sign, verify } from '../crypto/crypto.mjs'
 import { normalizeLanHosts } from '../discovery/lan_interfaces.mjs'
@@ -22,8 +22,7 @@ export const LINK_HANDSHAKE_DOMAIN = 'fount-link'
 export function normalizeLinkBinding(value) {
 	const dtls = normalizeDtlsFingerprint(value)
 	if (dtls) return dtls
-	const hex = normalizeHex64(value)
-	return isHex64(hex) ? hex : null
+	return isHex64(value)
 }
 
 /**
@@ -34,9 +33,9 @@ export function normalizeLinkBinding(value) {
  * @returns {Uint8Array} 待签名消息字节
  */
 export function buildAuthMessage(peerNonce, localBinding, localNodeHash) {
-	const nonce = normalizeHex64(peerNonce)
+	const nonce = peerNonce
 	const binding = normalizeLinkBinding(localBinding)
-	const nodeHash = normalizeHex64(localNodeHash)
+	const nodeHash = localNodeHash
 	if (!/^[\da-f]{64}$/u.test(nonce))
 		throw new Error('p2p: auth nonce must be 64 hex characters')
 	if (!binding)
@@ -57,10 +56,10 @@ export function buildHello(options = {}) {
 		const derived = keyPairFromSeed(Buffer.from(ensureNodeSeed(), 'hex'))
 		publicKey = derived.publicKey
 	}
-	const nodeHash = normalizeHex64(options.nodeHash || getNodeHash())
-	const nodePubKey = normalizeHex64(options.nodePubKey || Buffer.from(publicKey).toString('hex'))
-	const nonce = normalizeHex64(options.nonce || randomBytes(32).toString('hex'))
-	if (!isHex64(nodeHash) || !isHex64(nodePubKey) || !isHex64(nonce))
+	const nodeHash = isHex64(options.nodeHash || getNodeHash())
+	const nodePubKey = isHex64(options.nodePubKey || Buffer.from(publicKey).toString('hex'))
+	const nonce = isHex64(options.nonce || randomBytes(32).toString('hex'))
+	if (!nodeHash || !nodePubKey || !nonce)
 		throw new Error('p2p: invalid hello fields')
 	if (pubKeyHash(Buffer.from(nodePubKey, 'hex')) !== nodeHash)
 		throw new Error('p2p: hello nodePubKey does not match nodeHash')
@@ -79,7 +78,7 @@ export async function buildAuth(peerNonce, localBinding, options = {}) {
 		? Buffer.from(options.secretKey)
 		: Buffer.from(ensureNodeSeed(), 'hex')
 	const { publicKey, secretKey } = keyPairFromSeed(seed)
-	const nodeHash = normalizeHex64(options.nodeHash || pubKeyHash(publicKey))
+	const nodeHash = options.nodeHash || pubKeyHash(publicKey)
 	if (nodeHash !== pubKeyHash(publicKey))
 		throw new Error('p2p: auth nodeHash does not match secretKey')
 	const message = buildAuthMessage(peerNonce, localBinding, nodeHash)
@@ -93,10 +92,10 @@ export async function buildAuth(peerNonce, localBinding, options = {}) {
  * @returns {{ nodeHash: string, nodePubKey: string, nonce: string } | null} 规范化 hello 或 null
  */
 export function parseHello(hello) {
-	const nodeHash = normalizeHex64(hello?.nodeHash)
-	const nodePubKey = normalizeHex64(hello?.nodePubKey)
-	const nonce = normalizeHex64(hello?.nonce)
-	if (!isHex64(nodeHash) || !isHex64(nodePubKey) || !isHex64(nonce)) return null
+	const nodeHash = isHex64(hello?.nodeHash)
+	const nodePubKey = isHex64(hello?.nodePubKey)
+	const nonce = isHex64(hello?.nonce)
+	if (!nodeHash || !nodePubKey || !nonce) return null
 	try {
 		if (pubKeyHash(Buffer.from(nodePubKey, 'hex')) !== nodeHash) return null
 	}
@@ -117,11 +116,11 @@ export function parseHello(hello) {
 export async function verifyAuth(hello, auth, expectedNonce, remoteBinding) {
 	const parsedHello = parseHello(hello)
 	if (!parsedHello) return null
-	const signatureHex = String(auth?.sig ?? '')
+	const signatureHex = isSignatureHex128(auth?.sig)
 	const binding = normalizeLinkBinding(remoteBinding)
-	if (!isSignatureHex128(signatureHex) || !binding) return null
-	const normalizedNonce = normalizeHex64(expectedNonce)
-	if (!isHex64(normalizedNonce)) return null
+	if (!signatureHex || !binding) return null
+	const normalizedNonce = isHex64(expectedNonce)
+	if (!normalizedNonce) return null
 	const message = buildAuthMessage(normalizedNonce, binding, parsedHello.nodeHash)
 	const ok = await verify(
 		Buffer.from(signatureHex, 'hex'),
@@ -141,7 +140,7 @@ export async function verifyAuth(hello, auth, expectedNonce, remoteBinding) {
  * @returns {Uint8Array} 待签名消息字节
  */
 export function buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort = null, lanHosts = null) {
-	const base = `fount-advert\0${rendezvousKey}\0${ts}\0${normalizeHex64(nodeHash)}`
+	const base = `fount-advert\0${rendezvousKey}\0${ts}\0${nodeHash}`
 	const port = normalizeTcpPort(tcpPort)
 	let message = port ? `${base}\0${port}` : base
 	const hosts = normalizeLanHosts(lanHosts)
@@ -161,8 +160,8 @@ export async function buildSignedAdvert(rendezvousKey, ts = Date.now(), options 
 		? Buffer.from(options.secretKey)
 		: Buffer.from(ensureNodeSeed(), 'hex')
 	const { publicKey, secretKey } = keyPairFromSeed(seed)
-	const nodeHash = normalizeHex64(options?.nodeHash || pubKeyHash(publicKey))
-	const nodePubKey = normalizeHex64(options?.nodePubKey || Buffer.from(publicKey).toString('hex'))
+	const nodeHash = options?.nodeHash || pubKeyHash(publicKey)
+	const nodePubKey = options?.nodePubKey || Buffer.from(publicKey).toString('hex')
 	if (pubKeyHash(Buffer.from(nodePubKey, 'hex')) !== nodeHash)
 		throw new Error('p2p: advert nodePubKey does not match nodeHash')
 	const tcpPort = normalizeTcpPort(options?.tcpPort)
@@ -194,8 +193,8 @@ export async function verifySignedAdvert(rendezvousKey, advert, now = Date.now()
 	const parsedHello = parseHello({ nodeHash: advert?.nodeHash, nodePubKey: advert?.nodePubKey, nonce: '0'.repeat(64) })
 	if (!parsedHello) return null
 	const ts = Number(advert?.ts)
-	const sig = String(advert?.sig ?? '')
-	if (!Number.isFinite(ts) || Math.abs(now - ts) > maxSkewMs || !isSignatureHex128(sig)) return null
+	const sig = isSignatureHex128(advert?.sig)
+	if (!Number.isFinite(ts) || Math.abs(now - ts) > maxSkewMs || !sig) return null
 	const hasTcpPortField = !!advert?.tcpPort
 	const tcpPort = normalizeTcpPort(advert?.tcpPort)
 	if (hasTcpPortField && !tcpPort) return null

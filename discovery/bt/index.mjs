@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 
-import { isHex64, normalizeHex64 } from '../../core/hexIds.mjs'
+import { isHex64 } from '../../core/hexIds.mjs'
 import { nodeDebug, shortHash } from '../../node/log.mjs'
 import { noteAdvertPeerHints } from '../advert_peer_hints.mjs'
 import { ingestNetworkAdvert } from '../adverts.mjs'
@@ -31,8 +31,8 @@ const visibleByHash = new Map()
  * @returns {void}
  */
 export function noteBtVisibleNode(nodeHash, now = Date.now()) {
-	const hash = normalizeHex64(nodeHash)
-	if (!isHex64(hash)) return
+	const hash = isHex64(nodeHash)
+	if (!hash) return
 	visibleByHash.set(hash, now)
 }
 
@@ -176,7 +176,7 @@ export function createBluetoothDiscoveryProvider() {
 			onWriteRequest(_connection, data, _offset, _withoutResponse, callback) {
 				try {
 					const parsed = JSON.parse(Buffer.from(data).toString('utf8'))
-					const to = normalizeHex64(parsed?.to)
+					const to = parsed?.to
 					const bytes = Uint8Array.from(Buffer.from(String(parsed?.data || ''), 'base64'))
 					if (isHex64(to) && bytes.byteLength)
 						for (const listener of signalListeners.get(to) || [])
@@ -268,7 +268,7 @@ export function createBluetoothDiscoveryProvider() {
 	 * @returns {Promise<boolean>} 是否经 GATT 发出
 	 */
 	async function sendNodeSignalViaGatt(toNodeHash, bytes) {
-		const hash = normalizeHex64(toNodeHash)
+		const hash = toNodeHash
 		const hint = getBtPeerHint(hash)
 		if (!hint) return false
 		const blob = Buffer.from(JSON.stringify({
@@ -353,8 +353,8 @@ export function createBluetoothDiscoveryProvider() {
 		 * @returns {Promise<boolean>} 有 BT hint 且 GATT 可达时为 true
 		 */
 		async connectToNode(nodeHash) {
-			const hash = normalizeHex64(nodeHash)
-			if (!isHex64(hash)) return false
+			const hash = isHex64(nodeHash)
+			if (!hash) return false
 			if (!getBtPeerHint(hash)) return false
 			return await sendNodeSignalViaGatt(hash, new Uint8Array([0])).catch(() => false)
 		},
@@ -370,8 +370,8 @@ export function createBluetoothDiscoveryProvider() {
 			const refresh = async () => {
 				const body = await getBeacon?.()
 				if (!body?.nodeHash || !body.advertBytes?.byteLength) return
-				const hash = normalizeHex64(body.nodeHash)
-				if (!isHex64(hash)) return
+				const hash = isHex64(body.nodeHash)
+				if (!hash) return
 				localNodeHash = hash
 				localPresence.set(hash, Uint8Array.from(body.advertBytes))
 				noteBtVisibleNode(hash)
@@ -401,8 +401,8 @@ export function createBluetoothDiscoveryProvider() {
 		 */
 		async listenNodeSignals(localNodeHash, onSignal) {
 			if (role === 'scan') return () => { }
-			const hash = normalizeHex64(localNodeHash)
-			if (!isHex64(hash)) throw new Error('p2p: invalid nodeHash')
+			const hash = isHex64(localNodeHash)
+			if (!hash) throw new Error('p2p: invalid nodeHash')
 			await ensurePeripheralRuntime()
 			if (!signalListeners.has(hash)) signalListeners.set(hash, new Set())
 			signalListeners.get(hash).add(onSignal)

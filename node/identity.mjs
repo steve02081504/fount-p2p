@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 
 import { entityHashFromRecoveryPubKeyHex, parseEntityHash } from '../core/entity_id.mjs'
-import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64 } from '../core/hexIds.mjs'
 import { keyPairFromSeed, pubKeyHash } from '../crypto/crypto.mjs'
 import { normalizeMailboxSettings } from '../mailbox/settings.mjs'
 
@@ -17,7 +17,7 @@ const NODE_JSON = 'node'
  * @returns {string} 节点哈希
  */
 export function nodeHashFromSeed(seedHex) {
-	const seed = Buffer.from(normalizeHex64(seedHex), 'hex')
+	const seed = Buffer.from(seedHex, 'hex')
 	if (seed.length !== 32) throw new Error('invalid node seed')
 	const { publicKey } = keyPairFromSeed(seed)
 	return pubKeyHash(publicKey)
@@ -46,8 +46,8 @@ function saveNodeFile(patch) {
  */
 export function ensureNodeSeed() {
 	const data = loadNodeFile()
-	const existing = normalizeHex64(data.nodeSeedHex)
-	if (isHex64(existing)) return existing
+	const existing = isHex64(data.nodeSeedHex)
+	if (existing) return existing
 	const nodeSeedHex = randomBytes(32).toString('hex')
 	saveNodeFile({ nodeSeedHex })
 	return nodeSeedHex
@@ -105,8 +105,8 @@ export function ensureNodeDefaults() {
  * @returns {string | null} entityHash（非法 hex 时 null）
  */
 export function entityHashFromKeys(nodeHash, recoveryPubKeyHex) {
-	const pub = normalizeHex64(recoveryPubKeyHex)
-	if (!isHex64(nodeHash) || !isHex64(pub)) return null
+	const pub = isHex64(recoveryPubKeyHex)
+	if (!isHex64(nodeHash) || !pub) return null
 	return entityHashFromRecoveryPubKeyHex(nodeHash, pub)
 }
 

@@ -1,7 +1,7 @@
 /**
  * Mailbox 入站 put 限速（按来源节点，节点级单例）。
  */
-import { normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64 } from '../core/hexIds.mjs'
 
 const DEFAULT_WINDOW_MS = 60_000
 const DEFAULT_MAX_PUTS = 20
@@ -62,7 +62,8 @@ function evictLruIfNeeded(key) {
  */
 export function takeIncomingMailboxPutSlot(fromNodeHash, limits) {
 	const { windowMs, maxPuts } = resolveMailboxRateLimits(limits)
-	const key = normalizeHex64(fromNodeHash)
+	const key = fromNodeHash
+	if (!isHex64(key)) return false
 	const now = Date.now()
 	if (inboundByKey.size >= MAX_KEYS) sweepExpiredEntries(now)
 	evictLruIfNeeded(key)

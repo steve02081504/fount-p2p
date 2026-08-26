@@ -1,4 +1,4 @@
-import { assertHex64, isHex64, normalizeHex64 } from '../core/hexIds.mjs'
+import { assertHex64, isHex64 } from '../core/hexIds.mjs'
 import { recordWantIdsBackoff, wantIdsPeerKey } from '../federation/want_ids.mjs'
 import {
 	applyDecayCollusionAfterSlashPure,
@@ -120,7 +120,7 @@ export function recordGossipAllUnknownWant(groupId, peerNodeHash) {
  * @returns {Promise<void>}
  */
 export function recordMessageRateViolation(peerNodeHash, excessRatio = 1) {
-	const id = normalizeHex64(peerNodeHash)
+	const id = peerNodeHash
 	if (!id) return Promise.resolve()
 	return mutateReputation(data => {
 		recordMessageRateViolationPure(data, id, undefined, excessRatio)
@@ -134,7 +134,7 @@ export function recordMessageRateViolation(peerNodeHash, excessRatio = 1) {
  * @returns {Promise<boolean>} 是否触发异常隔离
  */
 export async function observePeerBehavior(peerNodeHash, sample) {
-	const id = normalizeHex64(peerNodeHash)
+	const id = peerNodeHash
 	if (!id) return false
 	let anomaly = false
 	await mutateReputation(data => {
@@ -149,7 +149,7 @@ export async function observePeerBehavior(peerNodeHash, sample) {
  * @returns {void}
  */
 export function bumpChunkStorageReputation(storagePeerKey) {
-	const id = normalizeHex64(storagePeerKey)
+	const id = storagePeerKey
 	if (!id) return
 	void mutateReputation(data => {
 		bumpChunkStorageReputationPure(data, id)
@@ -161,7 +161,7 @@ export function bumpChunkStorageReputation(storagePeerKey) {
  * @returns {void}
  */
 export function penalizeChunkStorageFailure(blamePeerKey) {
-	const id = normalizeHex64(blamePeerKey)
+	const id = blamePeerKey
 	if (!id) return
 	void mutateReputation(data => {
 		penalizeChunkStorageFailurePure(data, id)
@@ -173,7 +173,7 @@ export function penalizeChunkStorageFailure(blamePeerKey) {
  * @returns {void}
  */
 export function penalizeArchiveServeMismatch(peerNodeHash) {
-	const id = normalizeHex64(peerNodeHash)
+	const id = peerNodeHash
 	if (!id) return
 	void mutateReputation(data => {
 		penalizeArchiveServeMismatchPure(data, id)
@@ -187,9 +187,9 @@ export function penalizeArchiveServeMismatch(peerNodeHash) {
 export async function applyVolatileSlashAlert(alert) {
 	const expiresAt = Number(alert?.expiresAt)
 	if (Number.isFinite(expiresAt) && Date.now() > expiresAt) return false
-	const target = normalizeHex64(alert?.targetPubKeyHash)
-	const sender = normalizeHex64(alert?.sender)
-	if (!isHex64(target) || !isHex64(sender)) return false
+	const target = isHex64(alert?.targetPubKeyHash)
+	const sender = isHex64(alert?.sender)
+	if (!target || !sender) return false
 	const claim = Number.isFinite(Number(alert?.claim)) ? Number(alert.claim) : reputationTunables.slashDefaultClaim
 	await mutateReputation(data => {
 		applySubjectiveSlashPure(data, target, sender, claim, false)
@@ -227,8 +227,8 @@ export function buildUnverifiedSlashAlert(senderPubKeyHash, content, groupSettin
 export async function applySubjectiveSlashFromEvent(username, groupId, event, readEvents) {
 	if (event.type !== 'reputation_slash') return
 	const { content } = event
-	const target = normalizeHex64(content.targetPubKeyHash)
-	const sender = normalizeHex64(event.sender)
+	const target = content.targetPubKeyHash
+	const sender = event.sender
 
 	await mutateReputation(async data => {
 		const verified = content.verified && await verifySlashProof(username, groupId, content, readEvents)
@@ -245,7 +245,7 @@ export async function applySubjectiveSlashFromEvent(username, groupId, event, re
  * @returns {Promise<boolean>} 是否找到 proof 对应事件
  */
 async function verifySlashProof(username, groupId, content, readEvents) {
-	const eventId = normalizeHex64(content?.proof?.eventId)
+	const eventId = content?.proof?.eventId
 	if (!eventId) return false
 	const events = await readEvents(username, groupId)
 	return events.some(event => event.id === eventId)
@@ -261,7 +261,7 @@ export function applyDecayCollusionAfterSlash(targetPubKeyHash, inviteEdges) {
 		const applied = applyDecayCollusionAfterSlashPure(data, targetPubKeyHash, inviteEdges)
 		if (applied.length)
 			getNodeLogger()?.warn?.('reputation: collusion decay after slash', {
-				target: normalizeHex64(targetPubKeyHash),
+				target: targetPubKeyHash,
 				upstreamCount: applied.length,
 				hops: applied.map(row => row.hop),
 			})

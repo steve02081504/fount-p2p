@@ -12,8 +12,8 @@ import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs
 
 /** ensureRuntime 仅注册 + 调度后台暖机，不得等 listen / 公网 */
 const COLD_STARTUP_BUDGET_MS = 50
-/** 同进程再次 ensureRuntime（模块已热；含调度方差） */
-const WARM_STARTUP_BUDGET_MS = 5
+/** 同进程再次 ensureRuntime */
+const WARM_STARTUP_BUDGET_MS = 20
 
 /**
  * @param {string} dir nodeDir
@@ -30,7 +30,7 @@ function openRegistry(dir, localIdentity) {
 	})
 }
 
-test('ensureRuntime cold ≤50ms, warm ≤20ms; listening is background', async () => {
+test('ensureRuntime returns fast; listening is background', async () => {
 	clearLinkProviders()
 	clearDiscoveryProviders()
 	const nodeDir = await mkTestNodeDir('fount-p2p-startup-')

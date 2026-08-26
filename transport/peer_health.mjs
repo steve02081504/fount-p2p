@@ -1,4 +1,3 @@
-import { normalizeHex64 } from '../core/hexIds.mjs'
 import { emitSafe } from '../utils/emit_safe.mjs'
 
 /**
@@ -56,37 +55,35 @@ export function createPeerHealthTracker(registry) {
 	}
 
 	const stopUp = registry.onLinkUp?.((nodeHash, link) => {
-		const hash = normalizeHex64(nodeHash)
-		if (!hash) return
+		if (!nodeHash) return
 		const stopRtt = link?.onRtt?.(() => {
 			const stats = link.stats?.() ?? {}
-			update(hash, {
+			update(nodeHash, {
 				rttMs: stats.rttMs ?? null,
 				avgRttMs: stats.avgRttMs ?? null,
 				lastSeenAt: Date.now(),
 			})
 		}) ?? null
 		const stopDown = link?.onDown?.(() => {
-			cleanups.get(hash)?.()
-			cleanups.delete(hash)
-			update(hash, { connected: false, lastSeenAt: Date.now() })
+			cleanups.get(nodeHash)?.()
+			cleanups.delete(nodeHash)
+			update(nodeHash, { connected: false, lastSeenAt: Date.now() })
 		}) ?? null
-		update(hash, {
+		update(nodeHash, {
 			connected: true,
 			source: link?.providerId ?? null,
 			lastSeenAt: Date.now(),
 		})
-		cleanups.set(hash, () => {
+		cleanups.set(nodeHash, () => {
 			stopRtt?.()
 			stopDown?.()
 		})
 	}) ?? null
 	const stopDown = registry.onLinkDown?.(nodeHash => {
-		const hash = normalizeHex64(nodeHash)
-		if (!hash) return
-		cleanups.get(hash)?.()
-		cleanups.delete(hash)
-		update(hash, { connected: false, lastSeenAt: Date.now() })
+		if (!nodeHash) return
+		cleanups.get(nodeHash)?.()
+		cleanups.delete(nodeHash)
+		update(nodeHash, { connected: false, lastSeenAt: Date.now() })
 	}) ?? null
 
 	return {
@@ -95,7 +92,7 @@ export function createPeerHealthTracker(registry) {
 		 * @returns {PeerHealthEntry | null} 健康记录；无记录时 null
 		 */
 		getPeerHealth(nodeHash) {
-			return entries.get(normalizeHex64(nodeHash)) ?? null
+			return entries.get(nodeHash) ?? null
 		},
 		/**
 		 * @returns {PeerHealthEntry[]} 所有邻居健康记录

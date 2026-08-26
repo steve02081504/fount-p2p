@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 
 import { base64ToBytes, bytesToBase64 } from '../../core/bytes_codec.mjs'
-import { normalizeHex64 } from '../../core/hexIds.mjs'
+import { isHex64 } from '../../core/hexIds.mjs'
 import { getDiscoveryProvider, sendNodeSignalPacket } from '../../discovery/index.mjs'
 import { NOSTR_SIGNAL_KIND, resolveNostrRelayUrls } from '../../discovery/nostr.mjs'
 import { ms } from '../../utils/duration.mjs'
@@ -317,9 +317,9 @@ export function createNostrLinkProvider(options = {}) {
 	 */
 	async function deliverPacket(packet) {
 		if (packet?.type !== 'link') return
-		const linkId = normalizeHex64(packet.linkId)
-		const from = normalizeHex64(packet.from)
-		if (!linkId || !from) return
+		const linkId = packet.linkId
+		const from = packet.from
+		if (!isHex64(linkId) || !isHex64(from)) return
 		if (localIdentity?.nodeHash && from === localIdentity.nodeHash) return
 
 		const op = String(packet.op || '')
@@ -375,8 +375,8 @@ export function createNostrLinkProvider(options = {}) {
 		 */
 		async dial(dialOptions) {
 			if (!isAvailable()) return null
-			const remoteNodeHash = normalizeHex64(dialOptions.nodeHash)
-			if (!remoteNodeHash) return null
+			const remoteNodeHash = dialOptions.nodeHash
+			if (!isHex64(remoteNodeHash)) return null
 			localIdentity = dialOptions.localIdentity || localIdentity
 			if (!localIdentity?.nodeHash) throw new Error('p2p: nostr dial requires localIdentity')
 			await refreshPayloadCap(resolveRelayUrls())

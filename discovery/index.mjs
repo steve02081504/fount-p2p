@@ -1,4 +1,3 @@
-import { normalizeHex64 } from '../core/hexIds.mjs'
 import { nodeDebug, shortHash } from '../node/log.mjs'
 
 import { ingestGroupAdvert, ingestNodeAdvert } from './adverts.mjs'
@@ -149,10 +148,9 @@ export async function listVisibleNodeHashes(options = {}) {
  * @returns {Promise<void>}
  */
 export async function prepareConnectToNode(nodeHash, options = {}) {
-	const hash = normalizeHex64(nodeHash)
 	for (const provider of listDiscoveryProviders()) {
 		if (!provider.connectToNode) continue
-		try { await provider.connectToNode(hash, options) }
+		try { await provider.connectToNode(nodeHash, options) }
 		catch { /* prepare next medium */ }
 	}
 }
@@ -164,20 +162,19 @@ export async function prepareConnectToNode(nodeHash, options = {}) {
  * @returns {Promise<boolean>} 是否建链成功
  */
 export async function connectToNode(nodeHash, options = {}) {
-	const hash = normalizeHex64(nodeHash)
 	if (!linkDialer) {
-		await prepareConnectToNode(hash, options)
-		nodeDebug('p2p:discovery connect skip', { peer: shortHash(hash), reason: 'no-dialer' })
+		await prepareConnectToNode(nodeHash, options)
+		nodeDebug('p2p:discovery connect skip', { peer: shortHash(nodeHash), reason: 'no-dialer' })
 		return false
 	}
 	try {
-		const ok = !!await linkDialer(hash)
-		nodeDebug(ok ? 'p2p:discovery connect ok' : 'p2p:discovery connect miss', { peer: shortHash(hash) })
+		const ok = !!await linkDialer(nodeHash)
+		nodeDebug(ok ? 'p2p:discovery connect ok' : 'p2p:discovery connect miss', { peer: shortHash(nodeHash) })
 		return ok
 	}
 	catch (error) {
 		nodeDebug('p2p:discovery connect fail', {
-			peer: shortHash(hash),
+			peer: shortHash(nodeHash),
 			err: String(error?.message || error),
 		})
 		return false
@@ -271,8 +268,7 @@ export async function startGroupPresence(roomSecret, getBeacon) {
  * @returns {Promise<void>}
  */
 export async function sendNodeSignalPacket(toNodeHash, packet) {
-	const hash = normalizeHex64(toNodeHash)
-	await sendNodeSignal(hash, encryptSignalPacket(nodeRendezvousKey(hash), packet))
+	await sendNodeSignal(toNodeHash, encryptSignalPacket(nodeRendezvousKey(toNodeHash), packet))
 }
 
 /**
@@ -282,7 +278,7 @@ export async function sendNodeSignalPacket(toNodeHash, packet) {
  * @returns {object | null} 解密 JSON
  */
 export function decryptNodeSignalPacket(localNodeHash, bytes) {
-	return decryptSignalPacket(nodeRendezvousKey(normalizeHex64(localNodeHash)), bytes)
+	return decryptSignalPacket(nodeRendezvousKey(localNodeHash), bytes)
 }
 
 /**

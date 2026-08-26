@@ -1,8 +1,6 @@
 /**
  * 群级消息限速纯函数（无 I/O，供单测与 governance 复用）。
  */
-import { normalizeHex64 } from '../core/hexIds.mjs'
-
 /**
  * @param {object} event DAG 事件
  * @returns {string} 限速实体键
@@ -10,7 +8,7 @@ import { normalizeHex64 } from '../core/hexIds.mjs'
 export function messageRateEntityKey(event) {
 	const charId = String(event?.charId || '')
 	if (charId) return `char:${charId}`
-	return normalizeHex64(event?.sender)
+	return event?.sender || ''
 }
 
 /**

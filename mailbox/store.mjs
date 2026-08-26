@@ -1,7 +1,7 @@
 import { mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
-import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64 } from '../core/hexIds.mjs'
 import { jsonlMutexKey, writeJsonl } from '../dag/storage.mjs'
 import { mailboxStorePath } from '../node/user_paths.mjs'
 import { withAsyncMutex } from '../utils/async_mutex.mjs'
@@ -150,7 +150,7 @@ export function mailboxEnvelopeId(envelope) {
  */
 export async function storeMailboxRecord(record) {
 	if (!isMailboxRecordWithinSizeLimit(record)) return false
-	const toPubKeyHash = normalizeHex64(record.toPubKeyHash)
+	const toPubKeyHash = record.toPubKeyHash
 	if (!isHex64(toPubKeyHash)) return false
 	const hop = normalizeMailboxHop(record.hop)
 	const { tier } = record
@@ -178,7 +178,7 @@ export async function storeMailboxRecord(record) {
 			envelope: record.envelope,
 			storedAt: Date.now(),
 			expiresAt: Date.now() + ttlMs,
-			fromNodeHash: normalizeHex64(record.fromNodeHash),
+			fromNodeHash: record.fromNodeHash,
 			hop,
 			tier,
 			importance: Number.isFinite(Number(record.importance)) ? Number(record.importance) : undefined,
@@ -193,9 +193,8 @@ export async function storeMailboxRecord(record) {
  * @returns {Promise<string[]>} record id 列表
  */
 export async function listMailboxIdsForRecipient(toPubKeyHash) {
-	const recipient = normalizeHex64(toPubKeyHash)
 	return (await readAll())
-		.filter(record => record.toPubKeyHash === recipient)
+		.filter(record => record.toPubKeyHash === toPubKeyHash)
 		.map(record => record.id)
 }
 
@@ -224,8 +223,7 @@ export async function deleteMailboxRecords(ids) {
  * @returns {Promise<MailboxRecord[]>} 待发记录（不删除）
  */
 export async function takeMailboxForRecipient(toPubKeyHash) {
-	const recipient = normalizeHex64(toPubKeyHash)
-	return (await readAll()).filter(record => record.toPubKeyHash === recipient)
+	return (await readAll()).filter(record => record.toPubKeyHash === toPubKeyHash)
 }
 
 /**
@@ -233,9 +231,8 @@ export async function takeMailboxForRecipient(toPubKeyHash) {
  * @returns {Promise<number>} 未过期条数
  */
 export async function countMailboxPendingForRecipient(toPubKeyHash) {
-	const recipient = normalizeHex64(toPubKeyHash)
 	const now = Date.now()
-	return (await readAll()).filter(record => record.toPubKeyHash === recipient && record.expiresAt > now).length
+	return (await readAll()).filter(record => record.toPubKeyHash === toPubKeyHash && record.expiresAt > now).length
 }
 
 /**

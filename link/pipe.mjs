@@ -1,5 +1,4 @@
 import { toBytes } from '../core/bytes_codec.mjs'
-import { normalizeHex64 } from '../core/hexIds.mjs'
 import { ms } from '../utils/duration.mjs'
 import { emitSafe } from '../utils/emit_safe.mjs'
 import { createLruMap } from '../utils/lru.mjs'
@@ -92,7 +91,7 @@ export function createLinkPipe(options) {
 	const heartbeatMs = Number(options.heartbeatMs) || ms('15s')
 	const idleTimeoutMs = Number(options.idleTimeoutMs) || ms('45s')
 	const handshakeTimeoutMs = Number(options.handshakeTimeoutMs) || ms('10s')
-	const targetNodeHash = normalizeHex64(options.nodeHash || '')
+	const targetNodeHash = options.nodeHash || ''
 	let closed = false
 	let ready = false
 	let closeReason = 'closed'

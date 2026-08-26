@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 
-import { compareHex64Asc, normalizeHex64 } from '../core/hexIds.mjs'
+import { compareHex64Asc, isHex64 } from '../core/hexIds.mjs'
 import { keyPairFromSeed } from '../crypto/crypto.mjs'
 import { noteAdvertPeerHints } from '../discovery/advert_peer_hints.mjs'
 import { watchVerifiedNodeAdvert, setDiscoveryLinkDialer, prepareConnectToNode } from '../discovery/index.mjs'
@@ -34,8 +34,8 @@ const DIAL_COOLDOWN_MAX_MS = ms('10m')
 function resolveLocalIdentity(localIdentity) {
 	if (localIdentity?.nodeHash && localIdentity?.nodePubKey && localIdentity?.secretKey)
 		return {
-			nodeHash: normalizeHex64(localIdentity.nodeHash),
-			nodePubKey: normalizeHex64(localIdentity.nodePubKey),
+			nodeHash: localIdentity.nodeHash,
+			nodePubKey: localIdentity.nodePubKey,
 			secretKey: localIdentity.secretKey,
 		}
 	const secretKey = Buffer.from(ensureNodeSeed(), 'hex')
@@ -154,7 +154,7 @@ export function createLinkRegistry(options = {}) {
 	 * @returns {Promise<void>}
 	 */
 	async function registerResolvedLink(remoteNodeHash, candidate) {
-		const normalized = normalizeHex64(remoteNodeHash)
+		const normalized = remoteNodeHash
 		const existing = links.get(normalized)
 		if (existing && existing !== candidate && !linkIsPreferred(candidate, normalized, existing)) {
 			await candidate.close(candidate.level !== existing.level ? 'provider-loser' : 'glare-loser')
@@ -176,7 +176,7 @@ export function createLinkRegistry(options = {}) {
 		void (async () => {
 			try {
 				await link.ready
-				const remote = normalizeHex64(link.nodeHash)
+				const remote = isHex64(link.nodeHash)
 				if (!remote) {
 					await link.close('inbound-no-nodehash')
 					return
@@ -241,7 +241,7 @@ export function createLinkRegistry(options = {}) {
 		 * @param {string} remoteNodeHash 远端 nodeHash
 		 * @returns {object | null} 已有规范链路
 		 */
-		getCanonicalLink: remoteNodeHash => links.get(normalizeHex64(remoteNodeHash)),
+		getCanonicalLink: remoteNodeHash => links.get(remoteNodeHash),
 	}))
 
 	/**
@@ -271,7 +271,7 @@ export function createLinkRegistry(options = {}) {
 	async function ensureDirectLinkToNode(remoteNodeHash) {
 		await bootstrap.ensureRuntime()
 		await bootstrap.whenSignalListening()
-		const normalized = normalizeHex64(remoteNodeHash)
+		const normalized = remoteNodeHash
 		if (!normalized || normalized === localIdentity.nodeHash) return null
 		if (links.has(normalized)) return links.get(normalized)
 		if (inflights.has(normalized)) return await inflights.get(normalized)
@@ -356,7 +356,7 @@ export function createLinkRegistry(options = {}) {
 			 * @param {string} nodeHash 目标 nodeHash
 			 * @returns {object | null} 已有链路或 null
 			 */
-			getLink: nodeHash => links.get(normalizeHex64(nodeHash)) || null,
+			getLink: nodeHash => links.get(nodeHash) || null,
 			ensureLinkToNode: ensureDirectLinkToNode,
 			/**
 			 * @param {(nodeHash: string) => void} listener link up 回调
@@ -380,10 +380,9 @@ export function createLinkRegistry(options = {}) {
 	exploreLinkHashes = meshKeepalive.exploreLinkHashes
 	setDiscoveryLinkDialer(ensureDirectLinkToNode)
 	setDiscoveryPeerClueListener(nodeHash => {
-		const hash = normalizeHex64(nodeHash)
-		if (!hash) return
-		dialCooldown.delete(hash)
-		recentAdverts.touch(hash, Date.now())
+		if (!nodeHash) return
+		dialCooldown.delete(nodeHash)
+		recentAdverts.touch(nodeHash, Date.now())
 	})
 
 	/**
@@ -401,7 +400,7 @@ export function createLinkRegistry(options = {}) {
 	 * @returns {Promise<boolean>} 是否发送成功
 	 */
 	async function sendDirectToNodeLink(remoteNodeHash, envelope) {
-		const normalized = normalizeHex64(remoteNodeHash)
+		const normalized = remoteNodeHash
 		if (!normalized) return false
 		const link = links.get(normalized)
 		if (!link) return false
@@ -591,7 +590,7 @@ export function createLinkRegistry(options = {}) {
 		 * @returns {object | null} 链路实例；不存在时 null
 		 */
 		getLink(nodeHash) {
-			return links.get(normalizeHex64(nodeHash)) || null
+			return links.get(nodeHash) || null
 		},
 		/**
 		 * 列出所有活跃链路。
@@ -607,8 +606,7 @@ export function createLinkRegistry(options = {}) {
 		 * @returns {Promise<void>}
 		 */
 		async closeLink(nodeHash, reason = 'manual-close') {
-			const normalized = normalizeHex64(nodeHash)
-			const link = links.get(normalized)
+			const link = links.get(nodeHash)
 			if (!link) return
 			await link.close(reason)
 		},
@@ -638,7 +636,7 @@ export function createLinkRegistry(options = {}) {
 		 * @returns {void}
 		 */
 		registerScopeInterest(scope, nodeHashes) {
-			scopeInterests.set(scope, new Set((nodeHashes || []).map(normalizeHex64).filter(Boolean)))
+			scopeInterests.set(scope, new Set((nodeHashes || []).filter(isHex64)))
 		},
 		/**
 		 * 释放 scope 兴趣。
@@ -673,8 +671,7 @@ export function createLinkRegistry(options = {}) {
 		 * @returns {Promise<() => void>} 取消函数
 		 */
 		async watchNodeAdvert(nodeHash, onAdvert) {
-			const hash = normalizeHex64(nodeHash)
-			return await watchVerifiedNodeAdvert(hash, async (verifiedNodeHash, body, meta) => {
+			return await watchVerifiedNodeAdvert(nodeHash, async (verifiedNodeHash, body, meta) => {
 				noteAdvertPeerHints(verifiedNodeHash, body, meta)
 				recentAdverts.touch(verifiedNodeHash, Date.now())
 				dialCooldown.delete(verifiedNodeHash)

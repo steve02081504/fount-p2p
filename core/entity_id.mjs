@@ -7,7 +7,7 @@ import {
 	isEntityHash128,
 	parseEntityHash,
 } from './entity_id_parse.mjs'
-import { isHex64, normalizeHex64 } from './hexIds.mjs'
+import { isHex64 } from './hexIds.mjs'
 
 /**
  * entityHash 编解码与校验（re-export）。
@@ -24,8 +24,8 @@ export {
  * @returns {string} 64 位 nodeHash / subjectHash（pubKeyHash）
  */
 export function hashFromPubKeyHex(pubKeyHex) {
-	const hex = normalizeHex64(pubKeyHex)
-	if (!isHex64(hex)) throw new Error('invalid pubKeyHex')
+	const hex = isHex64(pubKeyHex)
+	if (!hex) throw new Error('invalid pubKeyHex')
 	const bytes = hexToBytes(hex)
 	if (bytes.length !== 32) throw new Error('invalid pubKeyHex')
 	return pubKeyHash(bytes)
@@ -46,8 +46,8 @@ export function entityHashFromRecoveryPubKeyHex(nodeHash, recoveryPubKeyHex) {
  * @returns {string} entityHash
  */
 export function entityHashFromSubjectHash(nodeHash, subjectHash) {
-	const node = normalizeHex64(nodeHash)
-	const subject = normalizeHex64(subjectHash)
-	if (!isHex64(node) || !isHex64(subject)) throw new Error('invalid subject hash')
+	const node = isHex64(nodeHash)
+	const subject = isHex64(subjectHash)
+	if (!node || !subject) throw new Error('invalid subject hash')
 	return encodeEntityHash(node, subject)
 }

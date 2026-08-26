@@ -1,4 +1,4 @@
-import { assertHex64, isHex64, isSignatureHex128, normalizeHex64 } from '../core/hexIds.mjs'
+import { assertHex64, isHex64, isSignatureHex128 } from '../core/hexIds.mjs'
 import { isPlainObject } from '../core/object.mjs'
 
 const MAX_DISCOVERY_ADS = 64
@@ -10,16 +10,15 @@ const MAX_DISCOVERY_ADS = 64
 function sanitizeDiscoveryAdvertisement(ad) {
 	if (!isPlainObject(ad)) return null
 	const groupId = String(ad.groupId || '')
-	const advertiserPubKeyHash = normalizeHex64(ad.advertiserPubKeyHash)
-	const signature = String(ad.signature || '')
-	if (!groupId || !isHex64(advertiserPubKeyHash) || !isSignatureHex128(signature)) return null
-	const advertiserNodeHash = normalizeHex64(ad.advertiserNodeHash)
+	const advertiserPubKeyHash = isHex64(ad.advertiserPubKeyHash)
+	const signature = isSignatureHex128(ad.signature)
+	if (!groupId || !advertiserPubKeyHash || !signature) return null
 	const body = {
 		groupId,
 		title: String(ad.title || '').slice(0, 200),
 		blurb: String(ad.blurb || '').slice(0, 500),
 		advertiserPubKeyHash,
-		advertiserNodeHash: isHex64(advertiserNodeHash) ? advertiserNodeHash : String(ad.advertiserNodeHash || ''),
+		advertiserNodeHash: isHex64(ad.advertiserNodeHash) || '',
 		observedAt: Number(ad.observedAt) || 0,
 		signature,
 	}

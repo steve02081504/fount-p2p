@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 
 import { bytesToBase64 } from '../../core/bytes_codec.mjs'
-import { normalizeHex64 } from '../../core/hexIds.mjs'
+import { isHex64 } from '../../core/hexIds.mjs'
 import {
 	clearDiscoveryProviders,
 	decryptNodeSignalPacket,
@@ -41,7 +41,7 @@ function registerMemoryNostrDiscovery(ctx) {
 		 * @returns {Promise<void>}
 		 */
 		async sendNodeSignal(toNodeHash, bytes) {
-			const hash = normalizeHex64(toNodeHash)
+			const hash = isHex64(toNodeHash)
 			const packet = decryptNodeSignalPacket(hash, bytes)
 			if (packet?.type !== 'link') return
 			if (hash === ctx.alice.nodeHash) ctx.aliceLink.deliverPacket(packet)
@@ -162,10 +162,20 @@ test('minUsablePayloadCap ignores unusably-low relays and takes min of the rest'
 
 test('MIN_USABLE_RELAY_CAP_CHARS can carry a minimum-chunk frame and is below the default cap', () => {
 	// 该下限等于装下最小正 chunk（帧头 + 1 字节 chunk）的完整 EVENT 字节数。
+	/**
+	 * 将原始 chunk 包装为 link 广播事件，用于字节大小估算。
+	 * @param {Uint8Array} frame 要嵌入的 chunk 负载。
+	 * @returns {{type:string,op:string,from:string,linkId:string,payload:string}} 最小化的 link 事件包。
+	 */
 	const packetForFrame = frame => ({ type: 'link', op: 'b', from: 'aa'.repeat(32), linkId: 'bb'.repeat(32), payload: bytesToBase64(frame) })
 	assertEquals(estimateEventMessageBytes(packetForFrame(new Uint8Array(FRAME_HEADER_BYTES + 1))), MIN_USABLE_RELAY_CAP_CHARS)
 	assertEquals(MIN_USABLE_RELAY_CAP_CHARS < MAX_LINK_PAYLOAD_CHARS, true)
 	// 小于 256 但为正数的 chunk 也能在该上限下承载（base64 粒度下 budget 为正且 < 256）。
+	/**
+	 * 将 chunk 编码为填充事件字符串，其字节数与 relay 消息估算值一致。
+	 * @param {Uint8Array} frame 要计量的 chunk 负载。
+	 * @returns {string} 与估算字节大小一致的填充字符串。
+	 */
 	const eventEncoder = frame => 'x'.repeat(estimateEventMessageBytes(packetForFrame(frame)))
 	const budget = maxFrameChunkBytesForPayload(MIN_USABLE_RELAY_CAP_CHARS, eventEncoder)
 	assertEquals(budget > 0, true)

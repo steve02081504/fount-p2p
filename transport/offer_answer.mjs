@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 
-import { normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64 } from '../core/hexIds.mjs'
 import { decryptNodeSignalPacket, sendNodeSignalPacket } from '../discovery/index.mjs'
 import { listLinkProviders } from '../link/providers/index.mjs'
 import { nodeDebug, shortHash } from '../node/log.mjs'
@@ -92,7 +92,7 @@ export function createOfferAnswerDial(deps) {
 	 * @returns {ReturnType<typeof createBufferedSignalSession>} 该连接的缓冲信令会话
 	 */
 	function createConnSession(remoteNodeHash, connId) {
-		const normalized = normalizeHex64(remoteNodeHash)
+		const normalized = remoteNodeHash
 		return createBufferedSignalSession(async message => {
 			await sendNodeSignalPacket(normalized, {
 				type: 'signal',
@@ -153,7 +153,7 @@ export function createOfferAnswerDial(deps) {
 	 */
 	async function handleSignalPacket(packet) {
 		if (packet?.type !== 'signal') return
-		const remoteNodeHash = normalizeHex64(packet.from)
+		const remoteNodeHash = isHex64(packet.from)
 		const connId = String(packet.connId || '')
 		if (!remoteNodeHash || remoteNodeHash === localIdentity.nodeHash || !connId) return
 		let session = signalSessions.get(connId)

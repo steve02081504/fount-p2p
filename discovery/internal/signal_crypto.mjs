@@ -1,7 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 
-import { normalizeHex64 } from '../../core/hexIds.mjs'
 import { sha256Hex } from '../../crypto/crypto.mjs'
 import { createLruMap } from '../../utils/lru.mjs'
 
@@ -19,7 +18,7 @@ export const SIGNAL_KEY_CACHE_MAX = 512
  * @returns {string} rendezvous 键
  */
 export function nodeRendezvousKey(nodeHash) {
-	return sha256Hex(`${NODE_RENDEZVOUS_DOMAIN}${normalizeHex64(nodeHash)}`)
+	return sha256Hex(`${NODE_RENDEZVOUS_DOMAIN}${nodeHash}`)
 }
 
 /**

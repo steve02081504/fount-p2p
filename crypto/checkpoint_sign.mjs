@@ -27,8 +27,8 @@ export async function signCheckpoint(payload, secretKey) {
  * @returns {Promise<boolean>} 合法为 true
  */
 export async function verifyCheckpointSignature(checkpoint, ownerPublicKey) {
-	const raw = String(checkpoint.checkpoint_signature || '')
-	if (!isSignatureHex128(raw)) return false
+	const raw = isSignatureHex128(checkpoint.checkpoint_signature)
+	if (!raw) return false
 	const body = { ...checkpoint }
 	delete body.checkpoint_signature
 	const messageBytes = Buffer.from(canonicalStringify(body), 'utf8')
@@ -41,7 +41,7 @@ export async function verifyCheckpointSignature(checkpoint, ownerPublicKey) {
  * @returns {boolean} 签名格式合法为 true
  */
 export function isSignedCheckpoint(checkpoint) {
-	return isSignatureHex128(String(checkpoint?.checkpoint_signature || ''))
+	return !!isSignatureHex128(checkpoint?.checkpoint_signature)
 }
 
 /**
@@ -60,7 +60,7 @@ export async function verifyRemoteCheckpoint(checkpoint) {
 	const ownerHash = checkpoint.members_record?.delegatedOwnerPubKeyHash
 	const owner = checkpoint.members_record?.members?.[ownerHash]
 	const pubHex = owner?.pubKeyHex
-	if (!pubHex || !isHex64(pubHex))
+	if (!isHex64(pubHex))
 		return { valid: false, reason: 'delegated owner pubkey missing' }
 	if (!await verifyCheckpointSignature(checkpoint, Buffer.from(pubHex, 'hex')))
 		return { valid: false, reason: 'checkpoint signature invalid' }

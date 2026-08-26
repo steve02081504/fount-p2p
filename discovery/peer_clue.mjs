@@ -1,5 +1,3 @@
-import { normalizeHex64 } from '../core/hexIds.mjs'
-
 /** @type {((nodeHash: string) => void) | null} */
 let peerClueListener = null
 
@@ -18,6 +16,5 @@ export function setDiscoveryPeerClueListener(listener) {
  * @returns {void}
  */
 export function noteDiscoveryPeerClue(nodeHash) {
-	const hash = normalizeHex64(nodeHash)
-	if (hash) peerClueListener?.(hash)
+	if (nodeHash) peerClueListener?.(nodeHash)
 }

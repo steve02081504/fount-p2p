@@ -40,8 +40,8 @@ const TRANSFER_TYPES = new Set(['public', 'file-master-key-wrap', 'vault-wrap', 
  */
 export function normalizeFileManifest(input) {
 	if (!input || typeof input !== 'object') return null
-	const ownerEntityHash = String(input.ownerEntityHash || '')
-	if (!isEntityHash128(ownerEntityHash)) return null
+	const ownerEntityHash = isEntityHash128(input.ownerEntityHash)
+	if (!ownerEntityHash) return null
 	const logicalPath = String(input.logicalPath || '').replace(/^\/+/, '').replace(/\\/g, '/')
 	if (!logicalPath) return null
 	const ceMode = String(input.ceMode || 'convergent')

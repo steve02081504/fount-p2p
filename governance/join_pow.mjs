@@ -3,8 +3,6 @@
  */
 import { createHash } from 'node:crypto'
 
-import { normalizeHex64 } from '../core/hexIds.mjs'
-
 import admissionTunables from './tunables.json' with { type: 'json' }
 
 /** 默认 epoch 窗口（1 小时） */
@@ -105,8 +103,8 @@ export function verifyJoinPow(powSolution, options) {
 	const anchorRef = String(powSolution.anchorRef ?? '')
 	const { nonce } = powSolution
 	const epoch = Number(powSolution.epoch)
-	const joinerNodeHash = normalizeHex64(powSolution.joinerNodeHash ?? options.senderNodeHash)
-	const senderNodeHash = normalizeHex64(options.senderNodeHash)
+	const joinerNodeHash = powSolution.joinerNodeHash ?? options.senderNodeHash
+	const senderNodeHash = options.senderNodeHash
 
 	if (!anchorRef || nonce == null || !Number.isFinite(epoch)) return { ok: false, achievedBits: 0 }
 	if (!joinerNodeHash || joinerNodeHash !== senderNodeHash) return { ok: false, achievedBits: 0 }

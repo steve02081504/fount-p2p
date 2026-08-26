@@ -1,7 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 
-import { normalizeHex64 } from '../../core/hexIds.mjs'
 import { getBtPeerHint } from '../../discovery/bt/peer_hints.mjs'
 import { canUseBluetoothRuntime, loadBleno, loadNoble, resolveBtRole, waitPoweredOn } from '../../discovery/bt/runtime.mjs'
 import { asLinkHandle } from '../pipe.mjs'
@@ -55,7 +54,7 @@ async function openGattPipe(options) {
 
 	if (options.initiator)
 		await Promise.resolve(options.write(Buffer.from(
-			buildLinkOpen(normalizeHex64(options.linkId), options.localIdentity?.nodeHash),
+			buildLinkOpen(options.linkId, options.localIdentity?.nodeHash),
 			'utf8',
 		)))
 
@@ -69,7 +68,7 @@ async function openGattPipe(options) {
  * @returns {Promise<import('./index.mjs').LinkHandle>} 已就绪的 link
  */
 async function dialBleGatt(options) {
-	const remoteNodeHash = normalizeHex64(options.nodeHash)
+	const remoteNodeHash = options.nodeHash
 	const hint = getBtPeerHint(remoteNodeHash)
 	if (!hint) throw new Error('p2p: ble_gatt no peer hint')
 	const noble = await loadNoble()

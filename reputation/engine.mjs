@@ -1,8 +1,6 @@
 /**
  * 信誉纯内存算子（模拟器与磁盘 store 共用）。
  */
-import { normalizeHex64 } from '../core/hexIds.mjs'
-
 import {
 	clampReputationScore,
 	computeRepMaxEff,
@@ -178,7 +176,7 @@ export function pruneReputationFile(data, tunables = reputationTunables, now = D
  * @returns {boolean} 是否已加分
  */
 export function bumpReputationOnRelayPure(data, peerNodeHash, dedupeKey, now = Date.now(), tunables = reputationTunables) {
-	const id = normalizeHex64(peerNodeHash)
+	const id = peerNodeHash
 	if (!id) return false
 	const key = dedupeKey || `conn:${id}`
 	data.relayBumpSeen = data.relayBumpSeen.filter(hit => now - hit.t <= tunables.relayBumpDedupeMs)
@@ -215,7 +213,7 @@ export function recordGossipAllUnknownWantPure(data, peerNodeHash, now = Date.no
  * @returns {void}
  */
 export function recordMessageRateViolationPure(data, peerNodeHash, tunables = reputationTunables, excessRatio = 1) {
-	const id = normalizeHex64(peerNodeHash)
+	const id = peerNodeHash
 	if (!id) return
 	const ratio = Math.max(0, Math.min(1, Number(excessRatio) || 0))
 	if (ratio <= 0) return
@@ -229,7 +227,7 @@ export function recordMessageRateViolationPure(data, peerNodeHash, tunables = re
  * @returns {void}
  */
 export function bumpChunkStorageReputationPure(data, storagePeerKey, tunables = reputationTunables) {
-	const id = normalizeHex64(storagePeerKey)
+	const id = storagePeerKey
 	if (!id) return
 	adjustNodeReputation(data, id, tunables.chunkStoreRepBump)
 }
@@ -241,7 +239,7 @@ export function bumpChunkStorageReputationPure(data, storagePeerKey, tunables = 
  * @returns {void}
  */
 export function penalizeChunkStorageFailurePure(data, blamePeerKey, tunables = reputationTunables) {
-	const id = normalizeHex64(blamePeerKey)
+	const id = blamePeerKey
 	if (!id) return
 	adjustNodeReputation(data, id, -tunables.chunkFetchFailPenalty)
 }
@@ -253,7 +251,7 @@ export function penalizeChunkStorageFailurePure(data, blamePeerKey, tunables = r
  * @returns {void}
  */
 export function penalizeArchiveServeMismatchPure(data, peerNodeHash, tunables = reputationTunables) {
-	const id = normalizeHex64(peerNodeHash)
+	const id = peerNodeHash
 	if (!id) return
 	adjustNodeReputation(data, id, -tunables.archiveServeMismatchPenalty)
 }
@@ -282,7 +280,7 @@ export function applySubjectiveSlashPure(data, target, sender, claim, verified, 
  * @returns {Array<{ hop: number, node: string, dRep: number }>} 已应用的上游惩罚
  */
 export function applyDecayCollusionAfterSlashPure(data, targetPubKeyHash, inviteEdges, tunables = reputationTunables) {
-	const target = normalizeHex64(targetPubKeyHash)
+	const target = targetPubKeyHash
 	/** @type {Array<{ hop: number, node: string, dRep: number }>} */
 	const applied = []
 	let frontier = new Set([target])
@@ -303,8 +301,8 @@ export function applyDecayCollusionAfterSlashPure(data, targetPubKeyHash, invite
 	for (let hop = 1; hop <= effectiveMaxHop(); hop++) {
 		const upstream = new Set()
 		for (const edge of inviteEdges) {
-			const to = normalizeHex64(edge.to)
-			const from = normalizeHex64(edge.from)
+			const to = edge.to
+			const from = edge.from
 			if (frontier.has(to) && from) upstream.add(from)
 		}
 		if (!upstream.size) break
@@ -333,7 +331,7 @@ export function applyDecayCollusionAfterSlashPure(data, targetPubKeyHash, invite
  * @returns {void}
  */
 export function applyReputationResetToScoresPure(data, targetPubKeyHash) {
-	const t = normalizeHex64(targetPubKeyHash)
+	const t = targetPubKeyHash
 	const row = repRow(data, t)
 	row.score = 0
 	delete row.offenseStreak
@@ -353,8 +351,8 @@ export function applyReputationResetToScoresPure(data, targetPubKeyHash) {
  * @returns {void}
  */
 export function seedMemberReputationFromIntroducerPure(data, memberPubKeyHash, introducerPubKeyHash, repEdge, tunables = reputationTunables, powBonus = 0) {
-	const memberKey = normalizeHex64(memberPubKeyHash)
-	const introducerKey = normalizeHex64(introducerPubKeyHash)
+	const memberKey = memberPubKeyHash
+	const introducerKey = introducerPubKeyHash
 	if (data.byNodeHash[memberKey]) return
 	const introducerReputation = introducerKey
 		? Number(data.byNodeHash[introducerKey]?.score ?? 0)
@@ -394,7 +392,7 @@ function baselineRow(row) {
  * @returns {{ z: number, anomaly: boolean }} 偏离度
  */
 export function observeBehaviorSamplePure(data, peerNodeHash, sample, now = Date.now(), tunables = reputationTunables) {
-	const id = normalizeHex64(peerNodeHash)
+	const id = peerNodeHash
 	if (!id) return { z: 0, anomaly: false }
 	const row = repRow(data, id)
 	const baseline = baselineRow(row)
@@ -429,7 +427,7 @@ export function observeBehaviorSamplePure(data, peerNodeHash, sample, now = Date
  * @returns {void}
  */
 export function applyQuarantinePure(data, peerNodeHash, now = Date.now(), tunables = reputationTunables) {
-	const id = normalizeHex64(peerNodeHash)
+	const id = peerNodeHash
 	if (!id) return
 	const row = repRow(data, id)
 	row.quarantinedUntil = now + Number(tunables.quarantineTtlMs ?? 900_000)
@@ -443,7 +441,7 @@ export function applyQuarantinePure(data, peerNodeHash, now = Date.now(), tunabl
  * @returns {boolean} 是否处于本地隔离
  */
 export function isQuarantinedPure(data, peerNodeHash, now = Date.now()) {
-	const id = normalizeHex64(peerNodeHash)
+	const id = peerNodeHash
 	const until = Number(data.byNodeHash?.[id]?.quarantinedUntil ?? 0)
 	return Number.isFinite(until) && until > now
 }

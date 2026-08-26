@@ -1,4 +1,4 @@
-import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64 } from '../core/hexIds.mjs'
 import { getNodeHash } from '../node/identity.mjs'
 import { loadReputation } from '../node/reputation_store.mjs'
 import { listFederationRoomSlots } from '../registries/room_provider.mjs'
@@ -20,8 +20,8 @@ import trustGraphTunables from './tunables.json' with { type: 'json' }
  * @returns {Promise<boolean>} 是否已发送
  */
 export async function sendToNode(username, targetNodeHash, actionName, payload, graph) {
-	const target = normalizeHex64(targetNodeHash)
-	if (!isHex64(target)) return false
+	const target = isHex64(targetNodeHash)
+	if (!target) return false
 
 	// 已直连 peer 不经 trust-graph scope 也应能收发 node scope action（非成员 CAS chunk / follow hint 等）
 	if (await sendToNodeLink(target, { scope: 'node', action: actionName, payload }))

@@ -5,7 +5,7 @@ import { Buffer } from 'node:buffer'
 
 import { canonicalStringify } from '../core/canonical_json.mjs'
 import { hashFromPubKeyHex } from '../core/entity_id.mjs'
-import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64 } from '../core/hexIds.mjs'
 
 /**
  * entity 密钥撤销签名的域分隔前缀。
@@ -28,9 +28,10 @@ export const ENTITY_KEY_REVOKE_DOMAIN = 'fount-entity-key-revoke'
  * @returns {EntityKeyHistoryEntry[]} 创世链
  */
 export function createGenesisKeyHistory(activePubKeyHex, validFrom = Date.now()) {
+	if (!activePubKeyHex) return []
 	return [{
 		generation: 0,
-		activePubKeyHex: normalizeHex64(activePubKeyHex),
+		activePubKeyHex,
 		attestedBy: 'recovery',
 		validFrom,
 	}]
@@ -63,8 +64,8 @@ export function isActiveGenerationRevoked(keyHistory, generation) {
  * @returns {boolean} sender 是否为未吊销的活跃钥
  */
 export function isValidActiveSender(keyHistory, senderPubKeyHash) {
-	const sender = normalizeHex64(senderPubKeyHash)
-	if (!isHex64(sender)) return false
+	const sender = isHex64(senderPubKeyHash)
+	if (!sender) return false
 	for (const entry of keyHistory || []) {
 		if (isActiveGenerationRevoked(keyHistory, entry.generation)) continue
 		if (hashFromPubKeyHex(entry.activePubKeyHex) === sender)
@@ -79,7 +80,7 @@ export function isValidActiveSender(keyHistory, senderPubKeyHash) {
  * @returns {boolean} 是否为 recovery 钥签名
  */
 export function isRecoverySender(recoveryPubKeyHex, senderPubKeyHash) {
-	return hashFromPubKeyHex(recoveryPubKeyHex) === normalizeHex64(senderPubKeyHash)
+	return hashFromPubKeyHex(recoveryPubKeyHex) === senderPubKeyHash
 }
 
 /**
@@ -89,8 +90,8 @@ export function isRecoverySender(recoveryPubKeyHex, senderPubKeyHash) {
  */
 export function reduceEntityKeyRotate(state, event) {
 	const generation = Number(event.content?.generation)
-	const activePubKeyHex = normalizeHex64(event.content?.activePubKeyHex || '')
-	if (!Number.isFinite(generation) || generation < 0 || !isHex64(activePubKeyHex))
+	const activePubKeyHex = isHex64(event.content?.activePubKeyHex || '')
+	if (!Number.isFinite(generation) || generation < 0 || !activePubKeyHex)
 		return state
 	state.entityKeyHistory = state.entityKeyHistory || []
 	if (state.entityKeyHistory.some(row => row.generation === generation))
@@ -111,7 +112,7 @@ export function reduceEntityKeyRotate(state, event) {
  */
 export function reduceEntityKeyRevoke(state, event) {
 	const newGeneration = Number(event.content?.newGeneration)
-	const activePubKeyHex = normalizeHex64(event.content?.activePubKeyHex || '')
+	const activePubKeyHex = event.content?.activePubKeyHex
 	const revokeGenerations = (event.content?.revokeGenerations || [])
 		.map(Number).filter(Number.isFinite)
 	if (!Number.isFinite(newGeneration) || newGeneration < 0 || !isHex64(activePubKeyHex))
@@ -163,7 +164,7 @@ export function entityKeyRevokeSignBytes(revokeBody) {
 	const body = {
 		revokeGenerations: (revokeBody.revokeGenerations || []).map(Number),
 		newGeneration: Number(revokeBody.newGeneration),
-		activePubKeyHex: normalizeHex64(revokeBody.activePubKeyHex || ''),
+		activePubKeyHex: revokeBody.activePubKeyHex || '',
 		entityHash: String(revokeBody.entityHash || ''),
 	}
 	return Buffer.from(`${ENTITY_KEY_REVOKE_DOMAIN}\0${canonicalStringify(body)}`, 'utf8')

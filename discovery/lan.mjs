@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import dgram from 'node:dgram'
 
 import { base64ToBytes, bytesToBase64 } from '../core/bytes_codec.mjs'
-import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64 } from '../core/hexIds.mjs'
 import { nodeDebug, shortHash } from '../node/log.mjs'
 
 import { noteAdvertPeerHints } from './advert_peer_hints.mjs'
@@ -25,8 +25,8 @@ const visibleByHash = new Map()
  * @returns {void}
  */
 export function noteLanVisibleNode(nodeHash, now = Date.now()) {
-	const hash = normalizeHex64(nodeHash)
-	if (!isHex64(hash)) return
+	const hash = isHex64(nodeHash)
+	if (!hash) return
 	visibleByHash.set(hash, now)
 }
 
@@ -61,7 +61,7 @@ export async function acceptLanPresenceAdvert(advertBytes, meta = {}) {
 	if (!advertBytes?.byteLength) return null
 	const ingested = await ingestNetworkAdvert(advertBytes)
 	if (!ingested) return null
-	const skipHash = meta.skipNodeHash ? normalizeHex64(meta.skipNodeHash) : null
+	const skipHash = isHex64(meta.skipNodeHash)
 	if (skipHash && ingested.verifiedNodeHash === skipHash) return ingested
 	const firstSeen = !visibleByHash.has(ingested.verifiedNodeHash)
 	noteLanVisibleNode(ingested.verifiedNodeHash)
@@ -93,9 +93,8 @@ export function createLanDiscoveryProvider(options = {}) {
 	let refs = 0
 	/** @type {ReturnType<typeof setInterval> | null} */
 	let beaconTimer = null
-	const seededSelf = normalizeHex64(options.localNodeHash)
 	/** @type {string | null} */
-	let selfNodeHash = isHex64(seededSelf) ? seededSelf : null
+	let selfNodeHash = isHex64(options.localNodeHash)
 	/** @type {Set<string>} */
 	const joinedAddresses = new Set()
 
@@ -249,8 +248,7 @@ export function createLanDiscoveryProvider(options = {}) {
 		 * @returns {Promise<boolean>} 存在 peer hint 时为 true
 		 */
 		async connectToNode(nodeHash) {
-			const hash = normalizeHex64(nodeHash)
-			return isHex64(hash) && !!getLanPeerHint(hash)
+			return !!getLanPeerHint(nodeHash)
 		},
 		/**
 		 * @param {() => Promise<{ nodeHash?: string, tcpPort?: number, advertBytes?: Uint8Array, advertBody?: object } | null>} getBeacon 本机 beacon
@@ -264,7 +262,7 @@ export function createLanDiscoveryProvider(options = {}) {
 			const send = async () => {
 				const body = await getBeacon?.()
 				if (!body) return
-				if (body.nodeHash) selfNodeHash = normalizeHex64(body.nodeHash)
+				if (body.nodeHash) selfNodeHash = body.nodeHash
 				const advertBytes = body.advertBytes?.byteLength
 					? body.advertBytes
 					: null

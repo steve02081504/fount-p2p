@@ -1,4 +1,3 @@
-import { normalizeHex64 } from '../core/hexIds.mjs'
 import { buildSignedAdvert, verifySignedAdvert } from '../link/handshake.mjs'
 
 import {
@@ -95,7 +94,7 @@ export async function ingestNetworkAdvert(bytes) {
  * @returns {Promise<{ verifiedNodeHash: string, body: object } | null>} 验签成功返回 nodeHash 与 advert body，否则 null
  */
 export async function ingestNodeAdvert(nodeHash, bytes) {
-	return ingestEncryptedAdvert(nodeRendezvousKey(normalizeHex64(nodeHash)), bytes)
+	return ingestEncryptedAdvert(nodeRendezvousKey(nodeHash), bytes)
 }
 
 /**

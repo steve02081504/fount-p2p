@@ -1,5 +1,5 @@
 import { isEntityHash128 } from '../core/entity_id.mjs'
-import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64 } from '../core/hexIds.mjs'
 
 import { loadDenylist } from './denylist.mjs'
 import { getNodeDir, isNodeInitialized } from './instance.mjs'
@@ -53,13 +53,11 @@ export function normalizeNetwork(raw) {
 	 * @returns {string[]} 去重 nodeHash 列表
 	 */
 	const pickIds = key => [...new Set(
-		(file[key] || [])
-			.map(id => normalizeHex64(id))
-			.filter(id => isHex64(id)),
+		(file[key] || []).map(isHex64).filter(Boolean),
 	)]
 	const hints = (file.hints || [])
 		.map(hint => ({
-			nodeHash: normalizeHex64(hint.nodeHash) || '',
+			nodeHash: hint.nodeHash || '',
 			source: String(hint.source || ''),
 			kind: String(hint.kind || ''),
 			weight: Number.isFinite(Number(hint.weight)) ? Number(hint.weight) : 0.1,
@@ -128,8 +126,8 @@ export function saveNetwork(data) {
  * @returns {void}
  */
 export function applyNetworkHint(hint) {
-	const nodeHash = normalizeHex64(hint?.nodeHash)
-	if (!isHex64(nodeHash)) return
+	const nodeHash = isHex64(hint?.nodeHash)
+	if (!nodeHash) return
 	const net = loadNetwork()
 	const now = Date.now()
 	const ttlMs = Number.isFinite(hint.ttlMs) ? hint.ttlMs : DEFAULT_EXPLORE_TTL_MS
@@ -162,8 +160,8 @@ export function widenExploreFromTrustedAnchors() {
 	const net = loadNetwork()
 	const now = Date.now()
 	for (const raw of net.trustedPeers.slice(0, 12)) {
-		const nodeHash = normalizeHex64(raw)
-		if (!isHex64(nodeHash)) continue
+		const nodeHash = isHex64(raw)
+		if (!nodeHash) continue
 		if (!net.explorePeers.includes(nodeHash))
 			net.explorePeers.push(nodeHash)
 		net.hints.push({
@@ -187,12 +185,12 @@ export function widenExploreFromTrustedAnchors() {
 export function mergeNetworkPeerPools(patch = {}) {
 	const net = loadNetwork()
 	for (const raw of patch.trustedPeers || []) {
-		const id = normalizeHex64(raw)
-		if (isHex64(id) && !net.trustedPeers.includes(id)) net.trustedPeers.push(id)
+		const id = isHex64(raw)
+		if (id && !net.trustedPeers.includes(id)) net.trustedPeers.push(id)
 	}
 	for (const raw of patch.explorePeers || []) {
-		const id = normalizeHex64(raw)
-		if (isHex64(id) && !net.explorePeers.includes(id)) net.explorePeers.push(id)
+		const id = isHex64(raw)
+		if (id && !net.explorePeers.includes(id)) net.explorePeers.push(id)
 	}
 	net.lastRosterAt = Date.now()
 	saveNetwork(net)
@@ -205,8 +203,8 @@ export function mergeNetworkPeerPools(patch = {}) {
  */
 export function promoteExplorePeer(nodeHash) {
 	const net = loadNetwork()
-	const id = normalizeHex64(nodeHash)
-	if (!isHex64(id)) return
+	const id = isHex64(nodeHash)
+	if (!id) return
 	net.explorePeers = net.explorePeers.filter(peer => peer !== id)
 	if (!net.trustedPeers.includes(id)) net.trustedPeers.push(id)
 	net.lastRosterAt = Date.now()
@@ -221,9 +219,9 @@ export function promoteExplorePeer(nodeHash) {
 export function replaceNetworkPeerPools(pools = {}) {
 	const net = loadNetwork()
 	if (Array.isArray(pools.trustedPeers))
-		net.trustedPeers = pools.trustedPeers.map(id => normalizeHex64(id)).filter(id => isHex64(id))
+		net.trustedPeers = pools.trustedPeers.map(isHex64).filter(Boolean)
 	if (Array.isArray(pools.explorePeers))
-		net.explorePeers = pools.explorePeers.map(id => normalizeHex64(id)).filter(id => isHex64(id))
+		net.explorePeers = pools.explorePeers.map(isHex64).filter(Boolean)
 	net.lastRosterAt = Date.now()
 	saveNetwork(net)
 }

@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 
 import { canonicalStringify } from '../core/canonical_json.mjs'
-import { isHex64, normalizeHex64 } from '../core/hexIds.mjs'
+import { isHex64 } from '../core/hexIds.mjs'
 import { isPlainObject } from '../core/object.mjs'
 import { parsePartpath } from '../core/partpath.mjs'
 
@@ -99,8 +99,8 @@ export function parsePartQueryReq(value, tunables = partQueryTunables) {
 	if (!isPlainObject(value)) return null
 	const requestId = normalizeRequestId(value.requestId)
 	if (!requestId) return null
-	const originNodeHash = normalizeHex64(value.originNodeHash)
-	if (!isHex64(originNodeHash)) return null
+	const originNodeHash = isHex64(value.originNodeHash)
+	if (!originNodeHash) return null
 	const partpath = parsePartpath(value.partpath)
 	if (!partpath) return null
 	const kind = String(value.kind || '')
@@ -130,8 +130,8 @@ export function parsePartQueryRes(value, tunables = partQueryTunables) {
 	if (!isPlainObject(value)) return null
 	const requestId = normalizeRequestId(value.requestId)
 	if (!requestId) return null
-	const fromNodeHash = normalizeHex64(value.fromNodeHash)
-	if (!isHex64(fromNodeHash)) return null
+	const fromNodeHash = isHex64(value.fromNodeHash)
+	if (!fromNodeHash) return null
 	const rows = clampPartQueryRows(value.rows, tunables.maxHits, tunables.maxRowsBytes)
 	if (!rows) return null
 	return { requestId, fromNodeHash, rows }

@@ -1,4 +1,3 @@
-import { normalizeHex64 } from '../core/hexIds.mjs'
 import { loadReputation } from '../node/reputation_store.mjs'
 import { pickNodeScoreFromReputation } from '../reputation/pick_score.mjs'
 import { getLinkRegistry } from '../transport/link_registry.mjs'
@@ -38,7 +37,7 @@ export function applyPriorityToRegistry() {
 	registry.setPriorityWeightFunction(nodeHash => {
 		const score = pickNodeScoreFromReputation(
 			loadReputation(),
-			normalizeHex64(nodeHash) || nodeHash,
+			nodeHash,
 		)
 		return Math.floor(score * PRIORITY_BOOST)
 	})

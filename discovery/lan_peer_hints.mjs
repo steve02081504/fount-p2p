@@ -1,4 +1,3 @@
-import { normalizeHex64 } from '../core/hexIds.mjs'
 import { normalizeTcpPort } from '../core/tcp_port.mjs'
 import { createTtlMap } from '../utils/ttl_map.mjs'
 
@@ -19,14 +18,13 @@ const hints = createTtlMap(LAN_PEER_HINT_TTL_MS)
  * @returns {void}
  */
 export function noteLanPeerHint(nodeHash, endpoint) {
-	const hash = normalizeHex64(nodeHash)
 	const host = String(endpoint?.host || '')
 	const port = normalizeTcpPort(endpoint?.port)
-	if (!hash || !host || !port) return
-	const existing = hints.get(hash)?.endpoints ?? []
+	if (!nodeHash || !host || !port) return
+	const existing = hints.get(nodeHash)?.endpoints ?? []
 	const next = existing.filter(item => !(item.host === host && item.port === port))
 	next.unshift({ host, port })
-	hints.set(hash, { endpoints: next.slice(0, MAX_ENDPOINTS) })
+	hints.set(nodeHash, { endpoints: next.slice(0, MAX_ENDPOINTS) })
 }
 
 /**
@@ -46,9 +44,8 @@ export function getLanPeerHint(nodeHash, now = Date.now()) {
  * @returns {{ host: string, port: number }[]} hint 列表
  */
 export function listLanPeerHints(nodeHash, now = Date.now()) {
-	const hash = normalizeHex64(nodeHash)
-	if (!hash) return []
-	return hints.get(hash, now)?.endpoints ?? []
+	if (!nodeHash) return []
+	return hints.get(nodeHash, now)?.endpoints ?? []
 }
 
 /**
