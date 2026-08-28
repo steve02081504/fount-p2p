@@ -102,9 +102,8 @@ export async function startFakeRelay(accept = () => true, options = {}) {
 			if (broadcast)
 				for (const [subscriber, subs] of subsBySocket)
 					for (const [subscriptionId, filter] of subs)
-						if (filterMatchesEvent(filter, event)) 
+						if (filterMatchesEvent(filter, event))
 							try { subscriber.send(JSON.stringify(['EVENT', subscriptionId, event])) } catch { /* ignore */ }
-						
 		})
 		socket.on('close', () => {
 			subsBySocket.delete(socket)
@@ -112,7 +111,7 @@ export async function startFakeRelay(accept = () => true, options = {}) {
 		})
 	})
 	await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-	const {port} = server.address()
+	const { port } = server.address()
 	return {
 		port,
 		/**

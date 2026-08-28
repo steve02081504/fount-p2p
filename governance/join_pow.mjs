@@ -104,7 +104,7 @@ export function verifyJoinPow(powSolution, options) {
 	const { nonce } = powSolution
 	const epoch = Number(powSolution.epoch)
 	const joinerNodeHash = powSolution.joinerNodeHash ?? options.senderNodeHash
-	const {senderNodeHash} = options
+	const { senderNodeHash } = options
 
 	if (!anchorRef || nonce == null || !Number.isFinite(epoch)) return { ok: false, achievedBits: 0 }
 	if (!joinerNodeHash || joinerNodeHash !== senderNodeHash) return { ok: false, achievedBits: 0 }

@@ -333,9 +333,8 @@ export function upsertRelay(input) {
 	const url = normalizeNostrRelayUrl(input.url)
 	if (!url) return
 	const existing = poolEntries.get(url)
-	if (!existing) 
+	if (!existing)
 		poolEntries.set(url, toRelayEntry({ ...input, url, firstSeen: Date.now() }, url))
-	
 	else {
 		const incoming = toRelayEntry({ ...input, url }, url)
 		existing.successCount += incoming.successCount

@@ -104,7 +104,7 @@ function governanceAuthzScoreForTip(tipId, byId, reputationBySender) {
 	for (const eventId of ancestorClosureFromTip(tipId, byId)) {
 		const event = byId.get(eventId)
 		if (!event || !getGovernanceAuthzTypes().has(event.type)) continue
-		const {sender} = event
+		const { sender } = event
 		if (sender) score += Number(reputationBySender[sender] ?? 0)
 	}
 	return score

@@ -34,7 +34,7 @@ export function parseLinkOpen(raw) {
  * @returns {ReturnType<typeof createLinkPipe>} link pipe
  */
 export function createLinkIdBoundPipe(options) {
-	const {linkId} = options
+	const { linkId } = options
 	if (!linkId) throw new Error(`p2p: ${options.providerId || 'link'} linkId required`)
 	return createLinkPipe({
 		...options,

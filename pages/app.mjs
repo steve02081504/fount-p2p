@@ -111,9 +111,8 @@ function render() {
 /** @returns {void} 注入演示数据 */
 function seedDemo() {
 	events.clear()
-	for (let index = 0; index < 20; index++) 
+	for (let index = 0; index < 20; index++)
 		events.set((index + 1).toString(16).padStart(2, '0').repeat(32), { p: 0.1, at: Date.now() })
-	
 	statusEl.textContent = '演示模式：20 条 p=0.1 样本（HT 估计 = 200）'
 	document.querySelector('#footer').textContent = '演示模式样本为虚构数据；添加 ?relay=wss://... 进入 live 模式。'
 	render()

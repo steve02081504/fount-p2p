@@ -228,7 +228,7 @@ export async function applySubjectiveSlashFromEvent(username, groupId, event, re
 	if (event.type !== 'reputation_slash') return
 	const { content } = event
 	const target = content.targetPubKeyHash
-	const {sender} = event
+	const { sender } = event
 
 	await mutateReputation(async data => {
 		const verified = content.verified && await verifySlashProof(username, groupId, content, readEvents)

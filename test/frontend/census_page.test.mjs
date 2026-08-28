@@ -43,7 +43,7 @@ async function startStaticServer() {
 		}
 	})
 	await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-	const {port} = server.address()
+	const { port } = server.address()
 	return {
 		port,
 		/**

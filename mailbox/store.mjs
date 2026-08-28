@@ -150,7 +150,7 @@ export function mailboxEnvelopeId(envelope) {
  */
 export async function storeMailboxRecord(record) {
 	if (!isMailboxRecordWithinSizeLimit(record)) return false
-	const {toPubKeyHash} = record
+	const { toPubKeyHash } = record
 	if (!isHex64(toPubKeyHash)) return false
 	const hop = normalizeMailboxHop(record.hop)
 	const { tier } = record
