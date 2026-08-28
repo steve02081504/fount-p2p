@@ -80,8 +80,8 @@ const NIP66_PROBE_BATCH_SIZE = 8
 let poolEntries = new Map()
 /** @type {Map<string, PeerRoute>} */
 let peerRoutes = new Map()
-/** @type {Set<string>} 提供方显式配置的 relay（本机配置来源，受信）。 */
-const providerTrustedRelayUrls = new Set()
+/** @type {Map<string, number>} 提供方显式配置的 relay（本机配置来源，受信）URL → 引用计数。 */
+const providerTrustedRelayUrls = new Map()
 /** @type {boolean} */
 let dirty = false
 /** @type {ReturnType<typeof setTimeout> | null} */
@@ -218,15 +218,26 @@ export async function resolveRelayConnectTarget(relayUrl) {
 }
 
 /**
- * 注册提供方显式配置的 relay（本机配置来源，视为受信）。
+ * 注册提供方显式配置的 relay（本机配置来源，视为受信），对规范化 URL 维护引用计数。
  * 仅注册静态 relayUrls；getRelayUrls() 输出的动态集（含 getListenRelays nip66）不入受信集，仍走公网校验。
  * @param {string[]} urls relay URL 列表
- * @returns {void}
+ * @returns {() => void} 释放句柄：递减引用计数，仅在无其他提供方引用时从受信集移除
  */
 export function registerProviderTrustedRelayUrls(urls) {
+	/** @type {string[]} */
+	const normalized = []
 	for (const url of dedupeRelayUrls(urls)) {
-		const normalized = normalizeNostrRelayUrl(url)
-		if (normalized) providerTrustedRelayUrls.add(normalized)
+		const n = normalizeNostrRelayUrl(url)
+		if (n && !normalized.includes(n)) normalized.push(n)
+	}
+	for (const url of normalized)
+		providerTrustedRelayUrls.set(url, (providerTrustedRelayUrls.get(url) || 0) + 1)
+	return () => {
+		for (const url of normalized) {
+			const count = (providerTrustedRelayUrls.get(url) || 0) - 1
+			if (count <= 0) providerTrustedRelayUrls.delete(url)
+			else providerTrustedRelayUrls.set(url, count)
+		}
 	}
 }
 
@@ -237,7 +248,7 @@ export function registerProviderTrustedRelayUrls(urls) {
 function currentTrustedRelayUrls() {
 	return new Set([
 		...locallyAllowedRelayUrls(),
-		...providerTrustedRelayUrls,
+		...providerTrustedRelayUrls.keys(),
 		...bootstrapRelaysOverride.length ? bootstrapRelaysOverride : NIP66_BOOTSTRAP_RELAYS,
 		...getPinnedRelays(),
 	])

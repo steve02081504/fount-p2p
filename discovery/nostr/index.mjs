@@ -25,7 +25,6 @@ import {
 	getPeerRoute,
 	getPoolByUrl,
 	isRelayDestinationAllowed,
-	lookupRelayHost,
 	probeRelay,
 	registerProviderTrustedRelayUrls,
 	resolveRelayConnectTarget,
@@ -235,7 +234,9 @@ async function publishEvent(relayUrls, event, signal) {
  */
 export function createNostrDiscoveryProvider(options = {}) {
 	const hasExplicitRelay = options.relayUrls != null || !!options.getRelayUrls
-	if (options.relayUrls != null) registerProviderTrustedRelayUrls(options.relayUrls)
+	const releaseProviderTrustedRelays = options.relayUrls != null
+		? registerProviderTrustedRelayUrls(options.relayUrls)
+		: null
 	/** @returns {string[]} 去重后的中继 URL 列表 */
 	const resolveRelayUrls = () => {
 		if (options.getRelayUrls) return dedupeRelayUrls(options.getRelayUrls() ?? DEFAULT_RELAY_URLS)
@@ -295,7 +296,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 				rendezvousKey: bind.rendezvousKey,
 				tagX: 'advert',
 				addressable: true,
-				resolveConnectTarget: lookupRelayHost,
+				resolveConnectTarget: resolveRelayConnectTarget,
 				/**
 				 * @param {Uint8Array} bytes 加密 advert 载荷
 				 * @param {object} meta relay 元数据
@@ -524,7 +525,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 				kind: NOSTR_SIGNAL_KIND,
 				rendezvousKey,
 				tagX: 'signal',
-				resolveConnectTarget: lookupRelayHost,
+				resolveConnectTarget: resolveRelayConnectTarget,
 				onPayload: onSignal,
 			})
 			nodeSignalSubs.set(hash, stop)
@@ -596,6 +597,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 		},
 		/** @returns {void} 停止全部内部订阅 */
 		dispose() {
+			releaseProviderTrustedRelays?.()
 			for (const entry of advertSubs.values())
 				try { entry.stop() } catch { /* ignore */ }
 			advertSubs.clear()
