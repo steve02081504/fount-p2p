@@ -122,7 +122,7 @@ export function listNostrGroupVisibleNodeHashes(roomSecret, now = Date.now(), tt
  */
 function isPublicRelayUrl(normalizedUrl) {
 	let hostname
-	try { hostname = String(new URL(normalizedUrl).hostname || '').toLowerCase().replace(/^\[|\]$/g, '') } catch { return false }
+	try { hostname = String(new URL(normalizedUrl).hostname || '').toLowerCase().replace(/^\[|]$/g, '') } catch { return false }
 	if (!hostname || ['localhost', '::1', '::', '0.0.0.0'].includes(hostname)) return false
 	if (/\.(local|internal|lan|home|corp)$/.test(hostname)) return false
 	if (/^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname)) return false

@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { test } from 'node:test'
 
 import {
@@ -29,8 +30,9 @@ async function withTempNodeDir(testFn) {
 
 /**
  * 用当前节点 seed 构建签名 census 包。
- * @param p
- * @param ts
+ * @param {number} p 采样概率
+ * @param {number} ts 时间戳
+ * @returns {Promise<import('../../discovery/nostr/census.mjs').CensusPacket>} 签名包
  */
 const buildLocalCensusPacket = (p, ts) => buildCensusPacketFromSeed(ensureNodeSeed(), { p, ts })
 

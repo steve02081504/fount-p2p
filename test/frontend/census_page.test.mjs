@@ -19,7 +19,7 @@ const MIME_BY_EXTENSION = {
 
 /**
  * 静态服务 pages/ 目录（仅限 pages/ 下文件，离线可跑）。
- * @returns {Promise<{ port: number, stop: () => Promise<void> }>}
+ * @returns {Promise<{ port: number, stop: () => Promise<void> }>} 静态服务器句柄
  */
 async function startStaticServer() {
 	const server = createServer(async (request, response) => {
@@ -43,7 +43,7 @@ async function startStaticServer() {
 		}
 	})
 	await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-	const port = server.address().port
+	const {port} = server.address()
 	return {
 		port,
 		/**

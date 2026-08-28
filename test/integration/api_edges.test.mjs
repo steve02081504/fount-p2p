@@ -163,7 +163,7 @@ test('setSignalingRuntimeConfig merges channels preserving disabled/customized s
 		initNode({ nodeDir })
 		setSignalingRuntimeConfig({ channels: { bt: false, webrtc: { trickleIceOff: true } } })
 		setSignalingRuntimeConfig({ channels: { nostr: { relay: ['wss://hot.example/'] } } })
-		const channels = getSignalingRuntimeConfig().channels
+		const {channels} = getSignalingRuntimeConfig()
 		assert.equal(channels.bt, false)
 		assert.equal(channels.webrtc.trickleIceOff, true)
 		assert.deepEqual(channels.nostr.relay, ['wss://hot.example/'])

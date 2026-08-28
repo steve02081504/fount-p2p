@@ -119,8 +119,7 @@ test({
 			stopBobLan = await bobLan.ensureListening({
 				localIdentity: bob,
 				/**
-				 *
-				 * @param link
+				 * @param {object} link 链路句柄
 				 */
 				onInbound(link) { bLinkA = link },
 			})
@@ -133,13 +132,13 @@ test({
 			// b↔c：单个假 nostr relay 的真实 link。
 			const bLinkC = createNostrLinkProvider({
 				/**
-				 *
+				 * @returns {string[]} 中继地址
 				 */
 				getRelayUrls: () => [relayUrl]
 			})
 			const cLinkB = createNostrLinkProvider({
 				/**
-				 *
+				 * @returns {string[]} 中继地址
 				 */
 				getRelayUrls: () => [relayUrl]
 			})
@@ -154,8 +153,7 @@ test({
 			stopListenC = cLinkB.ensureListening({
 				localIdentity: carol,
 				/**
-				 *
-				 * @param link
+				 * @param {object} link 链路句柄
 				 */
 				onInbound(link) { cLinkBInbound = link },
 			})

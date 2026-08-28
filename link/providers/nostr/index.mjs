@@ -316,8 +316,7 @@ export function createNostrLinkProvider(options = {}) {
 	 */
 	async function deliverPacket(packet) {
 		if (packet?.type !== 'link') return
-		const linkId = packet.linkId
-		const from = packet.from
+		const { linkId, from } = packet
 		if (!isHex64(linkId) || !isHex64(from)) return
 		if (localIdentity?.nodeHash && from === localIdentity.nodeHash) return
 

@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 import { test } from 'node:test'
 
@@ -110,7 +111,7 @@ function publishBatchViaWs(port, events) {
 async function withFixedRandom(value, testFn) {
 	const originalRandom = Math.random
 	/**
-	 *
+	 * @returns {number} 固定随机值
 	 */
 	Math.random = () => value
 	try {
