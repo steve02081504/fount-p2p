@@ -118,7 +118,7 @@ export function normalizeNostrRelayUrl(raw) {
 	}
 	else if (url.protocol === 'ws:') {
 		const host = url.hostname.toLowerCase()
-		const isLoopback = host === 'localhost' || host === '[::1]' || /^127\./.test(host)
+		const isLoopback = host === 'localhost' || host === '::1' || /^127\./.test(host)
 		if (!isLoopback) return null
 	}
 	else return null
@@ -139,7 +139,7 @@ export function normalizeNostrRelayUrl(raw) {
  */
 function isPublicRelayUrl(normalizedUrl) {
 	let hostname
-	try { hostname = new URL(normalizedUrl).hostname.toLowerCase().replace(/^\[|]$/g, '') } catch { return false }
+	try { hostname = new URL(normalizedUrl).hostname.toLowerCase().replace(/^\[|\]$/g, '') } catch { return false }
 	if (!hostname) return false
 	if (hostname.endsWith('.')) return false
 	if (['localhost', '::1', '::', '0.0.0.0'].includes(hostname)) return false
@@ -175,7 +175,7 @@ function locallyAllowedRelayUrls() {
  */
 async function relayUrlResolvesPublic(relayUrl) {
 	let hostname
-	try { hostname = new URL(relayUrl).hostname.toLowerCase().replace(/^\[|]$/g, '') } catch { return false }
+	try { hostname = new URL(relayUrl).hostname.toLowerCase().replace(/^\[|\]$/g, '') } catch { return false }
 	if (!hostname || hostname.endsWith('.')) return false
 	const isIpLiteral = /^[\d.]+$/.test(hostname) || /^[0-9a-f:]+$/i.test(hostname)
 	if (isIpLiteral) return isPublicRelayUrl(relayUrl)
