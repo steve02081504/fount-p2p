@@ -25,7 +25,7 @@ export function manifestFetchExpectedKey(ownerEntityHash, logicalPath) {
  * @param {string} key requestId
  * @param {string} expectedKey owner+path 复合键
  * @param {number} timeoutMs 超时毫秒
- * @param {{ allowNonPublic?: boolean }} [options] allowNonPublic 时接受无签名的非 public manifest 结算
+ * @param {{ allowNonPublic?: boolean, targetNodeHashes?: string[] }} [options] allowNonPublic 时接受无签名的非 public manifest（sender 须在 targetNodeHashes 内）
  * @returns {{ done: Promise<object | null>, cancel: () => void }} 等待 Promise 与取消
  */
 export function registerManifestFetchWait(key, expectedKey, timeoutMs, options) {
@@ -55,6 +55,8 @@ export async function resolvePendingManifestFetch(payload) {
 		if (!normalized) return false
 		const key = manifestFetchExpectedKey(normalized.ownerEntityHash, normalized.logicalPath)
 		if (key !== entry.expectedKey) return false
+		// 授权边界 = 目标集：无签名 manifest 仅接受来自目标节点集的响应。
+		if (!entry.options?.targetNodeHashes?.includes(payload?.senderNodeHash)) return false
 		return table.settle(requestId, normalized)
 	}
 

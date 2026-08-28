@@ -1,16 +1,21 @@
 /**
+ * 可扩展等待选项；`rejectOnTimeout` 由本表消费，其余字段透传存储供业务读取（不在此硬编码业务字段）。
+ * @typedef {{ rejectOnTimeout?: boolean, [key: string]: unknown }} FetchWaitOptions
+ */
+
+/**
  * 有界 pending fetch 等待表（chunk / manifest 等入站响应槽）。
  * @template T
  * @param {{ maxSize: number }} options 容量
  * @returns {{
- *   pending: Map<string, { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void }, options: Record<string, unknown> }>,
- *   register: (key: string, expectedKey: string, timeoutMs: number, options?: { rejectOnTimeout?: boolean }) => { done: Promise<T | null>, cancel: () => void },
- *   peek: (key: string) => { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void }, options: Record<string, unknown> } | undefined,
+ *   pending: Map<string, { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void }, options: FetchWaitOptions }>,
+ *   register: (key: string, expectedKey: string, timeoutMs: number, options?: FetchWaitOptions) => { done: Promise<T | null>, cancel: () => void },
+ *   peek: (key: string) => { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void }, options: FetchWaitOptions } | undefined,
  *   settle: (key: string, value: T | null | Error) => boolean,
  * }} 等待表 API
  */
 export function createFetchWaitTable({ maxSize }) {
-	/** @type {Map<string, { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void }, options: Record<string, unknown> }>} */
+	/** @type {Map<string, { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void }, options: FetchWaitOptions }>} */
 	const pending = new Map()
 
 	/**
@@ -34,7 +39,7 @@ export function createFetchWaitTable({ maxSize }) {
 		 * @param {string} key 唯一等待键
 		 * @param {string} expectedKey 期望匹配键
 		 * @param {number} timeoutMs 超时
-		 * @param {{ rejectOnTimeout?: boolean }} [options] 超时是否 reject
+		 * @param {FetchWaitOptions} [options] 可扩展等待选项（rejectOnTimeout 由本表消费）
 		 * @returns {{ done: Promise<T | null>, cancel: () => void }} 等待句柄
 		 */
 		register(key, expectedKey, timeoutMs, options = {}) {
@@ -87,7 +92,7 @@ export function createFetchWaitTable({ maxSize }) {
 		/**
 		 * 只读查看，不移除。
 		 * @param {string} key 等待键
-		 * @returns {{ expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void } } | undefined} 等待条目
+		 * @returns {{ expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void }, options: FetchWaitOptions } | undefined} 等待条目
 		 */
 		peek(key) {
 			return pending.get(key)

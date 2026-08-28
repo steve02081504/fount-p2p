@@ -5,6 +5,7 @@ import { getEntityStore } from '../../node/instance.mjs'
 import { ms } from '../../utils/duration.mjs'
 import { createInflightTable } from '../../utils/inflight_table.mjs'
 import { loadFileManifest, saveFileManifest } from '../evfs.mjs'
+import { canonicalizeFanoutTargets } from '../fetch_fanout.mjs'
 import { beginFedFanoutFetch } from '../fed/fetch_shared.mjs'
 
 import { resolveManifestAclType } from './acl_registry.mjs'
@@ -29,8 +30,8 @@ const manifestInflight = createInflightTable({
  * 拉取 manifest。默认走 node-scope public 语义（仅接受验签公开 manifest）；
  * 传入 `fanoutTargets` 时只向目标集 fanout，并接受无签名的非 public manifest（信任边界 = 目标集 + 服务端 servicer）。
  * 非 public 命中默认写盘；public 按 `cache: true` 择新写盘。
- * 本地已有可用的 manifest（公开已验签 或 非公开）立即返回；公开本地缓存带 `cache: true` 时后台 fanout 刷新。
- * 冷 miss 仍等 fanout。同 key in-flight 去重；调用方外层超时不 abort，后台继续填缓存。
+ * 本地已验签公开缓存立即返回（`cache: true` 时后台 fanout 刷新）；非 public / 未验签 public 本地命中仅 targeted 模式返回，
+ * public 模式拒绝。同 key（含规范化目标集）in-flight 去重；调用方外层超时不 abort，后台继续填缓存。
  * @param {{ username: string, ownerEntityHash: string, logicalPath: string, fanoutTargets?: string[], cache?: boolean, timeoutMs?: number }} context - 拉取上下文
  * @returns {Promise<import('./normalize.mjs').FileManifest | null>} 校验后的 manifest，失败为 null
  */
@@ -45,13 +46,14 @@ export async function fetchManifest(context) {
 	const expectedKey = manifestFetchExpectedKey(ownerEntityHash, logicalPath)
 	const wantCache = context.cache === true
 	const targeted = Array.isArray(context.fanoutTargets) && context.fanoutTargets.length > 0
+	const fanoutTargets = targeted ? canonicalizeFanoutTargets(context.fanoutTargets) : undefined
 	const mode = targeted ? 'targeted' : 'public'
 
 	// 先同步挂 in-flight，再读本地 — 避免并发调用在 await 间隙各自 start（本地慢读可能晚于对端结算）。
 	const localPromise = loadFileManifest(ownerEntityHash, logicalPath)
 	const shared = beginFedFanoutFetch({
 		inflight: manifestInflight,
-		inflightKey: `${username}\0${expectedKey}\0${mode}`,
+		inflightKey: `${username}\0${expectedKey}\0${mode}` + (fanoutTargets?.length ? `\0${fanoutTargets.join('\0')}` : ''),
 		username,
 		action: 'fed_manifest_get',
 		/**
@@ -62,7 +64,7 @@ export async function fetchManifest(context) {
 			requestId,
 			expectedKey,
 			timeoutMs,
-			targeted ? { allowNonPublic: true } : undefined,
+			targeted ? { allowNonPublic: true, targetNodeHashes: fanoutTargets } : undefined,
 		),
 		/**
 		 * @param {string} requestId 请求 id
@@ -75,15 +77,12 @@ export async function fetchManifest(context) {
 			ownerEntityHash,
 			logicalPath,
 		}),
-		fanoutTargets: targeted ? context.fanoutTargets : undefined,
+		fanoutTargets,
 	})
 	const local = await localPromise
 
-	// 本地非 public 命中：直接返回，无发布序可刷新（后台 fanout 结果无人消费，pending 超时自清）。
+	// 本地已验签公开命中：立即返回；cache: true 时后台 fanout 择新刷新。
 	const isLocalPublic = local?.transferKeyDescriptor?.type === 'public' && !!local?.meta?.publicSig
-	if (local && !isLocalPublic) return local
-
-	// 本地公开缓存：立即返回；cache: true 时后台 fanout 择新刷新。
 	if (isLocalPublic) {
 		if (wantCache && shared) void shared.then(async result => {
 			if (result && shouldPreferIncomingPublicManifest(local, result))
@@ -91,6 +90,9 @@ export async function fetchManifest(context) {
 		})
 		return local
 	}
+
+	// 本地非 public / 未验签 public 命中：仅 targeted 模式返回（授权边界 = 目标集）；public 模式拒绝。
+	if (local) return targeted ? local : null
 
 	if (!shared) return null
 
@@ -123,7 +125,7 @@ export async function cachePublicManifest(ownerEntityHash, logicalPath, incoming
  * 响应 fed_manifest_get：public 只回验签公开清单；非 public 经 ACL servicer 授权后回完整清单。
  * @param {object} payload 请求
  * @param {(response: object, peerId: string) => void} sendResponse 发送
- * @param {string} peerId 对端
+ * @param {string} peerId 对端（传输层认证的发送方 nodeHash）
  * @returns {Promise<void>}
  */
 export async function handleIncomingManifestGet(payload, sendResponse, peerId) {
@@ -137,6 +139,8 @@ export async function handleIncomingManifestGet(payload, sendResponse, peerId) {
 	const requestId = String(payload?.requestId || '')
 	if (!requestId) return
 	const { entityHash: ownerEntityHash } = parsedOwner
+	// 自报 nodeHash 不可信：声明身份与传输层认证的发送方不一致时直接拒绝。
+	if (payload?.nodeHash && payload.nodeHash !== peerId) return
 
 	const raw = await getEntityStore().readManifest(ownerEntityHash, logicalPath)
 	const manifest = normalizeFileManifest(raw)
@@ -162,7 +166,7 @@ export async function handleIncomingManifestGet(payload, sendResponse, peerId) {
 		manifest,
 		ownerEntityHash,
 		logicalPath,
-		requesterNodeHash: String(payload?.nodeHash || ''),
+		requesterNodeHash: peerId,
 		peerId,
 		payload,
 	})

@@ -55,28 +55,28 @@ function createMockTrustGraph() {
 }
 
 test('fanoutFedFetch with targets sends only to unique valid targets, no node-scope fanout', async () => {
-	const dir = await mkTestNodeDir('fount-fetch-fanout-tgt-')
-	initTestP2pNode({ nodeDir: dir })
+	const nodeDirectory = await mkTestNodeDir('fount-fetch-fanout-tgt-')
+	initTestP2pNode({ nodeDir: nodeDirectory })
 	const mock = createMockTrustGraph()
 	registerTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER, mock.provider)
 	try {
-		const a = 'a'.repeat(64)
-		const b = 'b'.repeat(64)
+		const firstTargetNodeHash = 'a'.repeat(64)
+		const secondTargetNodeHash = 'b'.repeat(64)
 		const payload = { requestId: 'r1', nodeHash: 'self' }
-		await fanoutFedFetch('u', 'fed_manifest_get', payload, [a, b, b, 'invalid', ''])
+		await fanoutFedFetch('u', 'fed_manifest_get', payload, [firstTargetNodeHash, secondTargetNodeHash, secondTargetNodeHash, 'invalid', ''])
 		assertEquals(mock.sent.length, 2)
-		assertEquals(mock.sent[0].nodeHash, a)
-		assertEquals(mock.sent[1].nodeHash, b)
+		assertEquals(mock.sent[0].nodeHash, firstTargetNodeHash)
+		assertEquals(mock.sent[1].nodeHash, secondTargetNodeHash)
 		assertEquals(mock.fanouts.length, 0)
 	}
 	finally {
-		await teardownTestNodeDir(dir)
+		await teardownTestNodeDir(nodeDirectory)
 	}
 })
 
 test('fanoutFedFetch without targets keeps node-scope fanoutToTopNodes', async () => {
-	const dir = await mkTestNodeDir('fount-fetch-fanout-scope-')
-	initTestP2pNode({ nodeDir: dir })
+	const nodeDirectory = await mkTestNodeDir('fount-fetch-fanout-scope-')
+	initTestP2pNode({ nodeDir: nodeDirectory })
 	const mock = createMockTrustGraph()
 	registerTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER, mock.provider)
 	try {
@@ -87,6 +87,6 @@ test('fanoutFedFetch without targets keeps node-scope fanoutToTopNodes', async (
 		assertEquals(mock.fanouts[0].payload.requestId, 'r2')
 	}
 	finally {
-		await teardownTestNodeDir(dir)
+		await teardownTestNodeDir(nodeDirectory)
 	}
 })
