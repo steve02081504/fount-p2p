@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { lookup } from 'node:dns/promises'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'

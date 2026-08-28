@@ -20,7 +20,10 @@ test('connectRelay pins the socket to the validated address (no uncontrolled sec
 test('connectRelay accepts an async resolver as the connect target', async () => {
 	const fakeRelay = await startFakeRelay()
 	try {
-		const resolver = async () => ({ hostname: '127.0.0.1', addresses: ['127.0.0.1'] })
+		/**
+		 * @returns {Promise<{hostname: string, addresses: string[]}>} 连接目标
+		 */
+		const resolver = () => ({ hostname: '127.0.0.1', addresses: ['127.0.0.1'] })
 		const ws = await connectRelay(`ws://bogus.invalid:${fakeRelay.port}`, 3_000, undefined, resolver)
 		assert(ws.readyState === 1, '应经解析函数返回的地址连上')
 		ws.terminate()
