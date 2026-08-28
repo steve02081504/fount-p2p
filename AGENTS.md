@@ -58,7 +58,7 @@ Deno / native / BT: [runtime.md](docs/runtime.md).
 - **Fanout vs targeted / timed collect:** [wire.md](docs/wire.md).
 - **Channel encryption:** per-channel `K_ch`, scheme `channel-key` (`CHANNEL_KEY_SCHEME`); decrypted payloads are untrusted outside DAG Ed25519 context.
 - **Denylist vs personal lists:** node `denylist.json` vs per-entity `personal_block.json` / `personal_hide.json`.
-- **Manifest ACL / transfer owner / servicer:** shells register matchers and `registerManifestServicer`; core does not hard-code chat/social types. Non-public manifests are served cross-node only via a registered servicer (default deny).
+- **Manifest ACL / transfer owner / servicer:** ownership is routed by `registerManifestOwner` matchers only; ACL & servicer handlers are keyed by `ownerId` (a `type` may be reused across families but never acts as a routing key). Core does not hard-code chat/social types. Non-public manifests are served cross-node only via a registered servicer; unclaimed non-public is denied (no `type` fallback).
 
 ### Node / network
 

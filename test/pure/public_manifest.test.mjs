@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer'
 import { test } from 'node:test'
 
 import { entityHashFromRecoveryPubKeyHex } from '../../core/entity_id.mjs'
+import { logicalEntityHash } from '../../core/logical_entity.mjs'
 import { keyPairFromSeed } from '../../crypto/crypto.mjs'
 import { encryptPlaintextToParts, buildFileManifestFromEnc } from '../../files/assemble.mjs'
 import { loadFileManifest } from '../../files/evfs.mjs'
@@ -233,6 +234,7 @@ test('fed_manifest_get refuses non-public manifest without registered servicer',
 test('fed_manifest_get serves non-public manifest when servicer allows', async () => {
 	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fed-manifest-servicer-') })
 	const { handleIncomingManifestGet } = await import('../../files/manifest/fetch.mjs')
+	const { registerManifestOwner, unregisterManifestOwner } = await import('../../files/manifest/routing.mjs')
 	const { registerManifestServicer, unregisterManifestServicer } = await import('../../files/manifest/servicer_registry.mjs')
 	const { getEntityStore } = await import('../../node/instance.mjs')
 	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), testRecoveryKeys(18).pubKeyHex)
@@ -250,7 +252,8 @@ test('fed_manifest_get serves non-public manifest when servicer allows', async (
 
 	/** @type {object | null} */
 	let seen
-	registerManifestServicer('vault-wrap', 'test', async context => {
+	registerManifestOwner('test', (manifest, ownerEntityHash) => ownerEntityHash === owner)
+	registerManifestServicer('test', async context => {
 		seen = context
 		return true
 	})
@@ -273,13 +276,15 @@ test('fed_manifest_get serves non-public manifest when servicer allows', async (
 		assertEquals(seen?.logicalPath, 'vault/secret.bin')
 	}
 	finally {
-		unregisterManifestServicer('vault-wrap', 'test')
+		unregisterManifestServicer('test')
+		unregisterManifestOwner('test')
 	}
 })
 
 test('fed_manifest_get refuses non-public manifest when servicer denies', async () => {
 	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fed-manifest-deny-') })
 	const { handleIncomingManifestGet } = await import('../../files/manifest/fetch.mjs')
+	const { registerManifestOwner, unregisterManifestOwner } = await import('../../files/manifest/routing.mjs')
 	const { registerManifestServicer, unregisterManifestServicer } = await import('../../files/manifest/servicer_registry.mjs')
 	const { getEntityStore } = await import('../../node/instance.mjs')
 	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), testRecoveryKeys(19).pubKeyHex)
@@ -294,7 +299,8 @@ test('fed_manifest_get refuses non-public manifest when servicer denies', async 
 		transferKeyDescriptor: { type: 'vault-wrap', entityHash: owner },
 	}, encryptPlaintextToParts(plaintext, 'convergent')))
 
-	registerManifestServicer('vault-wrap', 'test', async () => false)
+	registerManifestOwner('test', (manifest, ownerEntityHash) => ownerEntityHash === owner)
+	registerManifestServicer('test', async () => false)
 	try {
 		let called = false
 		await handleIncomingManifestGet({
@@ -305,7 +311,8 @@ test('fed_manifest_get refuses non-public manifest when servicer denies', async 
 		assertEquals(called, false)
 	}
 	finally {
-		unregisterManifestServicer('vault-wrap', 'test')
+		unregisterManifestServicer('test')
+		unregisterManifestOwner('test')
 	}
 })
 
@@ -689,6 +696,7 @@ test('fetchManifest public mode refuses local non-public manifest', async () => 
 test('fed_manifest_get serves fanout request with requester differing from target node', async () => {
 	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fed-manifest-fanout-') })
 	const { handleIncomingManifestGet } = await import('../../files/manifest/fetch.mjs')
+	const { registerManifestOwner, unregisterManifestOwner } = await import('../../files/manifest/routing.mjs')
 	const { registerManifestServicer, unregisterManifestServicer } = await import('../../files/manifest/servicer_registry.mjs')
 	const { getEntityStore } = await import('../../node/instance.mjs')
 	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), testRecoveryKeys(28).pubKeyHex)
@@ -705,7 +713,8 @@ test('fed_manifest_get serves fanout request with requester differing from targe
 
 	/** @type {object | null} */
 	let seen
-	registerManifestServicer('vault-wrap', 'test', async context => {
+	registerManifestOwner('test', (manifest, ownerEntityHash) => ownerEntityHash === owner)
+	registerManifestServicer('test', async context => {
 		seen = context
 		return true
 	})
@@ -728,6 +737,58 @@ test('fed_manifest_get serves fanout request with requester differing from targe
 		assertEquals(seen?.logicalPath, 'vault/secret.bin')
 	}
 	finally {
-		unregisterManifestServicer('vault-wrap', 'test')
+		unregisterManifestServicer('test')
+		unregisterManifestOwner('test')
+	}
+})
+
+test('fed_manifest_get routes non-public by matcher owner, not by type', async () => {
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fed-manifest-owner-route-') })
+	const { handleIncomingManifestGet } = await import('../../files/manifest/fetch.mjs')
+	const { registerManifestOwner, unregisterManifestOwner } = await import('../../files/manifest/routing.mjs')
+	const { registerManifestServicer, unregisterManifestServicer } = await import('../../files/manifest/servicer_registry.mjs')
+	const { getEntityStore } = await import('../../node/instance.mjs')
+
+	// chat 与 cabinet 同用 file-master-key-wrap；各自 matcher 收窄到自己的实体
+	const chatGroup = logicalEntityHash('fount:chat:group:g1')
+	const cabinetShared = logicalEntityHash('fount:cabinet:shared:c1')
+	const noFamilyOwner = entityHashFromRecoveryPubKeyHex(getNodeHash(), testRecoveryKeys(30).pubKeyHex)
+	for (const [ownerEntityHash, logicalPath] of [[chatGroup, 'chat/file-1'], [cabinetShared, 'shared/file-1'], [noFamilyOwner, 'nofamily/file-1']])
+		await getEntityStore().writeManifest(ownerEntityHash, logicalPath, await buildNonPublicManifest(ownerEntityHash, logicalPath, 'secret', 'file-master-key-wrap'))
+
+	/** @type {string[]} */
+	const served = []
+	registerManifestOwner('chat', (manifest, ownerEntityHash) => ownerEntityHash === chatGroup)
+	registerManifestOwner('cabinet', (manifest, ownerEntityHash) => ownerEntityHash === cabinetShared)
+	registerManifestServicer('chat', async context => { served.push('chat'); return true })
+	registerManifestServicer('cabinet', async context => { served.push('cabinet'); return true })
+
+	/**
+	 * @param {string} ownerEntityHash owner
+	 * @param {string} logicalPath 路径
+	 * @returns {Promise<object | null>} manifest 响应
+	 */
+	const serve = async (ownerEntityHash, logicalPath) => {
+		/** @type {object | null} */
+		let response = null
+		await handleIncomingManifestGet({ requestId: 'r', ownerEntityHash, logicalPath }, payload => { response = payload }, 'peer')
+		return response
+	}
+
+	try {
+		// 相同 type 两族并存：chat 文件 → chat servicer，cabinet 文件 → cabinet servicer
+		assertEquals((await serve(chatGroup, 'chat/file-1'))?.manifest?.ownerEntityHash, chatGroup)
+		assertEquals(served, ['chat'])
+		assertEquals((await serve(cabinetShared, 'shared/file-1'))?.manifest?.ownerEntityHash, cabinetShared)
+		assertEquals(served, ['chat', 'cabinet'])
+		// 无 matcher 命中：即使该 type 已有 servicer，也一律 deny（不再按 type 兜底路由）
+		assertEquals(await serve(noFamilyOwner, 'nofamily/file-1'), null)
+		assertEquals(served, ['chat', 'cabinet'])
+	}
+	finally {
+		unregisterManifestServicer('chat')
+		unregisterManifestServicer('cabinet')
+		unregisterManifestOwner('chat')
+		unregisterManifestOwner('cabinet')
 	}
 })

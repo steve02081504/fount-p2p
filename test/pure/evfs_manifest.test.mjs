@@ -117,10 +117,29 @@ test('parseEvfsRef rejects malformed refs', async () => {
 	assertEquals(parseEvfsRef(ref)?.entityHash, TEST_ENTITY)
 })
 
-test('manifest acl registry is fail-closed', async () => {
-	const { checkManifestAcl } = await import('../../files/manifest/acl_registry.mjs')
-	assertEquals(await checkManifestAcl('vault-wrap', { replicaUsername: 'u', ownerEntityHash: 'x', manifest: {} }), false)
-	assertEquals(await checkManifestAcl('file-master-key-wrap', { replicaUsername: 'u', ownerEntityHash: 'x', manifest: {} }), false)
+test('manifest acl is fail-closed and owner-routed', async () => {
+	const { canReadManifest, canWriteManifestPath, registerManifestAcl, unregisterManifestAcl } = await import('../../files/manifest/acl.mjs')
+	const { registerManifestOwner, unregisterManifestOwner } = await import('../../files/manifest/routing.mjs')
+	const groupEntity = logicalEntityHash(TEST_GROUP_SUBJECT)
+
+	// 无 matcher：普通实体可读，逻辑实体 deny
+	assertEquals(await canReadManifest('u', TEST_ENTITY, {}), true)
+	assertEquals(await canReadManifest('u', groupEntity, {}), false)
+
+	// matcher 命中但无 ACL handler → deny
+	registerManifestOwner('test', (manifest, ownerEntityHash) => ownerEntityHash === groupEntity)
+	assertEquals(await canReadManifest('u', groupEntity, {}), false)
+	assertEquals(await canWriteManifestPath('u', groupEntity, 'x'), false)
+	unregisterManifestOwner('test')
+
+	// matcher + handler → 走 handler 判定
+	registerManifestOwner('test', (manifest, ownerEntityHash) => ownerEntityHash === groupEntity)
+	registerManifestAcl('test', async context => context.ownerEntityHash === groupEntity)
+	assertEquals(await canReadManifest('u', groupEntity, {}), true)
+	assertEquals(await canReadManifest('u', TEST_ENTITY, {}), true)
+	assertEquals(await canWriteManifestPath('u', groupEntity, 'x'), true)
+	unregisterManifestAcl('test')
+	unregisterManifestOwner('test')
 })
 
 test('nodeHashFromSeed is stable', async () => {

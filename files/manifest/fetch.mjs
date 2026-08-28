@@ -8,7 +8,6 @@ import { loadFileManifest, saveFileManifest } from '../evfs.mjs'
 import { beginFedFanoutFetch } from '../fed/fetch_shared.mjs'
 import { canonicalizeFanoutTargets } from '../fetch_fanout.mjs'
 
-import { resolveManifestAclType } from './acl_registry.mjs'
 import { normalizeFileManifest } from './normalize.mjs'
 import {
 	manifestFetchExpectedKey,
@@ -16,6 +15,7 @@ import {
 	registerManifestFetchWait,
 } from './pending.mjs'
 import { shouldPreferIncomingPublicManifest } from './public.mjs'
+import { resolveManifestOwner } from './routing.mjs'
 import { getManifestServicer } from './servicer_registry.mjs'
 
 const DEFAULT_MANIFEST_FETCH_TIMEOUT_MS = ms('8s')
@@ -153,9 +153,9 @@ export async function handleIncomingManifestGet(payload, sendResponse, peerId) {
 		return
 	}
 
-	// 非 public：ACL servicer 授权后回完整 manifest（读侧解密依赖 meta.dagParts / groupId）。
-	const aclType = resolveManifestAclType(manifest, ownerEntityHash) || manifest.transferKeyDescriptor.type
-	const servicer = getManifestServicer(aclType)
+	// 非 public：仅认 matcher 命中的族 servicer（无 matcher 即 deny，不按 transferKeyDescriptor.type 兜底路由）。
+	const ownerId = resolveManifestOwner(manifest, ownerEntityHash)
+	const servicer = getManifestServicer(ownerId)
 	if (!servicer) return
 	const allowed = await servicer({
 		manifest,

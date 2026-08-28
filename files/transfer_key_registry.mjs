@@ -1,3 +1,5 @@
+import { resolveManifestOwner } from './manifest/routing.mjs'
+
 /** @type {Map<string, { getGroupFileMasterKey?: (replicaUsername: string, groupId: string, keyGeneration?: number) => Promise<Buffer | string | null>, getVaultMasterKey?: (replicaUsername: string, entityHash: string) => Promise<Buffer | string | null> }>} */
 const transferDependenciesByOwner = new Map()
 
@@ -5,14 +7,13 @@ const transferDependenciesByOwner = new Map()
 const dagPlaintextReadersByOwner = new Map()
 
 /**
- * @param {string} ownerId 注册方
+ * @param {string} ownerId 注册方（族，须与 registerManifestOwner 一致）
  * @param {{ getGroupFileMasterKey?: (replicaUsername: string, groupId: string, keyGeneration?: number) => Promise<Buffer | string | null>, getVaultMasterKey?: (replicaUsername: string, entityHash: string) => Promise<Buffer | string | null> }} dependencies 密钥源
  * @returns {void}
  */
 export function registerTransferKeyDependencies(ownerId, dependencies) {
-	const key = ownerId
-	const prev = transferDependenciesByOwner.get(key) || {}
-	transferDependenciesByOwner.set(key, { ...prev, ...dependencies })
+	const prev = transferDependenciesByOwner.get(ownerId) || {}
+	transferDependenciesByOwner.set(ownerId, { ...prev, ...dependencies })
 }
 
 /**
@@ -24,48 +25,13 @@ export function registerDagManifestPlaintextReader(ownerId, reader) {
 	dagPlaintextReadersByOwner.set(ownerId, reader)
 }
 
-/** @type {Array<{ ownerId: string, match: (manifest: import('./manifest/normalize.mjs').FileManifest) => boolean }>} */
-const manifestOwnerMatchers = []
-
-/**
- * @param {string} ownerId 注册方
- * @param {(manifest: import('./manifest/normalize.mjs').FileManifest) => boolean} match manifest 匹配谓词
- * @returns {void}
- */
-export function registerManifestOwnerMatcher(ownerId, match) {
-	manifestOwnerMatchers.push({ ownerId, match })
-}
-
-/**
- * @param {string} ownerId 注册方
- * @returns {void}
- */
-export function unregisterManifestOwnerMatchers(ownerId) {
-	const id = ownerId
-	for (let i = manifestOwnerMatchers.length - 1; i >= 0; i--)
-		if (manifestOwnerMatchers[i].ownerId === id) manifestOwnerMatchers.splice(i, 1)
-}
-
 /**
  * @param {string} ownerId 注册方
  * @returns {void}
  */
 export function unregisterTransferKeyDependencies(ownerId) {
-	const key = ownerId
-	transferDependenciesByOwner.delete(key)
-	dagPlaintextReadersByOwner.delete(key)
-	unregisterManifestOwnerMatchers(key)
-}
-
-/**
- * 从 manifest 推断 transfer key 注册方 id（按 registerManifestOwnerMatcher 注册顺序匹配）。
- * @param {import('./manifest/normalize.mjs').FileManifest} manifest 清单
- * @returns {string | null} 所有者 id
- */
-export function resolveManifestTransferOwnerId(manifest) {
-	for (const { ownerId, match } of manifestOwnerMatchers)
-		if (match(manifest)) return ownerId
-	return null
+	transferDependenciesByOwner.delete(ownerId)
+	dagPlaintextReadersByOwner.delete(ownerId)
 }
 
 /**
@@ -74,7 +40,7 @@ export function resolveManifestTransferOwnerId(manifest) {
  * @returns {{ getGroupFileMasterKey?: (replicaUsername: string, groupId: string, keyGeneration?: number) => Promise<Buffer | string | null>, getVaultMasterKey?: (replicaUsername: string, entityHash: string) => Promise<Buffer | string | null> }} 依赖
  */
 export function resolveTransferKeyDependencies(ownerId, manifest) {
-	const resolved = ownerId || (manifest ? resolveManifestTransferOwnerId(manifest) : null)
+	const resolved = ownerId || (manifest ? resolveManifestOwner(manifest, manifest.ownerEntityHash) : null)
 	if (resolved) return transferDependenciesByOwner.get(resolved) || {}
 	return {}
 }
@@ -85,7 +51,7 @@ export function resolveTransferKeyDependencies(ownerId, manifest) {
  * @returns {Promise<Buffer | null>} 明文；无 reader 或未命中为 null
  */
 export async function readDagManifestPlaintext(replicaUsername, manifest) {
-	const ownerId = resolveManifestTransferOwnerId(manifest)
+	const ownerId = resolveManifestOwner(manifest, manifest.ownerEntityHash)
 	if (ownerId) {
 		const reader = dagPlaintextReadersByOwner.get(ownerId)
 		if (reader)
@@ -93,9 +59,7 @@ export async function readDagManifestPlaintext(replicaUsername, manifest) {
 				const buffer = await reader(replicaUsername, manifest)
 				if (buffer?.length) return buffer
 			}
-			catch { /* fall through */ }
-		return null
+			catch { /* 读取失败则回落到分块路径 */ }
 	}
-
 	return null
 }
