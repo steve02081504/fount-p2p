@@ -370,8 +370,8 @@ export function createNostrDiscoveryProvider(options = {}) {
 			...route?.listenRelays || [],
 		]).filter(url => !resolveRelayUrls().includes(url))
 		if (!extra.length) return
-		const allowed = await Promise.all(extra.map(url => isRelayDestinationAllowed(url)))
-		const targets = extra.filter((_, index) => allowed[index])
+		const entries = await Promise.all(extra.map(async url => ({ url, allowed: await isRelayDestinationAllowed(url) })))
+		const targets = entries.filter(entry => entry.allowed).map(entry => entry.url)
 		if (!targets.length) return
 		const rendezvousKey = nodeRendezvousKey(hash)
 		extraSubs.push(subscribeNostrKind(targets, {
