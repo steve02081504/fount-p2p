@@ -15,7 +15,7 @@ import {
 	clearNostrVisibleNodes,
 	listNostrGroupVisibleNodeHashes,
 	listNostrVisibleNodeHashes,
-} from '../../discovery/nostr.mjs'
+} from '../../discovery/nostr/index.mjs'
 import { buildSignedAdvert } from '../../link/handshake.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'

@@ -2,6 +2,7 @@
  * Federation P2P 门面：fount 网络引导与房间/发现入口。
  */
 import { registerDiscoveryProvider } from './discovery/index.mjs'
+import { getNodePopulationEstimate } from './discovery/nostr/census.mjs'
 import {
 	isInfraRunning,
 	setInfraPriority,
@@ -13,9 +14,11 @@ import { ensureNodeDefaults, getNodeHash } from './node/identity.mjs'
 import {
 	closeNode,
 	getNodeDir,
+	getP2PFeatures,
 	initNode,
 	isNodeInitialized,
 	setNodeLogger,
+	setP2PFeatures,
 	setSignalingRuntimeConfig,
 } from './node/instance.mjs'
 import { setConnectivityDebug } from './node/log.mjs'
@@ -73,6 +76,8 @@ export {
 	getLinkRegistry,
 	getNodeDir,
 	getNodeHash,
+	getNodePopulationEstimate,
+	getP2PFeatures,
 	getPeerHealth,
 	getReputationExportAllowlist,
 	getReputationLocks,
@@ -94,6 +99,7 @@ export {
 	setConnectivityDebug,
 	setInfraPriority,
 	setNodeLogger,
+	setP2PFeatures,
 	setReputationExportAllowlist,
 	setReputationTable,
 	setRoutingProfile,
@@ -105,20 +111,21 @@ export {
 }
 
 /**
- * @param {{ nodeDir?: string, entityStore?: import('./node/entity_store.mjs').EntityStore, logger?: object | null, signaling?: import('./node/signaling_config.mjs').SignalingRuntimeConfig }} [options] - 首次 init 时的节点选项
+ * @param {{ nodeDir?: string, entityStore?: import('./node/entity_store.mjs').EntityStore, logger?: object | null, signaling?: import('./node/signaling_config.mjs').SignalingRuntimeConfig, features?: Record<string, boolean> }} [options] - 首次 init 时的节点选项
  * @returns {Promise<void>}
  */
 export async function startNode(options = {}) {
 	if (!isNodeInitialized()) {
-		const { nodeDir, entityStore, logger, signaling, ...rest } = options
+		const { nodeDir, entityStore, logger, signaling, features, ...rest } = options
 		if (Object.keys(rest).length)
 			throw new Error('p2p: startNode unknown options')
 		initNode({ nodeDir, entityStore })
 		if (logger !== undefined) setNodeLogger(logger)
 		if (signaling !== undefined) setSignalingRuntimeConfig(signaling)
+		if (features !== undefined) setP2PFeatures(features)
 	}
-	else if (options?.nodeDir || options?.entityStore || options?.logger !== undefined || options?.signaling)
-		throw new Error('p2p: startNode options ignored after initNode — use setNodeLogger / setSignalingRuntimeConfig')
+	else if (options?.nodeDir || options?.entityStore || options?.logger !== undefined || options?.signaling || options?.features)
+		throw new Error('p2p: startNode options ignored after initNode — use setNodeLogger / setSignalingRuntimeConfig / setP2PFeatures')
 
 	ensureNodeDefaults()
 	await getLinkRegistry().ensureRuntime()

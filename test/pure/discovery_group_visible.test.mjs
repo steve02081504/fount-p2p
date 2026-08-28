@@ -13,7 +13,7 @@ import {
 	listNostrVisibleNodeHashes,
 	noteNostrGroupVisibleNode,
 	noteNostrVisibleNode,
-} from '../../discovery/nostr.mjs'
+} from '../../discovery/nostr/index.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { createMockDiscoveryProvider } from '../helpers/mock_discovery.mjs'
 

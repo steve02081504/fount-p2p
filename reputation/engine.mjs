@@ -301,8 +301,7 @@ export function applyDecayCollusionAfterSlashPure(data, targetPubKeyHash, invite
 	for (let hop = 1; hop <= effectiveMaxHop(); hop++) {
 		const upstream = new Set()
 		for (const edge of inviteEdges) {
-			const to = edge.to
-			const from = edge.from
+			const { to, from } = edge
 			if (frontier.has(to) && from) upstream.add(from)
 		}
 		if (!upstream.size) break

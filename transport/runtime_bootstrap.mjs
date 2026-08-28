@@ -10,7 +10,12 @@ import {
 	unregisterDiscoveryProvider,
 } from '../discovery/index.mjs'
 import { createLanDiscoveryProvider } from '../discovery/lan.mjs'
-import { createNostrDiscoveryProvider, resolveNostrRelayUrls } from '../discovery/nostr.mjs'
+import { MAX_ADVERT_RELAY_POOL } from '../discovery/nostr/constants.mjs'
+import {
+	createNostrDiscoveryProvider,
+	resolveNostrRelayUrls,
+} from '../discovery/nostr/index.mjs'
+import { getListenRelays, getWorkingRelays, loadRelayPool, startNostrRelayDiscovery } from '../discovery/nostr/relays.mjs'
 import { createBleGattLinkProvider } from '../link/providers/ble_gatt.mjs'
 import {
 	listLinkProviders,
@@ -18,7 +23,7 @@ import {
 	unregisterLinkProvider,
 } from '../link/providers/index.mjs'
 import { createLanTcpLinkProvider } from '../link/providers/lan_tcp.mjs'
-import { createNostrLinkProvider } from '../link/providers/nostr.mjs'
+import { createNostrLinkProvider } from '../link/providers/nostr/index.mjs'
 import { createWebRtcLinkProvider } from '../link/providers/webrtc.mjs'
 import { getSignalingRuntimeConfig, onNodeChange } from '../node/instance.mjs'
 import { isConnectivityDebug, nodeDebug, shortHash } from '../node/log.mjs'
@@ -88,6 +93,8 @@ export function createRuntimeBootstrap(deps) {
 	let stopPresence = null
 	/** @type {(() => void) | null} */
 	let stopSignalListener = null
+	/** @type {(() => void) | null} */
+	let stopRelayDiscovery = null
 	/** @type {Map<string, () => void>} */
 	const stopLinkListeners = new Map()
 	/** @type {ReturnType<typeof createLanTcpLinkProvider> | null} */
@@ -153,7 +160,21 @@ export function createRuntimeBootstrap(deps) {
 	async function buildLocalAdvert(scope = 'node') {
 		await whenListening()
 		const tcpPort = lanTcpPort()
-		return await buildSignedAdvertForScope(scope, localIdentity, tcpPort ?? undefined)
+		// 仅 network 域注入 relay 字段；LAN 域传空对象（签名消息仍含空的 relays: 段）。
+		return buildSignedAdvertForScope(
+			scope,
+			localIdentity,
+			tcpPort ?? undefined,
+			scope === 'network'
+				? {
+					pool: getWorkingRelays()
+						.filter(entry => entry.rttMs != null)
+						.slice(0, MAX_ADVERT_RELAY_POOL)
+						.map(entry => ({ url: entry.url, rttMs: entry.rttMs })),
+					listen: getListenRelays().map(entry => entry.url),
+				}
+				: { pool: [], listen: [] },
+		)
 	}
 
 	/**
@@ -296,6 +317,10 @@ export function createRuntimeBootstrap(deps) {
 			stopSignalListener?.()
 			stopPresence = null
 			stopSignalListener = null
+			// 重启 NIP-66 发现（不重新 loadRelayPool：避免用磁盘旧数据覆盖内存中的 poolEntries/peerRoutes）。
+			stopRelayDiscovery?.()
+			stopRelayDiscovery = null
+			if (isChannelEnabled('nostr')) stopRelayDiscovery = startNostrRelayDiscovery()
 			reconcileLinkProviders()
 			reconcileDiscoveryProviders()
 			if (generation !== gen || !isLive()) return
@@ -337,6 +362,15 @@ export function createRuntimeBootstrap(deps) {
 		runtimeStart = (async () => {
 			runtimeStarted = true
 			const gen = generation
+			// 先加载/播种 relay 池，再启动 NIP-66 发现（首轮异步，不阻塞 startup）。
+			loadRelayPool()
+			if (isChannelEnabled('nostr')) {
+				if (!stopRelayDiscovery) stopRelayDiscovery = startNostrRelayDiscovery()
+			}
+			else {
+				stopRelayDiscovery?.()
+				stopRelayDiscovery = null
+			}
 			reconcileLinkProviders()
 			if (autoRegisterDiscoveryProviders)
 				reconcileDiscoveryProviders()
@@ -407,6 +441,8 @@ export function createRuntimeBootstrap(deps) {
 		stopSignalListener?.()
 		stopPresence = null
 		stopSignalListener = null
+		stopRelayDiscovery?.()
+		stopRelayDiscovery = null
 		await Promise.race([
 			runtimeWarm?.catch(() => { }) ?? Promise.resolve(),
 			new Promise(resolve => setTimeout(resolve, 500)),

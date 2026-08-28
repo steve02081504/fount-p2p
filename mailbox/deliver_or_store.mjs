@@ -62,7 +62,7 @@ async function resolveRouting(username) {
  */
 export async function deliverOrStoreMailboxPut(username, options) {
 	const routing = await resolveRouting(username)
-	const toPubKeyHash = options.toPubKeyHash
+	const { toPubKeyHash } = options
 	if (!isHex64(toPubKeyHash)) return { stored: false, delivered: false, relayed: 0 }
 	const hop = normalizeMailboxHop(options.hop)
 	if (hop >= routing.maxHop) return { stored: false, delivered: false, relayed: 0 }
@@ -76,9 +76,8 @@ export async function deliverOrStoreMailboxPut(username, options) {
 		fromNodeHash: options.record?.fromNodeHash || nodeHash,
 	}
 	const stored = await storeMailboxRecord(record)
-	const toNodeHash = options.toNodeHash
-	const delivered = isHex64(toNodeHash) && isMailboxRecordWithinSizeLimit(record)
-		? await requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER).sendToNode(username, toNodeHash, 'mailbox_put', { nodeHash, record })
+	const delivered = isHex64(options.toNodeHash) && isMailboxRecordWithinSizeLimit(record)
+		? await requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER).sendToNode(username, options.toNodeHash, 'mailbox_put', { nodeHash, record })
 		: false
 
 	let relayed = 0

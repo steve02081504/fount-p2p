@@ -14,7 +14,7 @@
 
 **Facade:** `index.mjs`; subpath exports mirror directories.
 
-Detail docs: [transports](docs/transports.md) · [mesh](docs/mesh.md) · [signaling](docs/signaling.md) · [runtime](docs/runtime.md) · [infra](docs/infra.md) · [wire](docs/wire.md) · [evfs](docs/evfs.md) · [reputation](docs/reputation.md)
+Detail docs: [transports](docs/transports.md) · [mesh](docs/mesh.md) · [signaling](docs/signaling.md) · [nostr-relay-discovery](docs/nostr_relay_discovery.md) · [runtime](docs/runtime.md) · [infra](docs/infra.md) · [wire](docs/wire.md) · [evfs](docs/evfs.md) · [reputation](docs/reputation.md)
 
 ### Runtime: isomorphic vs Node
 

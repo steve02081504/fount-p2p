@@ -28,3 +28,26 @@ export function readNodeJsonSync(name) {
 export function writeNodeJsonSync(name, data) {
 	writeJsonFileSync(nodeJsonPath(name), data)
 }
+
+/**
+ * Nostr relay 池 / peer 路由持久化文件路径（`nodeDir/nostr/relays.json`）。
+ * @returns {string} 绝对路径
+ */
+export function nostrRelayJsonPath() {
+	return path.join(getNodeDir(), 'nostr', 'relays.json')
+}
+
+/**
+ * @returns {object | null} 解析后的 Nostr relay JSON 或 null
+ */
+export function readNostrRelaysJsonSync() {
+	return readJsonFileSync(nostrRelayJsonPath())
+}
+
+/**
+ * @param {unknown} data 数据
+ * @returns {void}
+ */
+export function writeNostrRelaysJsonSync(data) {
+	writeJsonFileSync(nostrRelayJsonPath(), data)
+}

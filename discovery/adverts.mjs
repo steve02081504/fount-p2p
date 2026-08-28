@@ -29,9 +29,10 @@ export function rendezvousKeyForScope(scope, selfNodeHash) {
  * @param {AdvertScope} scope advert 域
  * @param {{ nodeHash: string, nodePubKey: string, secretKey: Uint8Array }} localIdentity 本地身份
  * @param {number | null | undefined} [tcpPort] LAN TCP 端口
+ * @param {{ pool?: Array<{ url: string, rtt?: number }>, listen?: string[] }} [relayData] 已规范化并经 sanitize 裁剪的 relay 字段
  * @returns {Promise<object>} 签名 advert body
  */
-export async function buildSignedAdvertForScope(scope, localIdentity, tcpPort) {
+export async function buildSignedAdvertForScope(scope, localIdentity, tcpPort, relayData) {
 	const key = rendezvousKeyForScope(scope, localIdentity.nodeHash)
 	const lanHosts = scope === 'network' && tcpPort != null
 		? listMulticastIpv4Addresses()
@@ -40,6 +41,8 @@ export async function buildSignedAdvertForScope(scope, localIdentity, tcpPort) {
 		...localIdentity,
 		...tcpPort != null ? { tcpPort } : {},
 		...lanHosts.length ? { lanHosts } : {},
+		...relayData?.pool ? { nostrRelayPool: relayData.pool } : {},
+		...relayData?.listen ? { listenNostrRelays: relayData.listen } : {},
 	})
 }
 
@@ -68,20 +71,25 @@ export function encryptAdvertForScope(scope, localIdentity, advertBody) {
  * Untrusted ingress：解密并验签 advert；失败返回 null，不抛。不写入可见池 / peer hints。
  * @param {string} rendezvousKey rendezvous 键
  * @param {Uint8Array} bytes 加密 advert
- * @returns {Promise<{ verifiedNodeHash: string, body: object } | null>} 验签成功返回 nodeHash 与 advert body，否则 null
+ * @returns {Promise<{ verifiedNodeHash: string, body: object, relayPool: Array<{ url: string, rtt: number }>, listenRelays: string[] } | null>} 验签成功返回 nodeHash、advert body 与规范化 relay 字段，否则 null
  */
 export async function ingestEncryptedAdvert(rendezvousKey, bytes) {
 	const packet = decryptSignalPacket(rendezvousKey, bytes)
 	if (packet?.type !== 'advert' || !packet.body) return null
-	const verifiedNodeHash = await verifySignedAdvert(rendezvousKey, packet.body)
-	if (!verifiedNodeHash) return null
-	return { verifiedNodeHash, body: packet.body }
+	const verified = await verifySignedAdvert(rendezvousKey, packet.body)
+	if (!verified) return null
+	return {
+		verifiedNodeHash: verified.nodeHash,
+		body: packet.body,
+		relayPool: verified.relayPool,
+		listenRelays: verified.listenRelays,
+	}
 }
 
 /**
  * Untrusted ingress：验签 network-scope advert；失败返回 null。不写盘 / 不写 hints。
  * @param {Uint8Array} bytes 加密 advert
- * @returns {Promise<{ verifiedNodeHash: string, body: object } | null>} 验签成功返回 nodeHash 与 advert body，否则 null
+ * @returns {Promise<{ verifiedNodeHash: string, body: object, relayPool: Array<{ url: string, rtt: number }>, listenRelays: string[] } | null>} 验签成功返回 nodeHash、advert body 与规范化 relay 字段，否则 null
  */
 export async function ingestNetworkAdvert(bytes) {
 	return ingestEncryptedAdvert(networkRendezvousKey(), bytes)
@@ -91,7 +99,7 @@ export async function ingestNetworkAdvert(bytes) {
  * Untrusted ingress：验签 node-scope advert；失败返回 null。不写盘 / 不写 hints。
  * @param {string} nodeHash 目标 nodeHash
  * @param {Uint8Array} bytes 加密 advert
- * @returns {Promise<{ verifiedNodeHash: string, body: object } | null>} 验签成功返回 nodeHash 与 advert body，否则 null
+ * @returns {Promise<{ verifiedNodeHash: string, body: object, relayPool: Array<{ url: string, rtt: number }>, listenRelays: string[] } | null>} 验签成功返回 nodeHash、advert body 与规范化 relay 字段，否则 null
  */
 export async function ingestNodeAdvert(nodeHash, bytes) {
 	return ingestEncryptedAdvert(nodeRendezvousKey(nodeHash), bytes)
@@ -101,7 +109,7 @@ export async function ingestNodeAdvert(nodeHash, bytes) {
  * Untrusted ingress：验签 group-scope advert；失败返回 null。不写盘 / 不写 hints。
  * @param {string} roomSecret 房间密钥
  * @param {Uint8Array} bytes 加密 advert
- * @returns {Promise<{ verifiedNodeHash: string, body: object } | null>} 验签成功返回 nodeHash 与 advert body，否则 null
+ * @returns {Promise<{ verifiedNodeHash: string, body: object, relayPool: Array<{ url: string, rtt: number }>, listenRelays: string[] } | null>} 验签成功返回 nodeHash、advert body 与规范化 relay 字段，否则 null
  */
 export async function ingestGroupAdvert(roomSecret, bytes) {
 	return ingestEncryptedAdvert(groupRendezvousKey(roomSecret), bytes)
