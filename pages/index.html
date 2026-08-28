@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>fount 人口统计</title>
+	<style>
+		:root { color-scheme: light dark; }
+		body { font-family: system-ui, sans-serif; max-width: 720px; margin: 3rem auto; padding: 0 1rem; line-height: 1.6; }
+		h1 { font-size: 1.4rem; }
+		.card { border: 1px solid #8884; border-radius: 8px; padding: 1rem 1.25rem; margin: 1rem 0; }
+		.metric { font-size: 2rem; font-weight: 700; }
+		label { display: flex; align-items: center; gap: .5rem; margin: 1rem 0; }
+		#status { opacity: .7; font-size: .9rem; }
+		code { background: #8882; padding: .1em .4em; border-radius: 4px; }
+	</style>
+</head>
+<body>
+	<h1>fount 节点人口统计</h1>
+	<p>基于 Nostr census 事件（kind 30789，<code>t=fount</code> / <code>x=census</code>）的采样估计。本页为独立前端实现，仅做展示：在线节点数 = <code>Σ(1/p)</code>（Horvitz–Thompson 估计）。</p>
+	<label>
+		<input type="checkbox" id="toggle" checked>
+		人口统计（census）
+	</label>
+	<div class="card">
+		<div>在线节点数估计</div>
+		<div class="metric" id="estimate">0</div>
+		<div id="status">初始化…</div>
+	</div>
+	<div class="card">
+		<div>采样事件数 <span id="sample-size">0</span> · 窗口内事件 <span id="window-events">0</span></div>
+	</div>
+	<footer id="footer" style="opacity:.6;font-size:.85rem"></footer>
+	<script type="module" src="./app.mjs"></script>
+</body>
+</html>

@@ -7,6 +7,7 @@ import {
 	decryptNodeSignalPacket,
 	registerDiscoveryProvider,
 } from '../../discovery/index.mjs'
+import { createNostrDiscoveryProvider } from '../../discovery/nostr/index.mjs'
 import { FRAME_HEADER_BYTES, maxFrameChunkBytesForPayload } from '../../link/frame.mjs'
 import {
 	clearLinkProviders,
@@ -20,9 +21,10 @@ import {
 	MAX_LINK_PAYLOAD_CHARS,
 	MIN_USABLE_RELAY_CAP_CHARS,
 	minUsablePayloadCap,
-} from '../../link/providers/nostr.mjs'
+} from '../../link/providers/nostr/index.mjs'
 import { createLinkRegistry } from '../../transport/link_registry.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
+import { startFakeRelay } from '../helpers/fake_relay.mjs'
 import { identity } from '../helpers/identity.mjs'
 
 /**
@@ -147,6 +149,210 @@ test('nostr link dial/accept exchanges an envelope over type:link', async () => 
 		stopListen()
 		clearDiscoveryProviders()
 		clearLinkProviders()
+	}
+})
+
+test('two nodes exchange a link envelope through a single real relay', async () => {
+	clearLinkProviders()
+	clearDiscoveryProviders()
+	const relay = await startFakeRelay(() => true, { broadcast: true })
+	const relayUrl = `ws://127.0.0.1:${relay.port}`
+	const alice = identity(37)
+	const bob = identity(38)
+	const aliceLink = createNostrLinkProvider({
+		/**
+		 * @returns {string[]} relay URL 列表
+		 */
+		getRelayUrls: () => [relayUrl],
+	})
+	const bobLink = createNostrLinkProvider({
+		/**
+		 * @returns {string[]} relay URL 列表
+		 */
+		getRelayUrls: () => [relayUrl],
+	})
+	const discovery = createNostrDiscoveryProvider({ relayUrls: [relayUrl], localNodeHash: alice.nodeHash })
+	registerDiscoveryProvider(discovery)
+	try {
+		const stopAliceSignal = await discovery.listenNodeSignals(alice.nodeHash, bytes => {
+			const packet = decryptNodeSignalPacket(alice.nodeHash, bytes)
+			if (packet?.type === 'link') void aliceLink.deliverPacket(packet)
+		})
+		const stopBobSignal = await discovery.listenNodeSignals(bob.nodeHash, bytes => {
+			const packet = decryptNodeSignalPacket(bob.nodeHash, bytes)
+			if (packet?.type === 'link') void bobLink.deliverPacket(packet)
+		})
+		/** @type {object | null} */
+		let inbound = null
+		const stopListen = bobLink.ensureListening({
+			localIdentity: bob,
+			/**
+			 * @param {object} link 入站
+			 * @returns {void}
+			 */
+			onInbound(link) { inbound = link },
+		})
+		aliceLink.ensureListening({
+			localIdentity: alice,
+			/** 忽略入站连接 */
+			onInbound() { },
+		})
+		try {
+			const dialed = await aliceLink.dial({ nodeHash: bob.nodeHash, localIdentity: alice })
+			assertEquals(!!dialed, true)
+			assertEquals(dialed.providerId, 'nostr')
+			await dialed.ready
+			for (let pollAttempt = 0; pollAttempt < 50 && !inbound; pollAttempt++)
+				await new Promise(resolve => setTimeout(resolve, 10))
+			assertEquals(!!inbound, true)
+			await inbound.ready
+			assertEquals(inbound.nodeHash, alice.nodeHash)
+			assertEquals(dialed.nodeHash, bob.nodeHash)
+
+			/** @type {object | null} */
+			let received = null
+			inbound.onEnvelope(envelope => { received = envelope })
+			assertEquals(await dialed.send({ scope: 'test', action: 'relay-ping', payload: { via: 'relay', n: 42 } }), true)
+			for (let pollAttempt = 0; pollAttempt < 100 && !received; pollAttempt++)
+				await new Promise(resolve => setTimeout(resolve, 10))
+			assertEquals(received?.scope, 'test')
+			assertEquals(received?.action, 'relay-ping')
+			assertEquals(received?.payload?.n, 42)
+			assertEquals(relay.connectionCount(), 1, 'single shared relay socket carries both nodes')
+		}
+		finally {
+			stopListen()
+			stopAliceSignal()
+			stopBobSignal()
+		}
+	}
+	finally {
+		discovery.dispose?.()
+		await relay.stop()
+		clearDiscoveryProviders()
+		clearLinkProviders()
+	}
+})
+
+test('two nodes link when only the trailing relay of each list overlaps', async () => {
+	clearLinkProviders()
+	clearDiscoveryProviders()
+	/** @type {Array<Awaited<ReturnType<typeof startFakeRelay>>>} */
+	const relays = []
+	/**
+	 * @param {number} count 数量
+	 * @returns {Promise<string[]>} 新开 relay URL 列表
+	 */
+	const startRelays = async count => {
+		const urls = []
+		for (let i = 0; i < count; i++) {
+			const relay = await startFakeRelay(() => true, { broadcast: true })
+			relays.push(relay)
+			urls.push(`ws://127.0.0.1:${relay.port}`)
+		}
+		return urls
+	}
+	/** @type {ReturnType<typeof createNostrDiscoveryProvider> | null} */
+	let aliceProvider = null
+	/** @type {ReturnType<typeof createNostrDiscoveryProvider> | null} */
+	let bobProvider = null
+	try {
+		const commonUrl = (await startRelays(1))[0]
+		const aliceRelays = [...await startRelays(6), commonUrl]
+		const bobRelays = [...await startRelays(6), commonUrl]
+		assertEquals(aliceRelays[aliceRelays.length - 1], commonUrl, 'common relay trails alice list')
+		assertEquals(bobRelays[bobRelays.length - 1], commonUrl, 'common relay trails bob list')
+
+		const alice = identity(41)
+		const bob = identity(42)
+		aliceProvider = createNostrDiscoveryProvider({ relayUrls: aliceRelays, localNodeHash: alice.nodeHash })
+		bobProvider = createNostrDiscoveryProvider({ relayUrls: bobRelays, localNodeHash: bob.nodeHash })
+		registerDiscoveryProvider({
+			id: 'nostr',
+			priority: 100,
+			caps: { canSignal: true },
+			/**
+			 * @param {string} toNodeHash 目标
+			 * @param {Uint8Array} bytes 加密信令
+			 * @returns {Promise<void>}
+			 */
+			async sendNodeSignal(toNodeHash, bytes) {
+				if (isHex64(toNodeHash) === alice.nodeHash) await aliceProvider.sendNodeSignal(toNodeHash, bytes)
+				else await bobProvider.sendNodeSignal(toNodeHash, bytes)
+			},
+		})
+		const aliceLink = createNostrLinkProvider({
+			/**
+			 * @returns {string[]} relay URL 列表
+			 */
+			getRelayUrls: () => aliceRelays,
+		})
+		const bobLink = createNostrLinkProvider({
+			/**
+			 * @returns {string[]} relay URL 列表
+			 */
+			getRelayUrls: () => bobRelays,
+		})
+		const stopAliceSignal = await aliceProvider.listenNodeSignals(alice.nodeHash, bytes => {
+			const packet = decryptNodeSignalPacket(alice.nodeHash, bytes)
+			if (packet?.type === 'link') void aliceLink.deliverPacket(packet)
+		})
+		const stopBobSignal = await bobProvider.listenNodeSignals(bob.nodeHash, bytes => {
+			const packet = decryptNodeSignalPacket(bob.nodeHash, bytes)
+			if (packet?.type === 'link') void bobLink.deliverPacket(packet)
+		})
+		/** @type {object | null} */
+		let inbound = null
+		const stopListen = bobLink.ensureListening({
+			localIdentity: bob,
+			/**
+			 * @param {object} link 入站
+			 * @returns {void}
+			 */
+			onInbound(link) { inbound = link },
+		})
+		aliceLink.ensureListening({
+			localIdentity: alice,
+			/** 忽略入站连接 */
+			onInbound() { },
+		})
+		try {
+			const dialed = await aliceLink.dial({ nodeHash: bob.nodeHash, localIdentity: alice })
+			assertEquals(!!dialed, true)
+			await dialed.ready
+			for (let pollAttempt = 0; pollAttempt < 100 && !inbound; pollAttempt++)
+				await new Promise(resolve => setTimeout(resolve, 10))
+			assertEquals(!!inbound, true)
+			await inbound.ready
+
+			/** @type {object | null} */
+			let received = null
+			inbound.onEnvelope(envelope => { received = envelope })
+			assertEquals(await dialed.send({ scope: 'test', action: 'tail-relay-ping', payload: { shared: 7 } }), true)
+			for (let pollAttempt = 0; pollAttempt < 100 && !received; pollAttempt++)
+				await new Promise(resolve => setTimeout(resolve, 10))
+			assertEquals(received?.scope, 'test')
+			assertEquals(received?.action, 'tail-relay-ping')
+			assertEquals(received?.payload?.shared, 7)
+
+			const common = relays[0]
+			assertEquals(new Set(common.publishedEvents.map(event => event.pubkey)).size, 2, 'both nodes crossed the shared relay')
+			assertEquals(common.publishedEvents.length >= 1, true, 'handshake traffic crossed the shared relay')
+			for (let i = 1; i < relays.length; i++)
+				assertEquals(relays[i].connectionCount(), 1, `unique relay ${i} is only reachable from its own node`)
+		}
+		finally {
+			stopListen()
+			stopAliceSignal()
+			stopBobSignal()
+		}
+	}
+	finally {
+		aliceProvider.dispose?.()
+		bobProvider.dispose?.()
+		clearDiscoveryProviders()
+		clearLinkProviders()
+		for (const relay of relays) await relay.stop()
 	}
 })
 

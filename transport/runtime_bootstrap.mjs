@@ -10,7 +10,14 @@ import {
 	unregisterDiscoveryProvider,
 } from '../discovery/index.mjs'
 import { createLanDiscoveryProvider } from '../discovery/lan.mjs'
-import { createNostrDiscoveryProvider, resolveNostrRelayUrls } from '../discovery/nostr.mjs'
+import {
+	createNostrDiscoveryProvider,
+	getListenRelays,
+	getWorkingRelays,
+	loadRelayPool,
+	resolveNostrRelayUrls,
+	startNostrRelayDiscovery,
+} from '../discovery/nostr/index.mjs'
 import { createBleGattLinkProvider } from '../link/providers/ble_gatt.mjs'
 import {
 	listLinkProviders,
@@ -18,7 +25,7 @@ import {
 	unregisterLinkProvider,
 } from '../link/providers/index.mjs'
 import { createLanTcpLinkProvider } from '../link/providers/lan_tcp.mjs'
-import { createNostrLinkProvider } from '../link/providers/nostr.mjs'
+import { createNostrLinkProvider } from '../link/providers/nostr/index.mjs'
 import { createWebRtcLinkProvider } from '../link/providers/webrtc.mjs'
 import { getSignalingRuntimeConfig, onNodeChange } from '../node/instance.mjs'
 import { isConnectivityDebug, nodeDebug, shortHash } from '../node/log.mjs'
@@ -88,6 +95,8 @@ export function createRuntimeBootstrap(deps) {
 	let stopPresence = null
 	/** @type {(() => void) | null} */
 	let stopSignalListener = null
+	/** @type {(() => void) | null} */
+	let stopRelayDiscovery = null
 	/** @type {Map<string, () => void>} */
 	const stopLinkListeners = new Map()
 	/** @type {ReturnType<typeof createLanTcpLinkProvider> | null} */
@@ -153,7 +162,14 @@ export function createRuntimeBootstrap(deps) {
 	async function buildLocalAdvert(scope = 'node') {
 		await whenListening()
 		const tcpPort = lanTcpPort()
-		return await buildSignedAdvertForScope(scope, localIdentity, tcpPort ?? undefined)
+		// 仅 network 域注入 relay 字段；LAN 域传空对象（签名消息仍含空的 relays: 段）。
+		const relayData = scope === 'network'
+			? {
+				pool: getWorkingRelays().slice(0, 16).map(entry => ({ url: entry.url, rttMs: entry.rttMs ?? undefined })),
+				listen: getListenRelays().map(entry => entry.url),
+			}
+			: { pool: [], listen: [] }
+		return await buildSignedAdvertForScope(scope, localIdentity, tcpPort ?? undefined, relayData)
 	}
 
 	/**
@@ -296,6 +312,10 @@ export function createRuntimeBootstrap(deps) {
 			stopSignalListener?.()
 			stopPresence = null
 			stopSignalListener = null
+			// 重启 NIP-66 发现并同步池文件。
+			stopRelayDiscovery?.()
+			stopRelayDiscovery = startNostrRelayDiscovery()
+			loadRelayPool()
 			reconcileLinkProviders()
 			reconcileDiscoveryProviders()
 			if (generation !== gen || !isLive()) return
@@ -337,6 +357,9 @@ export function createRuntimeBootstrap(deps) {
 		runtimeStart = (async () => {
 			runtimeStarted = true
 			const gen = generation
+			// 先加载/播种 relay 池，再启动 NIP-66 发现（首轮异步，不阻塞 startup）。
+			loadRelayPool()
+			if (!stopRelayDiscovery) stopRelayDiscovery = startNostrRelayDiscovery()
 			reconcileLinkProviders()
 			if (autoRegisterDiscoveryProviders)
 				reconcileDiscoveryProviders()
@@ -407,6 +430,8 @@ export function createRuntimeBootstrap(deps) {
 		stopSignalListener?.()
 		stopPresence = null
 		stopSignalListener = null
+		stopRelayDiscovery?.()
+		stopRelayDiscovery = null
 		await Promise.race([
 			runtimeWarm?.catch(() => { }) ?? Promise.resolve(),
 			new Promise(resolve => setTimeout(resolve, 500)),

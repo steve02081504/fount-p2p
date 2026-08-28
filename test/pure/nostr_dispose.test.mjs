@@ -6,7 +6,7 @@ import {
 	registerDiscoveryProvider,
 	unregisterDiscoveryProvider,
 } from '../../discovery/index.mjs'
-import { createNostrDiscoveryProvider } from '../../discovery/nostr.mjs'
+import { createNostrDiscoveryProvider } from '../../discovery/nostr/index.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
 import { identity } from '../helpers/identity.mjs'
 

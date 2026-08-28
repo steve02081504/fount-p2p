@@ -63,7 +63,7 @@ test('advert signatures verify against rendezvousKey and timestamp', async () =>
 		nodeHash,
 		nodePubKey: Buffer.from(publicKey).toString('hex'),
 	})
-	assertEquals(await verifySignedAdvert(rendezvousKey, advert, 1234), nodeHash)
+	assertEquals((await verifySignedAdvert(rendezvousKey, advert, 1234))?.nodeHash, nodeHash)
 })
 
 test('advert with tcpPort signs port into the message', async () => {
@@ -78,7 +78,7 @@ test('advert with tcpPort signs port into the message', async () => {
 		tcpPort: 18080,
 	})
 	assertEquals(advert.tcpPort, 18080)
-	assertEquals(await verifySignedAdvert(rendezvousKey, advert, 1234), nodeHash)
+	assertEquals((await verifySignedAdvert(rendezvousKey, advert, 1234))?.nodeHash, nodeHash)
 	assertEquals(await verifySignedAdvert(rendezvousKey, { ...advert, tcpPort: 18081 }, 1234), null)
 	const { tcpPort: _omit, ...withoutPort } = advert
 	assertEquals(await verifySignedAdvert(rendezvousKey, withoutPort, 1234), null)
@@ -97,6 +97,6 @@ test('advert with lanHosts signs hosts into the message', async () => {
 		lanHosts: ['192.168.1.10', '10.0.0.5'],
 	})
 	assertEquals(advert.lanHosts, ['192.168.1.10', '10.0.0.5'])
-	assertEquals(await verifySignedAdvert(rendezvousKey, advert, 1234), nodeHash)
+	assertEquals((await verifySignedAdvert(rendezvousKey, advert, 1234))?.nodeHash, nodeHash)
 	assertEquals(await verifySignedAdvert(rendezvousKey, { ...advert, lanHosts: ['10.0.0.5'] }, 1234), null)
 })

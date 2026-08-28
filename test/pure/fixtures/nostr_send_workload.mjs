@@ -1,4 +1,4 @@
-import { createNostrDiscoveryProvider } from '../../../discovery/nostr.mjs'
+import { createNostrDiscoveryProvider } from '../../../discovery/nostr/index.mjs'
 import { startFakeRelay } from '../../helpers/fake_relay.mjs'
 import { identity } from '../../helpers/identity.mjs'
 

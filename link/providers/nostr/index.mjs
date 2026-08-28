@@ -1,17 +1,16 @@
 import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 
-import { base64ToBytes, bytesToBase64 } from '../../core/bytes_codec.mjs'
-import { isHex64 } from '../../core/hexIds.mjs'
-import { getDiscoveryProvider, sendNodeSignalPacket } from '../../discovery/index.mjs'
-import { NOSTR_SIGNAL_KIND, resolveNostrRelayUrls } from '../../discovery/nostr.mjs'
-import { ms } from '../../utils/duration.mjs'
-import { createLruMap } from '../../utils/lru.mjs'
-import { FRAME_HEADER_BYTES, maxFrameChunkBytesForPayload } from '../frame.mjs'
-import { asLinkHandle } from '../pipe.mjs'
-
-import { LINK_LEVEL_NOSTR } from './levels.mjs'
-import { createLinkIdBoundPipe } from './link_id_pipe.mjs'
+import { base64ToBytes, bytesToBase64 } from '../../../core/bytes_codec.mjs'
+import { isHex64 } from '../../../core/hexIds.mjs'
+import { getDiscoveryProvider, sendNodeSignalPacket } from '../../../discovery/index.mjs'
+import { NOSTR_SIGNAL_KIND, resolveNostrRelayUrls } from '../../../discovery/nostr/index.mjs'
+import { ms } from '../../../utils/duration.mjs'
+import { createLruMap } from '../../../utils/lru.mjs'
+import { FRAME_HEADER_BYTES, maxFrameChunkBytesForPayload } from '../../frame.mjs'
+import { asLinkHandle } from '../../pipe.mjs'
+import { LINK_LEVEL_NOSTR } from '../levels.mjs'
+import { createLinkIdBoundPipe } from '../link_id_pipe.mjs'
 
 /** 单包 payload（UTF-8 / base64）上限，避免撞 relay content 限制。
  *  默认兜底取 2026-08 本机对默认公共 relay 的 NIP-11 `max_message_length` 非零最小值（131072 = nostr.mom）。
@@ -398,8 +397,15 @@ export function createNostrLinkProvider(options = {}) {
 		ensureListening(handlers) {
 			onInbound = handlers.onInbound
 			localIdentity = handlers.localIdentity
-			void refreshPayloadCap(resolveRelayUrls())
+			// 探测延迟到启动路径之外（首个 macrotask），避免同步 fetch 阻塞 startup 预算。
+			const capTimer = setTimeout(() => {
+				let relayUrls
+				try { relayUrls = resolveRelayUrls() } catch { return }
+				void refreshPayloadCap(relayUrls).catch(() => { })
+			}, 0)
+			capTimer.unref?.()
 			return () => {
+				clearTimeout(capTimer)
 				onInbound = null
 				for (const session of sessions.values())
 					void session.pipe.close('listen-stop')

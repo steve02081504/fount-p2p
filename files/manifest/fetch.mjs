@@ -71,12 +71,10 @@ export async function fetchPublicManifest(context) {
 	if (!shared) return hasLocalPublic ? local : null
 
 	if (hasLocalPublic) {
-		if (wantCache) 
-			void shared.then(async result => {
-				if (result && shouldPreferIncomingPublicManifest(local, result))
-					await cachePublicManifest(ownerEntityHash, logicalPath, result)
-			})
-		
+		if (wantCache) void shared.then(async result => {
+			if (result && shouldPreferIncomingPublicManifest(local, result))
+				await cachePublicManifest(ownerEntityHash, logicalPath, result)
+		})
 		return local
 	}
 

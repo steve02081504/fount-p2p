@@ -2,7 +2,7 @@ import { performance } from 'node:perf_hooks'
 import { test } from 'node:test'
 
 import { clearDiscoveryProviders } from '../../discovery/index.mjs'
-import { createNostrDiscoveryProvider, DEFAULT_RELAY_URLS, NOSTR_CONNECT_TIMEOUT_MS } from '../../discovery/nostr.mjs'
+import { createNostrDiscoveryProvider, DEFAULT_RELAY_URLS, NOSTR_CONNECT_TIMEOUT_MS } from '../../discovery/nostr/index.mjs'
 import { clearLinkProviders } from '../../link/providers/index.mjs'
 import { createLinkRegistry } from '../../transport/link_registry.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'

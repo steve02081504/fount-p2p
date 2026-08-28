@@ -1,6 +1,7 @@
 import path from 'node:path'
 
 import { createFsEntityStore } from './entity_store.mjs'
+import { defaultP2PFeatures, resolveP2PFeatures } from './feature_config.mjs'
 import { closeAllFileStreams } from './handles.mjs'
 import { defaultSignalingRuntimeConfig, resolveSignalingRuntimeConfig } from './signaling_config.mjs'
 
@@ -14,6 +15,7 @@ import { defaultSignalingRuntimeConfig, resolveSignalingRuntimeConfig } from './
  *   entityStore: import('./entity_store.mjs').EntityStore
  *   logger: NodeLogger | null
  *   signaling: SignalingRuntimeConfig
+ *   features: Record<string, boolean>
  * }} NodeRuntime
  */
 
@@ -49,6 +51,7 @@ export function initNode(options) {
 		entityStore,
 		logger: console,
 		signaling: resolveSignalingRuntimeConfig(),
+		features: resolveP2PFeatures(),
 	}
 	return runtime
 }
@@ -99,6 +102,24 @@ export function setSignalingRuntimeConfig(config) {
  */
 export function getSignalingRuntimeConfig() {
 	return runtime?.signaling ?? defaultSignalingRuntimeConfig()
+}
+
+/**
+ * 设置包级行为开关（布尔 feature map）；运行时切换，生效于对应 feature 的下一轮。
+ * @param {Record<string, boolean>} config - feature 补丁
+ * @returns {void}
+ */
+export function setP2PFeatures(config) {
+	if (!runtime) throw new Error('p2p: setP2PFeatures requires initNode')
+	runtime.features = resolveP2PFeatures({ ...runtime.features, ...config })
+	emitNodeChange('features-changed', runtime.features)
+}
+
+/**
+ * @returns {Record<string, boolean>} 当前包级 feature map
+ */
+export function getP2PFeatures() {
+	return runtime?.features ? { ...runtime.features } : defaultP2PFeatures()
 }
 
 /**

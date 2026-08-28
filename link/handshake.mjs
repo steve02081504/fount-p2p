@@ -5,7 +5,10 @@ import { isHex64, isSignatureHex128 } from '../core/hexIds.mjs'
 import { normalizeTcpPort } from '../core/tcp_port.mjs'
 import { keyPairFromSeed, pubKeyHash, sign, verify } from '../crypto/crypto.mjs'
 import { normalizeLanHosts } from '../discovery/lan_interfaces.mjs'
+import { MAX_ADVERT_LISTEN_RELAYS, MAX_ADVERT_RELAY_POOL, MAX_RTT_MS } from '../discovery/nostr/constants.mjs'
+import { normalizeNostrRelayUrl } from '../discovery/nostr/relays.mjs'
 import { ensureNodeSeed, getNodeHash } from '../node/identity.mjs'
+import { nodeDebug } from '../node/log.mjs'
 
 import { normalizeDtlsFingerprint } from './sdp_fingerprint.mjs'
 
@@ -137,23 +140,87 @@ export async function verifyAuth(hello, auth, expectedNonce, remoteBinding) {
  * @param {string} nodeHash 节点 nodeHash
  * @param {number | null} [tcpPort=null] 可选 LAN TCP 监听端口（签入消息）
  * @param {unknown} [lanHosts=null] 可选 LAN IPv4 列表（签入消息）
+ * @param {string | null} [relayBlobHex=null] 可选规范化 relay 字段 hex 段（签入消息）
  * @returns {Uint8Array} 待签名消息字节
  */
-export function buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort = null, lanHosts = null) {
+export function buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort = null, lanHosts = null, relayBlobHex = null) {
 	const base = `fount-advert\0${rendezvousKey}\0${ts}\0${nodeHash}`
 	const port = normalizeTcpPort(tcpPort)
 	let message = port ? `${base}\0${port}` : base
 	const hosts = normalizeLanHosts(lanHosts)
 	if (hosts.length) message += `\0${hosts.join(',')}`
+	if (relayBlobHex) message += `\0relays:${relayBlobHex}`
 	return Buffer.from(message, 'utf8')
 }
 
 /**
- * 构造带签名的 discovery advert（tcpPort / lanHosts 一并签入消息）。
+ * 规范化并裁剪 advert 携带的 relay 字段（不可信入站 / 出站构建共用）。
+ * - pool：url 经 normalize 有效且 rttMs∈[0,MAX_RTT_MS]，取整、去重、裁剪前 MAX_ADVERT_RELAY_POOL。
+ * - listen：url normalize 有效、去重、裁剪前 MAX_ADVERT_LISTEN_RELAYS。
+ * - 每个丢弃项记审计日志（含原始值），不静默。
+ * @param {unknown} rawPool 原始 pool（[{url, rttMs}]）
+ * @param {unknown} rawListen 原始 listen（[url]）
+ * @returns {{ pool: Array<{ url: string, rtt: number }>, listen: string[] }} 规范化结果
+ */
+export function sanitizeAdvertRelayFields(rawPool, rawListen) {
+	/** @type {Array<{ url: string, rtt: number }>} */
+	const pool = []
+	/** @type {Set<string>} */
+	const seenPool = new Set()
+	if (Array.isArray(rawPool)) for (const item of rawPool) {
+		const url = normalizeNostrRelayUrl(item?.url)
+		if (!url) {
+			nodeDebug('invalidRelayUrl', { url: String(item?.url), reason: 'advert-pool-invalid-url' })
+			continue
+		}
+		const rtt = Number(item?.rttMs ?? item?.rtt)
+		if (!Number.isFinite(rtt) || rtt < 0 || rtt > MAX_RTT_MS) {
+			nodeDebug('invalidRelayUrl', { url, reason: 'advert-pool-invalid-rtt', rttMs: item?.rttMs ?? item?.rtt })
+			continue
+		}
+		if (seenPool.has(url)) continue
+		seenPool.add(url)
+		pool.push({ url, rtt: Math.round(rtt) })
+		if (pool.length >= MAX_ADVERT_RELAY_POOL) break
+	}
+
+	/** @type {string[]} */
+	const listen = []
+	/** @type {Set<string>} */
+	const seenListen = new Set()
+	if (Array.isArray(rawListen)) for (const raw of rawListen) {
+		const url = normalizeNostrRelayUrl(raw)
+		if (!url) {
+			nodeDebug('invalidRelayUrl', { url: String(raw), reason: 'advert-listen-invalid-url' })
+			continue
+		}
+		if (seenListen.has(url)) continue
+		seenListen.add(url)
+		listen.push(url)
+		if (listen.length >= MAX_ADVERT_LISTEN_RELAYS) break
+	}
+
+	return { pool, listen }
+}
+
+/**
+ * 构建规范化 relay 字段的 canonical blob（pool/listen 各按 url 排序 → `{p,l}` JSON → UTF-8 → hex）。
+ * @param {Array<{ url: string, rtt: number }>} pool 规范化 pool
+ * @param {string[]} listen 规范化 listen
+ * @returns {string} hex 编码 blob
+ */
+export function canonicalAdvertRelayBlob(pool, listen) {
+	const sortedPool = [...pool].sort((a, b) => a.url < b.url ? -1 : a.url > b.url ? 1 : 0)
+	const sortedListen = [...listen].sort()
+	return Buffer.from(JSON.stringify({ p: sortedPool, l: sortedListen }), 'utf8').toString('hex')
+}
+
+/**
+ * 构造带签名的 discovery advert（tcpPort / lanHosts / relay 字段一并签入消息）。
  * @param {string} rendezvousKey discovery 内部汇合键
  * @param {number} [ts=Date.now()] 时间戳（毫秒）
- * @param {{ secretKey?: Uint8Array, nodeHash?: string, nodePubKey?: string, tcpPort?: number, lanHosts?: unknown } | null} [options] 签名身份；可选 LAN 监听端口与本机 IPv4 列表
- * @returns {Promise<{ nodeHash: string, nodePubKey: string, ts: number, sig: string, tcpPort?: number, lanHosts?: string[] }>} 签名 advert
+ * @param {{ secretKey?: Uint8Array, nodeHash?: string, nodePubKey?: string, tcpPort?: number, lanHosts?: unknown, nostrRelayPool?: unknown, listenNostrRelays?: unknown } | null} [options] 签名身份；可选 LAN 监听端口、本机 IPv4 列表与 relay 字段
+ * @returns {Promise<{ nodeHash: string, nodePubKey: string, ts: number, sig: string, tcpPort?: number, lanHosts?: string[], nostrRelayPool?: Array<{ url: string, rtt: number }>, listenNostrRelays?: string[] }>} 签名 advert
  */
 export async function buildSignedAdvert(rendezvousKey, ts = Date.now(), options = null) {
 	const seed = options?.secretKey
@@ -168,7 +235,9 @@ export async function buildSignedAdvert(rendezvousKey, ts = Date.now(), options 
 	if (options?.tcpPort && !tcpPort)
 		throw new Error('p2p: advert tcpPort invalid')
 	const lanHosts = normalizeLanHosts(options?.lanHosts)
-	const message = buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort, lanHosts)
+	const sanitized = sanitizeAdvertRelayFields(options?.nostrRelayPool, options?.listenNostrRelays)
+	const relayBlobHex = canonicalAdvertRelayBlob(sanitized.pool, sanitized.listen)
+	const message = buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort, lanHosts, relayBlobHex)
 	const sig = await sign(message, secretKey)
 	const advert = {
 		nodeHash,
@@ -178,16 +247,18 @@ export async function buildSignedAdvert(rendezvousKey, ts = Date.now(), options 
 	}
 	if (tcpPort) advert.tcpPort = tcpPort
 	if (lanHosts.length) advert.lanHosts = lanHosts
+	if (sanitized.pool.length) advert.nostrRelayPool = sanitized.pool
+	if (sanitized.listen.length) advert.listenNostrRelays = sanitized.listen
 	return advert
 }
 
 /**
- * 验证 discovery advert 签名与时间戳，成功返回发布者 nodeHash。
+ * 验证 discovery advert 签名与时间戳，成功返回发布者 nodeHash 与规范化后的 relay 字段。
  * @param {string} rendezvousKey 期望的汇合键
  * @param {unknown} advert 原始 advert 载荷
  * @param {number} [now=Date.now()] 当前时间（毫秒）
  * @param {number} [maxSkewMs=10 * 60_000] 允许的最大时钟偏差（毫秒）
- * @returns {Promise<string | null>} 验证通过的 nodeHash，失败返回 null
+ * @returns {Promise<{ nodeHash: string, relayPool: Array<{ url: string, rtt: number }>, listenRelays: string[] } | null>} 验证通过返回 nodeHash 与规范化 relay 字段，失败返回 null
  */
 export async function verifySignedAdvert(rendezvousKey, advert, now = Date.now(), maxSkewMs = 10 * 60_000) {
 	const parsedHello = parseHello({ nodeHash: advert?.nodeHash, nodePubKey: advert?.nodePubKey, nonce: '0'.repeat(64) })
@@ -199,7 +270,11 @@ export async function verifySignedAdvert(rendezvousKey, advert, now = Date.now()
 	const tcpPort = normalizeTcpPort(advert?.tcpPort)
 	if (hasTcpPortField && !tcpPort) return null
 	const lanHosts = normalizeLanHosts(advert?.lanHosts)
-	const message = buildAdvertMessage(rendezvousKey, ts, parsedHello.nodeHash, tcpPort, lanHosts)
+	// 出站与入站共用同一 sanitize：防御畸形输入，重建消息比对签名。
+	const sanitized = sanitizeAdvertRelayFields(advert?.nostrRelayPool, advert?.listenNostrRelays)
+	const relayBlobHex = canonicalAdvertRelayBlob(sanitized.pool, sanitized.listen)
+	const message = buildAdvertMessage(rendezvousKey, ts, parsedHello.nodeHash, tcpPort, lanHosts, relayBlobHex)
 	const ok = await verify(Buffer.from(sig, 'hex'), message, Buffer.from(parsedHello.nodePubKey, 'hex'))
-	return ok ? parsedHello.nodeHash : null
+	if (!ok) return null
+	return { nodeHash: parsedHello.nodeHash, relayPool: sanitized.pool, listenRelays: sanitized.listen }
 }

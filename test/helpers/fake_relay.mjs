@@ -4,7 +4,9 @@ import { WebSocketServer } from 'ws'
 
 /**
  * 启动一个内存假 Nostr 中继：记录连接/REQ 数，对 EVENT 回 OK。
+ * `options.broadcast` 为 true 时向全部已连接 socket 扇出 EVENT（模拟真实中继）。
  * @param {(eventId: string) => boolean} [accept] 是否接受 EVENT
+ * @param {{ broadcast?: boolean }} [options] 中继选项
  * @returns {Promise<{
  *   port: number,
  *   connectionCount: () => number,
@@ -15,13 +17,26 @@ import { WebSocketServer } from 'ws'
  *   waitClosed: () => Promise<void>,
  *   dropAll: () => void,
  *   stop: () => Promise<void>,
+ *   publishedEvents: Array<object>,
  * }>} fake relay
  */
-export async function startFakeRelay(accept = () => true) {
-	const server = createServer()
+export async function startFakeRelay(accept = () => true, options = {}) {
+	const { broadcast = false } = options
+	const server = createServer((request, response) => {
+		// NIP-11 relay info：响应 JSON，避免 HTTP 探测等待超时；Connection: close 规避 Windows undici keep-alive 退出断言。
+		if (request.method === 'GET') {
+			response.writeHead(200, { 'Content-Type': 'application/nostr+json', Connection: 'close' })
+			response.end(JSON.stringify({ supported_nips: [1, 33], limitation: { max_message_length: 262144 } }))
+			return
+		}
+		response.writeHead(405)
+		response.end()
+	})
 	const webSocketServer = new WebSocketServer({ server })
 	/** @type {Set<import('ws').WebSocket>} */
 	const sockets = new Set()
+	/** @type {Array<object>} */
+	const publishedEvents = []
 	let connectionCount = 0
 	let reqCount = 0
 	/** @type {Array<() => void>} */
@@ -44,25 +59,57 @@ export async function startFakeRelay(accept = () => true) {
 		for (const wake of closeWaiters.splice(0)) wake()
 	}
 
+	/**
+	 * 判定 filter 是否匹配事件（支持 kinds 与 #tag 过滤）。
+	 * @param {object} filter REQ 过滤器
+	 * @param {object} event Nostr 事件
+	 * @returns {boolean} 匹配为 true
+	 */
+	const filterMatchesEvent = (filter, event) => {
+		if (Array.isArray(filter?.kinds) && !filter.kinds.includes(event?.kind)) return false
+		for (const [key, values] of Object.entries(filter || {})) {
+			if (!key.startsWith('#')) continue
+			const tagKey = key.slice(1)
+			const eventTags = new Set(
+				(event?.tags || []).filter(tag => tag?.[0] === tagKey).map(tag => tag[1]),
+			)
+			if (!Array.isArray(values) || !values.some(value => eventTags.has(value))) return false
+		}
+		return true
+	}
+
+	/** socket → Map<subscriptionId, filter> */
+	const subsBySocket = new Map()
+
 	webSocketServer.on('connection', socket => {
 		connectionCount++
 		sockets.add(socket)
+		subsBySocket.set(socket, new Map())
 		flushOpenWaiters()
 		socket.on('message', rawMessage => {
 			let parsed
 			try { parsed = JSON.parse(String(rawMessage)) } catch { return }
 			if (parsed?.[0] === 'REQ') {
 				reqCount++
+				subsBySocket.get(socket)?.set(String(parsed[1] || ''), parsed[2] || {})
 				flushReqWaiters()
 				return
 			}
 			if (parsed?.[0] !== 'EVENT') return
 			const event = parsed[1]
+			publishedEvents.push(event)
 			const ok = accept(String(event?.id || ''))
 			socket.send(JSON.stringify(['OK', event.id, ok, ok ? '' : 'blocked: test']))
+			if (ok && broadcast)
+				for (const [other, subs] of subsBySocket)
+					for (const [subscriptionId, filter] of subs)
+						if (filterMatchesEvent(filter, event)) {
+							try { other.send(JSON.stringify(['EVENT', subscriptionId, event])) } catch { /* ignore */ }
+						}
 		})
 		socket.on('close', () => {
 			sockets.delete(socket)
+			subsBySocket.delete(socket)
 			flushCloseWaiters()
 		})
 	})
@@ -120,5 +167,6 @@ export async function startFakeRelay(accept = () => true) {
 			await new Promise(resolve => webSocketServer.close(() => resolve()))
 			await new Promise(resolve => server.close(() => resolve()))
 		},
+		publishedEvents,
 	}
 }
