@@ -14,6 +14,10 @@ export const MAX_ADVERT_LISTEN_RELAYS = 32
 export const MAX_ROUTING_FANOUT = 64
 /** 最大路由重试轮数。 */
 export const MAX_ROUTING_ATTEMPTS = 4
+/** round 0 / 核心集目标 relay 数。 */
+export const ROUND0_TARGET_COUNT = 4
+/** lastGoodNostrRelays / 历史扩展上限。 */
+export const LAST_GOOD_RELAYS_MAX = 16
 /** 失败率惩罚因子。 */
 export const FAILURE_WEIGHT = 4
 /** 过时探测惩罚倍数。 */

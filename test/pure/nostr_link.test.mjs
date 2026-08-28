@@ -26,6 +26,7 @@ import { createLinkRegistry } from '../../transport/link_registry.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { startFakeRelay } from '../helpers/fake_relay.mjs'
 import { identity } from '../helpers/identity.mjs'
+import { waitFor } from '../live/helpers.mjs'
 
 /**
  * 内存信令：sendNodeSignal 解密后交给对应 nostr link provider。
@@ -139,8 +140,7 @@ test('nostr link dial/accept exchanges an envelope over type:link', async () => 
 		let received = null
 		inbound.onEnvelope(envelope => { received = envelope })
 		assertEquals(await dialed.send({ scope: 'test', action: 'ping-payload', payload: { n: 1 } }), true)
-		for (let pollAttempt = 0; pollAttempt < 50 && !received; pollAttempt++)
-			await new Promise(resolve => setTimeout(resolve, 10))
+		await waitFor(() => !!received, 5_000)
 		assertEquals(received?.scope, 'test')
 		assertEquals(received?.action, 'ping-payload')
 		assertEquals(received?.payload?.n, 1)
@@ -202,8 +202,7 @@ test('two nodes exchange a link envelope through a single real relay', async () 
 			assertEquals(!!dialed, true)
 			assertEquals(dialed.providerId, 'nostr')
 			await dialed.ready
-			for (let pollAttempt = 0; pollAttempt < 50 && !inbound; pollAttempt++)
-				await new Promise(resolve => setTimeout(resolve, 10))
+			await waitFor(() => !!inbound, 5_000)
 			assertEquals(!!inbound, true)
 			await inbound.ready
 			assertEquals(inbound.nodeHash, alice.nodeHash)
@@ -213,8 +212,7 @@ test('two nodes exchange a link envelope through a single real relay', async () 
 			let received = null
 			inbound.onEnvelope(envelope => { received = envelope })
 			assertEquals(await dialed.send({ scope: 'test', action: 'relay-ping', payload: { via: 'relay', n: 42 } }), true)
-			for (let pollAttempt = 0; pollAttempt < 100 && !received; pollAttempt++)
-				await new Promise(resolve => setTimeout(resolve, 10))
+			await waitFor(() => !!received, 5_000)
 			assertEquals(received?.scope, 'test')
 			assertEquals(received?.action, 'relay-ping')
 			assertEquals(received?.payload?.n, 42)
@@ -260,8 +258,6 @@ test('two nodes link when only the trailing relay of each list overlaps', async 
 		const commonUrl = (await startRelays(1))[0]
 		const aliceRelays = [...await startRelays(6), commonUrl]
 		const bobRelays = [...await startRelays(6), commonUrl]
-		assertEquals(aliceRelays[aliceRelays.length - 1], commonUrl, 'common relay trails alice list')
-		assertEquals(bobRelays[bobRelays.length - 1], commonUrl, 'common relay trails bob list')
 
 		const alice = identity(41)
 		const bob = identity(42)
@@ -320,8 +316,7 @@ test('two nodes link when only the trailing relay of each list overlaps', async 
 			const dialed = await aliceLink.dial({ nodeHash: bob.nodeHash, localIdentity: alice })
 			assertEquals(!!dialed, true)
 			await dialed.ready
-			for (let pollAttempt = 0; pollAttempt < 100 && !inbound; pollAttempt++)
-				await new Promise(resolve => setTimeout(resolve, 10))
+			await waitFor(() => !!inbound, 5_000)
 			assertEquals(!!inbound, true)
 			await inbound.ready
 
@@ -329,15 +324,13 @@ test('two nodes link when only the trailing relay of each list overlaps', async 
 			let received = null
 			inbound.onEnvelope(envelope => { received = envelope })
 			assertEquals(await dialed.send({ scope: 'test', action: 'tail-relay-ping', payload: { shared: 7 } }), true)
-			for (let pollAttempt = 0; pollAttempt < 100 && !received; pollAttempt++)
-				await new Promise(resolve => setTimeout(resolve, 10))
+			await waitFor(() => !!received, 5_000)
 			assertEquals(received?.scope, 'test')
 			assertEquals(received?.action, 'tail-relay-ping')
 			assertEquals(received?.payload?.shared, 7)
 
 			const common = relays[0]
 			assertEquals(new Set(common.publishedEvents.map(event => event.pubkey)).size, 2, 'both nodes crossed the shared relay')
-			assertEquals(common.publishedEvents.length >= 1, true, 'handshake traffic crossed the shared relay')
 			for (let i = 1; i < relays.length; i++)
 				assertEquals(relays[i].connectionCount(), 1, `unique relay ${i} is only reachable from its own node`)
 		}
@@ -348,11 +341,11 @@ test('two nodes link when only the trailing relay of each list overlaps', async 
 		}
 	}
 	finally {
-		aliceProvider.dispose?.()
-		bobProvider.dispose?.()
+		aliceProvider?.dispose?.()
+		bobProvider?.dispose?.()
+		for (const relay of relays) await relay.stop()
 		clearDiscoveryProviders()
 		clearLinkProviders()
-		for (const relay of relays) await relay.stop()
 	}
 })
 
@@ -452,8 +445,7 @@ test('nostr link chunks and reassembles a large envelope under the payload cap',
 		let received = null
 		inbound.onEnvelope(envelope => { received = envelope })
 		assertEquals(await dialed.send(big), true)
-		for (let pollAttempt = 0; pollAttempt < 200 && !received; pollAttempt++)
-			await new Promise(resolve => setTimeout(resolve, 10))
+		await waitFor(() => !!received, 5_000)
 		assertEquals(received?.scope, 'test')
 		assertEquals(received?.action, 'big-payload')
 		assertEquals(received?.payload?.blob?.length, 150_000)

@@ -9,6 +9,7 @@ import {
 import {
 	DEFAULT_RTT_MS,
 	FAILURE_WEIGHT,
+	LAST_GOOD_RELAYS_MAX,
 	LISTEN_RELAYS_COUNT,
 	MAX_RTT_MS,
 	NIP66_BOOTSTRAP_RELAYS,
@@ -35,6 +36,8 @@ const PROBE_TIMEOUT_MS = 10_000
 const NIP66_REQ_LIMIT = 500
 /** 每轮 NIP-66 候选 probe 上限（有界，避免海量候选拖垮节点）。 */
 const MAX_NIP66_PROBES_PER_ROUND = 48
+/** NIP-66 候选 probe 并发批大小（有界，避免同轮瞬时打满连接）。 */
+const NIP66_PROBE_BATCH_SIZE = 8
 
 /** @typedef {'nip66' | 'public' | 'manual' | 'peer'} RelaySource */
 
@@ -61,7 +64,6 @@ const MAX_NIP66_PROBES_PER_ROUND = 48
  *   listenRelays: string[],
  *   peerPool: Array<{ url: string, rttMs: number | null }>,
  *   lastGoodNostrRelays: string[],
- *   webrtcLastOk: boolean,
  *   lastSeen: number,
  * }} PeerRoute
  */
@@ -112,7 +114,7 @@ export function normalizeNostrRelayUrl(raw) {
 	}
 	else if (url.protocol === 'ws:') {
 		const host = url.hostname.toLowerCase()
-		const isLoopback = host === 'localhost' || host === '::1' || /^127\./.test(host)
+		const isLoopback = host === 'localhost' || host === '[::1]' || /^127\./.test(host)
 		if (!isLoopback) return null
 	}
 	else return null
@@ -264,31 +266,41 @@ function toRelayEntry(raw, url) {
 }
 
 /**
+ * 规范化 peer route 中显式出现的字段（缺失字段不出现在结果中）。
  * @param {unknown} raw 原始 peer route
- * @returns {PeerRoute | null} 规范化 route 或 null
+ * @returns {Partial<PeerRoute> | null} 规范化字段或 null
  */
-function normalizePeerRoute(raw) {
+function normalizePeerRouteFields(raw) {
 	if (!raw || typeof raw !== 'object') return null
-	const listenRelays = (Array.isArray(raw.listenRelays) ? raw.listenRelays : [])
-		.map(normalizeNostrRelayUrl)
-		.filter(Boolean)
-	const peerPool = (Array.isArray(raw.peerPool) ? raw.peerPool : [])
-		.map(item => {
+	/** @type {Partial<PeerRoute>} */
+	const out = {}
+	if (Array.isArray(raw.listenRelays))
+		out.listenRelays = dedupeRelayUrls(raw.listenRelays.map(normalizeNostrRelayUrl).filter(Boolean))
+	if (Array.isArray(raw.peerPool))
+		out.peerPool = dedupeByUrl(raw.peerPool.map(item => {
 			const url = normalizeNostrRelayUrl(item?.url)
 			if (!url) return null
 			const rtt = Number(item?.rttMs)
 			return { url, rttMs: Number.isFinite(rtt) ? Math.round(rtt) : null }
-		})
-		.filter(Boolean)
-	const lastGood = (Array.isArray(raw.lastGoodNostrRelays) ? raw.lastGoodNostrRelays : [])
-		.map(normalizeNostrRelayUrl)
-		.filter(Boolean)
+		}).filter(Boolean))
+	if (Array.isArray(raw.lastGoodNostrRelays))
+		out.lastGoodNostrRelays = dedupeRelayUrls(raw.lastGoodNostrRelays.map(normalizeNostrRelayUrl).filter(Boolean)).slice(0, LAST_GOOD_RELAYS_MAX)
+	if (raw.lastSeen !== undefined) out.lastSeen = Number(raw.lastSeen) || Date.now()
+	return out
+}
+
+/**
+ * @param {unknown} raw 原始 peer route
+ * @returns {PeerRoute | null} 规范化 route（缺失字段补空默认）或 null
+ */
+function normalizePeerRoute(raw) {
+	const fields = normalizePeerRouteFields(raw)
+	if (!fields) return null
 	return {
-		listenRelays: dedupeRelayUrls(listenRelays),
-		peerPool: dedupeByUrl(peerPool),
-		lastGoodNostrRelays: dedupeRelayUrls(lastGood),
-		webrtcLastOk: !!raw.webrtcLastOk,
-		lastSeen: Number(raw.lastSeen) || Date.now(),
+		listenRelays: fields.listenRelays ?? [],
+		peerPool: fields.peerPool ?? [],
+		lastGoodNostrRelays: fields.lastGoodNostrRelays ?? [],
+		lastSeen: fields.lastSeen ?? Date.now(),
 	}
 }
 
@@ -375,7 +387,7 @@ export function recordProbeSuccess(url, rttMs) {
 	if (!normalized) return
 	const entry = ensureEntry(normalized)
 	const rtt = Number(rttMs)
-	if (Number.isFinite(rtt)) entry.rttMs = Math.max(0, Math.min(MAX_RTT_MS, Math.round(rtt)))
+	if (rttMs != null && Number.isFinite(rtt)) entry.rttMs = Math.max(0, Math.min(MAX_RTT_MS, Math.round(rtt)))
 	entry.successCount++
 	entry.lastSuccess = Date.now()
 	entry.lastProbe = Date.now()
@@ -511,6 +523,7 @@ export function getPeerRoute(nodeHash) {
 
 /**
  * 更新 peer route（局部 patch），并刷新 lastSeen。
+ * 仅规范化并合并 patch 中显式存在的字段，保留已有 listenRelays / peerPool / lastGoodNostrRelays。
  * @param {string} nodeHash 节点 hash
  * @param {Partial<PeerRoute>} patch 补丁
  * @returns {void}
@@ -518,19 +531,17 @@ export function getPeerRoute(nodeHash) {
 export function setPeerRoute(nodeHash, patch) {
 	if (!nodeHash) return
 	const existing = peerRoutes.get(nodeHash)
-	/** @type {PeerRoute} */
+	const normalized = normalizePeerRouteFields(patch)
+	if (!normalized) return
 	const route = existing
-		? { ...existing, ...normalizePeerRoute(patch) }
-		: normalizePeerRoute({ ...patch, listenRelays: [], peerPool: [], lastGoodNostrRelays: [] })
-	if (!route) return
+		? { ...existing, ...normalized }
+		: {
+			listenRelays: normalized.listenRelays ?? [],
+			peerPool: normalized.peerPool ?? [],
+			lastGoodNostrRelays: normalized.lastGoodNostrRelays ?? [],
+			lastSeen: normalized.lastSeen ?? Date.now(),
+		}
 	route.lastSeen = Date.now()
-	if (patch.listenRelays) route.listenRelays = dedupeRelayUrls(patch.listenRelays.map(normalizeNostrRelayUrl).filter(Boolean))
-	if (patch.peerPool) route.peerPool = dedupeByUrl(patch.peerPool.map(item => {
-		const url = normalizeNostrRelayUrl(item?.url)
-		return url ? { url, rttMs: Number.isFinite(Number(item?.rttMs)) ? Math.round(Number(item.rttMs)) : null } : null
-	}).filter(Boolean))
-	if (patch.lastGoodNostrRelays) route.lastGoodNostrRelays = dedupeRelayUrls(patch.lastGoodNostrRelays.map(normalizeNostrRelayUrl).filter(Boolean)).slice(0, 16)
-	if (patch.webrtcLastOk !== undefined) route.webrtcLastOk = !!patch.webrtcLastOk
 	peerRoutes.set(nodeHash, route)
 	markDirty()
 }
@@ -548,7 +559,8 @@ export async function probeRelay(url, signal) {
 	const startedAt = Date.now()
 	let ws = null
 	try {
-		ws = await connectRelay(normalized, PROBE_TIMEOUT_MS, controller.signal)
+		// 外部取消信号直接中止 WebSocket 连接，避免 shutdown 时遗留 in-flight 连接拖住进程退出。
+		ws = await connectRelay(normalized, PROBE_TIMEOUT_MS, signal || controller.signal)
 		const rttMs = Date.now() - startedAt
 		const info = await queryRelayInfo(normalized, signal)
 		recordProbeSuccess(normalized, rttMs)
@@ -623,7 +635,7 @@ export function parseNip66Event(event) {
 
 /**
  * 执行一轮 NIP-66 中继发现（可取消）。
- * 连接引导集 + public/manual 兜底，REQ kind 30166，trusted(≥2 pubkey) 直入池，untrusted probe 成功后入池。
+ * 连接引导集 + public/manual 兜底，REQ kind 30166 收集候选；所有候选统一 probe，成功才入池。
  * @param {{ signal?: AbortSignal }} [options] 选项
  * @returns {Promise<number>} 新入库的中继数量
  */
@@ -654,24 +666,28 @@ export async function discoverNostrRelays(options = {}) {
 
 	let added = 0
 	let probedCount = 0
-	for (const candidate of candidates.values()) {
-		if (signal?.aborted) break
-		// 每轮 probe 有界，避免海量候选拖垮节点。
-		if (probedCount >= MAX_NIP66_PROBES_PER_ROUND) break
-		probedCount++
-		const probed = await probeRelay(candidate.url, signal)
-		if (!probed) continue
-		upsertRelay({
-			url: probed.url,
-			rttMs: probed.rttMs,
-			source: 'nip66',
-			monitorCount: candidate.count,
-			nips: probed.nips,
-			clearnet: true,
-			lastProbe: Date.now(),
-			lastSuccess: Date.now(),
-		})
-		added++
+	const pending = [...candidates.values()]
+	while (pending.length && probedCount < MAX_NIP66_PROBES_PER_ROUND && !signal?.aborted) {
+		const batch = pending.splice(0, Math.min(NIP66_PROBE_BATCH_SIZE, MAX_NIP66_PROBES_PER_ROUND - probedCount))
+		probedCount += batch.length
+		const results = await Promise.allSettled(batch.map(candidate => probeRelay(candidate.url, signal)))
+		for (let index = 0; index < batch.length; index++) {
+			const result = results[index]
+			if (result.status !== 'fulfilled' || !result.value) continue
+			const probed = result.value
+			const candidate = batch[index]
+			upsertRelay({
+				url: probed.url,
+				rttMs: probed.rttMs,
+				source: 'nip66',
+				monitorCount: candidate.count,
+				nips: probed.nips,
+				clearnet: true,
+				lastProbe: Date.now(),
+				lastSuccess: Date.now(),
+			})
+			added++
+		}
 	}
 	return added
 }

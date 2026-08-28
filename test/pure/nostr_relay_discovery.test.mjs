@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import { WebSocketServer } from 'ws'
 
 import { assert, assertEquals } from '../helpers/assert.mjs'
+import { setupRelayTests } from '../helpers/relay_test_setup.mjs'
 
 /**
  * 启动一个发送 NIP-66 30166 事件后 EOSE 的假中继（事件列表可变，启动后可 push）。
@@ -75,30 +76,11 @@ function nip66Event(url, pubkey, extra = {}) {
 }
 
 /**
- * 初始化 relay 测试状态。
+ * 初始化 relay 测试状态：清空 public 种子（避免作为 NIP-66 bootstrap 兜底触发公网）并禁用发现。
  * @returns {Promise<object>} relay 模块
  */
 async function setup() {
-	const relays = await import('../../discovery/nostr/relays.mjs')
-	let data = null
-	relays.setRelayStorageIOForTests({
-		/**
-		 * 读取测试存储。
-		 * @returns {object | null} 存储数据
-		 */
-		read: () => data,
-		/**
-		 *
-		 * @param {object} value 存储数据
-		 * @returns {void}
-		 */
-		write: value => { data = value }
-	})
-	relays.resetNostrRelaysForTests()
-	relays.loadRelayPool()
-	// 清空 public 种子：避免它们作为 NIP-66 bootstrap 兜底触发公网。
-	relays.clearRelayPoolForTests()
-	relays.setNostrRelayDiscoveryEnabledForTests(false)
+	const { relays } = await setupRelayTests({ clearSeededRelays: true, disableNip66Discovery: true })
 	return relays
 }
 
@@ -130,7 +112,7 @@ test('discoverNostrRelays trusts multi-monitor relays and gates single-monitor o
 			nip66Event('wss://tor.example.com', '44'.repeat(32), { n: 'tor' }),
 			nip66Event('wss://no-nip01.example.com', '55'.repeat(32), { N: '2' }),
 		)
-		relays.setNip66BootstrapRelaysForTests([`ws://127.0.0.1:${serverA.port}`, `ws://127.0.0.1:${serverB.port}`])
+		relays.setNip66BootstrapRelaysForTests([urlA, urlB])
 
 		const added = await relays.discoverNostrRelays()
 		assert(added >= 2, `added ${added} relays`)

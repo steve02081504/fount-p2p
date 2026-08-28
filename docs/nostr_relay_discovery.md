@@ -7,6 +7,8 @@ Source layout (`discovery/nostr/`):
 - `relays.mjs` — pool, health, NIP-66 discovery, normalization, persistence
 - `selection.mjs` — handshake routing, backoff, fanout
 - `session.mjs` — shared relay WebSocket sessions / subscribe primitives
+- `census.mjs` — population census worker (kind 30789, HT estimate)
+- `census_math.mjs` — census pure functions (inclusion-probability update, HT estimator)
 - `constants.mjs` — hard limits
 
 ## Three-tier sets
@@ -28,7 +30,7 @@ Source layout (`discovery/nostr/`):
 
 ## Health score
 
-```
+```text
 failureRate = failureCount / (successCount + failureCount)
 rtt         = clamp(rttMs ?? DEFAULT_RTT_MS, 1, MAX_RTT_MS)
 score       = rtt * (1 + failureRate * FAILURE_WEIGHT)     // FAILURE_WEIGHT = 4
@@ -41,11 +43,11 @@ Lower is better. `recordProbeSuccess` / `recordProbeFailure` / `recordPublishRes
 
 `nodeDir/nostr/relays.json`:
 
-```json
+```text
 {
   "updatedAt": 1234567890,
   "nostrRelays": [{ "url", "rttMs", "successCount", "failureCount", "lastSuccess", "lastFailure", "lastProbe", "firstSeen", "lastSeen", "source", "nips", "clearnet", "monitorCount" }],
-  "peerRoutes": { "<nodeHash64>": { "listenRelays", "peerPool", "lastGoodNostrRelays", "webrtcLastOk", "lastSeen" } }
+  "peerRoutes": { "<nodeHash64>": { "listenRelays", "peerPool", "lastGoodNostrRelays", "lastSeen" } }
 }
 ```
 
@@ -63,7 +65,7 @@ Lower is better. `recordProbeSuccess` / `recordProbeFailure` / `recordPublishRes
 
 `link/handshake.mjs` extends the advert signature domain: after `lanHosts`, append `\0relays:<hex>` where `<hex>` = UTF-8→hex of `{ p: pool, l: listen }` (both sorted by url, `pool` items `{url, rtt}`).
 
-- `sanitizeAdvertRelayFields` (build **and** verify use the same function): pool ≤ `MAX_ADVERT_RELAY_POOL` (16), rtt ∈ [0, `MAX_RTT_MS`], deduped; listen ≤ `MAX_ADVERT_LISTEN_RELAYS` (32), deduped; dropped entries logged.
+- `sanitizeAdvertRelayFields` (verify/inbound path): pool ≤ `MAX_ADVERT_RELAY_POOL` (16), rtt ∈ [0, `MAX_RTT_MS`], deduped; listen ≤ `MAX_ADVERT_LISTEN_RELAYS` (32), deduped; dropped entries logged. `buildSignedAdvert` (outbound) uses a strict variant that throws on invalid locally-supplied relay fields instead of dropping them.
 - `verifySignedAdvert` now returns `{ nodeHash, relayPool, listenRelays }` (sanitized). `ingest*Advert` passes these through; consumers must use the verified values, never the raw body.
 - **Any tampering with relay fields invalidates the signature** → advert rejected.
 
@@ -75,6 +77,15 @@ Lower is better. `recordProbeSuccess` / `recordProbeFailure` / `recordPublishRes
 - Retries ≤ `MAX_ROUTING_ATTEMPTS` (4).
 
 `routePublishEvent(toNodeHash, event, signal)`: publishes to the current round's targets in parallel via shared sessions; any `OK` records `lastGoodNostrRelays` (last 16) + success; all-fail records failures and backs off. `sendNodeSignal` uses routing; an explicit relay override (test/user pin) publishes directly.
+
+## Census (population estimate)
+
+`census.mjs` implements a population census over nostr (event kind 30789, `t=fount` / `x=census`, content = base64 of the signed packet). It is driven by the `features.census` switch (`setP2PFeatures`).
+
+- Each node keeps an inclusion probability `p`; per window it publishes an Ed25519-signed packet `{ nodeHash, nodePubKey, ts, p, sig }` (message `fount-census\0ts\0nodeHash\0p`) when `rand < p`.
+- The multiplier updates `p' = p·(T/E)` (T = `CENSUS_TARGET_EVENTS`, E = observed window events); E == 0 probes upward by `CENSUS_GROW_FACTOR`. `clampP` keeps `p` in `[CENSUS_MIN_P, 1]`.
+- Readers estimate online nodes with the HT estimator `M̂ = Σ(1/p)` (`estimatePopulation` in `census_math.mjs`), subtract the self event's weight (`−1/p_self`) and add exactly 1 for the self node.
+- Ingress packets are untrusted: `verifyCensusPacket` canonicalizes, checks `ts` within `CENSUS_TTL_MS`, requires `p ∈ [CENSUS_MIN_P, 1]`, and verifies `nodeHash = sha256(nodePubKey)` plus the Ed25519 signature before `noteCensusEvent` stores the event (deduped by `nodeHash`).
 
 ## Config
 

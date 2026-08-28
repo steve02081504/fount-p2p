@@ -2,6 +2,7 @@ import { test } from 'node:test'
 
 import {
 	NOSTR_ADVERT_KIND,
+	createNostrDiscoveryProvider,
 } from '../../discovery/nostr/index.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { startFakeRelay } from '../helpers/fake_relay.mjs'
@@ -12,7 +13,6 @@ test('NOSTR advert kind uses addressable range', () => {
 })
 
 test('publishEvent accepts relay OK true', async () => {
-	const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
 	const local = identity(71)
 	const relay = await startFakeRelay(() => true)
 	const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
@@ -26,7 +26,6 @@ test('publishEvent accepts relay OK true', async () => {
 })
 
 test('publishEvent rejects when relay OK false', async () => {
-	const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
 	const local = identity(72)
 	const relay = await startFakeRelay(() => false)
 	const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
@@ -47,7 +46,6 @@ test('publishEvent rejects when relay OK false', async () => {
 })
 
 test('shared relay multiplexes signal and advert on one socket', async () => {
-	const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
 	const local = identity(73)
 	const peer = identity(74)
 	const relay = await startFakeRelay()
@@ -72,7 +70,6 @@ test('shared relay multiplexes signal and advert on one socket', async () => {
 })
 
 test('publish reuses one shared relay socket across many sends', async () => {
-	const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
 	const local = identity(79)
 	const peer = identity(80)
 	const relay = await startFakeRelay(() => true)
@@ -92,7 +89,6 @@ test('publish reuses one shared relay socket across many sends', async () => {
 })
 
 test('publish-only session reuses socket across consecutive sends', async () => {
-	const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
 	const peer = identity(81)
 	const relay = await startFakeRelay(() => true)
 	const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
@@ -109,7 +105,6 @@ test('publish-only session reuses socket across consecutive sends', async () => 
 })
 
 test('shared relay reconnects active subscriptions after drop', async () => {
-	const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
 	const local = identity(75)
 	const relay = await startFakeRelay()
 	const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
@@ -131,7 +126,6 @@ test('shared relay reconnects active subscriptions after drop', async () => {
 })
 
 test('shared relay closes socket when last subscription ends', async () => {
-	const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
 	const local = identity(76)
 	const relay = await startFakeRelay()
 	const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
@@ -150,7 +144,6 @@ test('shared relay closes socket when last subscription ends', async () => {
 })
 
 test('watchNodeAdvert releases shared relay when last listener ends', async () => {
-	const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
 	const peer = identity(77)
 	const relay = await startFakeRelay()
 	const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
@@ -169,7 +162,6 @@ test('watchNodeAdvert releases shared relay when last listener ends', async () =
 })
 
 test('connectToNode holds advert sub after watch listener ends', async () => {
-	const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
 	const peer = identity(78)
 	const relay = await startFakeRelay()
 	const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })

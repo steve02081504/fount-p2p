@@ -4,9 +4,11 @@ import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { assertEquals } from '../helpers/assert.mjs'
 import { resolveLocalChrome } from '../helpers/local_chrome.mjs'
 
 const P2P_ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))))
+const PAGES_ROOT = path.join(P2P_ROOT, 'pages')
 
 const MIME_BY_EXTENSION = {
 	'.html': 'text/html; charset=utf-8',
@@ -16,15 +18,16 @@ const MIME_BY_EXTENSION = {
 }
 
 /**
- * 静态服务仓库根目录（仅限 pages/ 下文件，离线可跑）。
+ * 静态服务 pages/ 目录（仅限 pages/ 下文件，离线可跑）。
  * @returns {Promise<{ port: number, stop: () => Promise<void> }>}
  */
 async function startStaticServer() {
 	const server = createServer(async (request, response) => {
 		const urlPath = new URL(request.url, 'http://127.0.0.1').pathname
 		const relative = urlPath.replace(/^\/+/u, '')
-		const filePath = path.resolve(P2P_ROOT, relative)
-		if (!filePath.startsWith(P2P_ROOT + path.sep) && filePath !== P2P_ROOT) {
+		const stripped = relative.startsWith('pages/') ? relative.slice('pages/'.length) : relative
+		const filePath = path.resolve(PAGES_ROOT, stripped)
+		if (!filePath.startsWith(PAGES_ROOT + path.sep) && filePath !== PAGES_ROOT) {
 			response.writeHead(403)
 			response.end('forbidden')
 			return
@@ -68,14 +71,16 @@ test('frontend census page renders estimate via local chrome', async t => {
 		const sampleSize = await page.textContent('#sample-size')
 		const windowEvents = await page.textContent('#window-events')
 		const status = await page.textContent('#status')
-		if (estimate.trim() !== '200') throw new Error(`estimate=${estimate}`)
-		if (sampleSize.trim() !== '20') throw new Error(`sampleSize=${sampleSize}`)
-		if (windowEvents.trim() !== '20') throw new Error(`windowEvents=${windowEvents}`)
-		if (!status.includes('演示模式')) throw new Error(`status=${status}`)
+		assertEquals(estimate.trim(), '200', `estimate=${estimate}`)
+		assertEquals(sampleSize.trim(), '20', `sampleSize=${sampleSize}`)
+		assertEquals(windowEvents.trim(), '20', `windowEvents=${windowEvents}`)
+		assertEquals(status.includes('演示模式'), true, `status=${status}`)
 
 		await page.uncheck('#toggle')
-		const offEstimate = await page.textContent('#estimate')
-		if (offEstimate.trim() !== '0') throw new Error(`off estimate=${offEstimate}`)
+		await page.waitForFunction(() => document.querySelector('#estimate')?.textContent === '0', null, { timeout: 10_000 })
+		assertEquals((await page.textContent('#estimate')).trim(), '0')
+		assertEquals((await page.textContent('#sample-size')).trim(), '0')
+		assertEquals((await page.textContent('#window-events')).trim(), '0')
 
 		await page.check('#toggle')
 		await page.waitForFunction(() => document.querySelector('#estimate')?.textContent === '200', null, { timeout: 10_000 })

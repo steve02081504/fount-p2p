@@ -1,49 +1,12 @@
 import { afterEach, test } from 'node:test'
 
+import { DEFAULT_RELAY_URLS } from '../../discovery/nostr/relays.mjs'
+import { DEFAULT_RTT_MS, PROBE_STALE_MS } from '../../discovery/nostr/constants.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
+import { setupRelayTests } from '../helpers/relay_test_setup.mjs'
 
 const DEFAULT_RELAY = 'wss://relay.damus.io'
 const MANUAL_RELAY = 'wss://manual.example.com'
-
-/**
- * 独立的内存存储：每个用例独立。
- * @returns {{ io: { read: () => object | null, write: (data: object) => void }, data: () => object | null }} 存储 IO
- */
-function memoryStorage() {
-	let data = null
-	return {
-		io: {
-			/**
-			 * 读取内存存储。
-			 * @returns {object | null} 存储数据
-			 */
-			read: () => data,
-			/**
-			 * 写入内存存储。
-			 * @param {object} value 存储数据
-			 * @returns {void}
-			 */
-			write: value => { data = value },
-		},
-		/**
-		 * 返回当前内存存储数据。
-		 * @returns {object | null} 存储数据
-		 */
-		data: () => data,
-	}
-}
-
-/**
- * 初始化 relay 测试状态。
- * @returns {Promise<{ flushRelayStateNow: () => void, storage: object }>} 测试句柄
- */
-async function setup() {
-	const { setRelayStorageIOForTests, resetNostrRelaysForTests, flushRelayStateNow } = await import('../../discovery/nostr/relays.mjs')
-	const storage = memoryStorage()
-	setRelayStorageIOForTests(storage.io)
-	resetNostrRelaysForTests()
-	return { flushRelayStateNow, storage }
-}
 
 test('normalizeNostrRelayUrl accepts wss and loopback ws, rejects others', async () => {
 	const { normalizeNostrRelayUrl } = await import('../../discovery/nostr/relays.mjs')
@@ -60,7 +23,7 @@ test('normalizeNostrRelayUrl accepts wss and loopback ws, rejects others', async
 
 test('loadRelayPool seeds public defaults when empty', async () => {
 	const { loadRelayPool, getListenRelays } = await import('../../discovery/nostr/relays.mjs')
-	await setup()
+	await setupRelayTests()
 	const pool = loadRelayPool()
 	assert(pool.length > 0, 'pool seeded')
 	assert(pool.every(entry => entry.source === 'public'), 'all seeds are public')
@@ -69,7 +32,7 @@ test('loadRelayPool seeds public defaults when empty', async () => {
 
 test('upsertRelay dedupes and merges by url, keeps higher source priority', async () => {
 	const { upsertRelay, getPoolByUrl, loadRelayPool } = await import('../../discovery/nostr/relays.mjs')
-	await setup()
+	await setupRelayTests()
 	loadRelayPool()
 	upsertRelay({ url: 'wss://relay.damus.io', rttMs: 50, source: 'peer', successCount: 2, monitorCount: 1 })
 	const entry = getPoolByUrl().get(DEFAULT_RELAY)
@@ -77,7 +40,7 @@ test('upsertRelay dedupes and merges by url, keeps higher source priority', asyn
 	assertEquals(entry.successCount, 2, 'stats merged')
 	assertEquals(entry.monitorCount, 1)
 	upsertRelay({ url: 'wss://new.example.com', rttMs: 30, source: 'manual' })
-	assertEquals(getPoolByUrl().size, 4, 'manual adds new url')
+	assertEquals(getPoolByUrl().size, DEFAULT_RELAY_URLS.length + 1, 'manual adds new url')
 	assertEquals(getPoolByUrl().get('wss://new.example.com').source, 'manual')
 	upsertRelay({ url: 'wss://new.example.com', source: 'peer' })
 	assertEquals(getPoolByUrl().get('wss://new.example.com').source, 'manual', 'manual kept over peer')
@@ -85,7 +48,7 @@ test('upsertRelay dedupes and merges by url, keeps higher source priority', asyn
 
 test('recordProbeSuccess / recordProbeFailure update stats and rtt', async () => {
 	const { upsertRelay, recordProbeSuccess, recordProbeFailure, getPoolByUrl } = await import('../../discovery/nostr/relays.mjs')
-	await setup()
+	await setupRelayTests()
 	upsertRelay({ url: 'wss://probe.example.com', source: 'nip66' })
 	recordProbeSuccess('wss://probe.example.com', 42)
 	recordProbeSuccess('wss://probe.example.com', 55)
@@ -102,16 +65,16 @@ test('computeRelayHealth applies failure weight and stale penalty', async () => 
 	const fresh = computeRelayHealth({ rttMs: 100, successCount: 10, failureCount: 0, lastProbe: Date.now() })
 	const lossy = computeRelayHealth({ rttMs: 100, successCount: 5, failureCount: 5, lastProbe: Date.now() })
 	assert(lossy > fresh, 'failure rate inflates score')
-	const stale = computeRelayHealth({ rttMs: 100, successCount: 10, failureCount: 0, lastProbe: Date.now() - 25 * 3600 * 1000 })
+	const stale = computeRelayHealth({ rttMs: 100, successCount: 10, failureCount: 0, lastProbe: Date.now() - (PROBE_STALE_MS + 3600 * 1000) })
 	assert(stale > fresh * 1.9, 'stale penalty doubles score')
 	const defaultRtt = computeRelayHealth({ successCount: 0, failureCount: 0, lastProbe: Date.now() })
-	assertEquals(defaultRtt, 300, 'missing rtt defaults to 300')
+	assertEquals(defaultRtt, DEFAULT_RTT_MS, 'missing rtt defaults to 300')
 })
 
 test('getWorkingRelays / getListenRelays honor caps and force-include public/manual', async () => {
 	const { upsertRelay, getWorkingRelays, getListenRelays } = await import('../../discovery/nostr/relays.mjs')
 	const { WORKING_RELAYS_COUNT, LISTEN_RELAYS_COUNT } = await import('../../discovery/nostr/constants.mjs')
-	await setup()
+	await setupRelayTests()
 	for (let i = 0; i < WORKING_RELAYS_COUNT + 4; i++)
 		upsertRelay({ url: `wss://pool-${i}.example.com`, rttMs: 10 + i, source: 'nip66' })
 	upsertRelay({ url: MANUAL_RELAY, source: 'manual', rttMs: 5 })
@@ -126,7 +89,7 @@ test('getWorkingRelays / getListenRelays honor caps and force-include public/man
 
 test('clearStale removes stale non-pinned but keeps public/manual', async () => {
 	const { upsertRelay, clearStale, getPoolByUrl, recordProbeSuccess } = await import('../../discovery/nostr/relays.mjs')
-	await setup()
+	await setupRelayTests()
 	upsertRelay({ url: 'wss://stale.example.com', source: 'nip66' })
 	upsertRelay({ url: MANUAL_RELAY, source: 'manual' })
 	const staleEntry = getPoolByUrl().get('wss://stale.example.com')
@@ -139,7 +102,7 @@ test('clearStale removes stale non-pinned but keeps public/manual', async () => 
 
 test('pool persists to storage and reload round-trips', async () => {
 	const { loadRelayPool, upsertRelay, getPoolByUrl, recordProbeSuccess } = await import('../../discovery/nostr/relays.mjs')
-	const { flushRelayStateNow, storage } = await setup()
+	const { flushRelayStateNow, storage } = await setupRelayTests()
 	loadRelayPool()
 	upsertRelay({ url: 'wss://persist.example.com', rttMs: 60, source: 'nip66', monitorCount: 2 })
 	recordProbeSuccess('wss://persist.example.com', 33)
@@ -154,7 +117,7 @@ test('pool persists to storage and reload round-trips', async () => {
 test('pool cap evicts worst non-pinned beyond POOL_CAP', async () => {
 	const { POOL_CAP } = await import('../../discovery/nostr/constants.mjs')
 	const { upsertRelay, getPoolByUrl } = await import('../../discovery/nostr/relays.mjs')
-	await setup()
+	await setupRelayTests()
 	for (let i = 0; i < POOL_CAP + 10; i++)
 		upsertRelay({ url: `wss://cap-${i}.example.com`, rttMs: i, source: 'nip66' })
 	assert(getPoolByUrl().size <= POOL_CAP, 'pool capped')

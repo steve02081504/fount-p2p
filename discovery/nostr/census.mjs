@@ -22,6 +22,7 @@ import { ensureNodeSeed, getNodeHash } from '../../node/identity.mjs'
 import { nodeDebug } from '../../node/log.mjs'
 
 import {
+	CENSUS_MIN_P,
 	CENSUS_TARGET_EVENTS,
 	estimatePopulation,
 	nextInclusionProbability,
@@ -54,7 +55,7 @@ function buildCensusMessage(ts, nodeHash, p) {
 
 /**
  * 用指定 seed 身份构建签名 census 包（nodeHash 由 seed 派生）。
- * 与 `buildCensusPacket` 同一签名/消息路径；供工具与测试构造任意身份的 peer 包。
+ * 供工具与测试构造任意身份的 peer 包。
  * @param {string} seedHex 64 hex seed
  * @param {{ p: number, ts?: number }} options 包含概率与时间戳
  * @returns {Promise<{ nodeHash: string, nodePubKey: string, ts: number, p: number, sig: string }>} 签名包
@@ -76,19 +77,6 @@ export async function buildCensusPacketFromSeed(seedHex, { p, ts = Date.now() })
 }
 
 /**
- * 构建签名 census 包（用节点身份签名，nodeHash 必须匹配 node seed）。
- * @param {{ nodeHash: string, p: number, ts?: number }} options 载荷
- * @returns {Promise<{ nodeHash: string, nodePubKey: string, ts: number, p: number, sig: string }>} 签名包
- */
-export async function buildCensusPacket({ nodeHash, p, ts = Date.now() }) {
-	const hash = isHex64(nodeHash)
-	if (!hash) throw new Error('p2p: census invalid nodeHash')
-	const packet = await buildCensusPacketFromSeed(ensureNodeSeed(), { p, ts })
-	if (packet.nodeHash !== hash) throw new Error('p2p: census nodeHash mismatch')
-	return packet
-}
-
-/**
  * 校验 census 包（Untrusted ingress）：canonicalize + 验签 + 时间窗 + p 范围。
  * @param {unknown} packet 原始 census 包
  * @param {number} [now=Date.now()] 当前时间（毫秒）
@@ -103,7 +91,7 @@ export async function verifyCensusPacket(packet, now = Date.now(), ttlMs = CENSU
 	const p = Number(packet?.p)
 	if (!nodeHash || !nodePubKey || !sig || !Number.isFinite(ts)) return null
 	if (Math.abs(now - ts) > ttlMs) return null
-	if (!Number.isFinite(p) || p <= 0 || p > 1) return null
+	if (!Number.isFinite(p) || p < CENSUS_MIN_P || p > 1) return null
 	try {
 		if (pubKeyHash(Buffer.from(nodePubKey, 'hex')) !== nodeHash) return null
 	}
@@ -143,10 +131,7 @@ const censusEvents = new Map()
  * @returns {void}
  */
 function noteCensusEvent(nodeHash, p, at = Date.now()) {
-	const hash = isHex64(nodeHash)
-	const pv = Number(p)
-	if (!hash || !Number.isFinite(pv) || pv <= 0 || pv > 1) return
-	censusEvents.set(hash, { p: pv, at })
+	censusEvents.set(nodeHash, { p, at })
 }
 
 /**
@@ -178,13 +163,8 @@ function listCensusEvents(now = Date.now(), ttlMs = CENSUS_TTL_MS) {
  * @returns {{ p: number } | null} 自身事件或 null
  */
 function selfCensusEvent(now = Date.now(), ttlMs = CENSUS_TTL_MS) {
-	try {
-		const event = censusEvents.get(getNodeHash())
-		return event && now - event.at <= ttlMs ? { p: event.p } : null
-	}
-	catch {
-		return null
-	}
+	const event = censusEvents.get(getNodeHash())
+	return event && now - event.at <= ttlMs ? { p: event.p } : null
 }
 
 /** @returns {void} 测试用：清空窗口 */
@@ -200,14 +180,16 @@ export function resetCensusEvents() {
  */
 export function getNodePopulationEstimate(now = Date.now(), ttlMs = CENSUS_TTL_MS) {
 	const events = listCensusEvents(now, ttlMs)
-	const { estimate, sampleSize } = estimatePopulation(events, now, ttlMs)
+	const { estimate, sampleSize } = estimatePopulation(events)
 	// self 事件已计入 Σ（含其权重 1/p_self，p=0.01 时即总人口的 1/T=100 人）——
 	// 同时 -1：把自己从自己的数据里移出去，移除自身事件的完整权重。
 	let total = estimate
-	const selfEvent = selfCensusEvent(now, ttlMs)
-	if (selfEvent) total -= 1 / selfEvent.p
-	// +1：自己确定性存在，只计 1 人。两操作独立，不能抵消。
 	const selfIncluded = isNodeInitialized() && getP2PFeatures().census ? 1 : 0
+	if (selfIncluded) {
+		const selfEvent = selfCensusEvent(now, ttlMs)
+		if (selfEvent) total -= 1 / selfEvent.p
+	}
+	// +1：自己确定性存在，只计 1 人。两操作独立，不能抵消。
 	return { estimate: total + selfIncluded, sampleSize, eventsInWindow: events.length }
 }
 
@@ -275,8 +257,7 @@ export function createNostrCensus(deps) {
 		localP = nextInclusionProbability(localP, observed + 1, CENSUS_TARGET_EVENTS)
 		if (Math.random() >= localP) return
 		try {
-			const nodeHash = getNodeHash()
-			const packet = await buildCensusPacket({ nodeHash, p: localP, ts: now() })
+			const packet = await buildCensusPacketFromSeed(ensureNodeSeed(), { p: localP, ts: now() })
 			const content = Buffer.from(JSON.stringify(packet), 'utf8').toString('base64')
 			const event = await signEvent(NOSTR_CENSUS_KIND, CENSUS_TAGS, content)
 			await publishEvent(resolveRelayUrls(), event, abortController.signal)

@@ -24,7 +24,7 @@ function makeRng(seed) {
  * 模拟多节点多回合 census 反馈（完全连通、每节点独立 p、首轮窗口为空）。
  * @param {number} seed PRNG 种子
  * @param {number} initial 初始节点数
- * @param {(round: number, alive: number) => number} deltaPerRound 每回合净增节点数（负为退网）
+ * @param {(round: number) => number} deltaPerRound 每回合净增节点数（负为退网）
  * @param {number} rounds 回合数
  * @returns {{ estimates: number[], eventCounts: number[] }} 每回合 HT 估计与事件数
  */
@@ -37,7 +37,7 @@ function simulateCensus(seed, initial, deltaPerRound, rounds) {
 	const estimates = []
 	const eventCounts = []
 	for (let round = 0; round < rounds; round++) {
-		const delta = deltaPerRound(round, p.length)
+		const delta = deltaPerRound(round)
 		if (delta > 0) for (let index = 0; index < delta; index++) p.push(0.5)
 		else for (let index = 0; index < -delta; index++) p.pop()
 		for (let index = 0; index < p.length; index++)
@@ -54,20 +54,19 @@ function simulateCensus(seed, initial, deltaPerRound, rounds) {
 
 test('HT estimate matches known populations', () => {
 	// p = 20/M 均匀采样：Σ(1/p) 应回到 M（近似）。
-	const estimate = events => estimatePopulation(events)
 	for (const M of [20, 200, 2000]) {
 		const p = CENSUS_TARGET_EVENTS / M
 		const events = Array.from({ length: CENSUS_TARGET_EVENTS }, (_, index) => ({
 			p,
 			at: Date.now() - index,
 		}))
-		const { estimate: total, sampleSize } = estimate(events)
+		const { estimate: total, sampleSize } = estimatePopulation(events)
 		assertEquals(total, M)
 		assertEquals(sampleSize, CENSUS_TARGET_EVENTS)
 	}
 })
 
-test('estimatePopulation ignores invalid or expired events', () => {
+test('estimatePopulation ignores invalid p values', () => {
 	const now = Date.now()
 	const events = [
 		{ p: 0.1, at: now },
@@ -75,9 +74,8 @@ test('estimatePopulation ignores invalid or expired events', () => {
 		{ p: 2, at: now },
 		{ p: 'x', at: now },
 		{ p: null, at: now },
-		{ p: 0.1, at: now - 11 * 60_000 },
 	]
-	const { estimate, sampleSize } = estimatePopulation(events, now, 10 * 60_000)
+	const { estimate, sampleSize } = estimatePopulation(events)
 	assertEquals(estimate, 10)
 	assertEquals(sampleSize, 1)
 })
@@ -96,11 +94,11 @@ test('200-node feedback loop: event count regresses to ~target while estimate st
 		/** @type {Array<number>} */
 		const estimates = []
 		for (let round = 0; round < 15; round++) {
-			for (let i = 0; i < M; i++)
-				p[i] = nextInclusionProbability(p[i], observed, T)
+			for (let index = 0; index < M; index++)
+				p[index] = nextInclusionProbability(p[index], observed, T)
 			const events = []
-			for (let i = 0; i < M; i++)
-				if (rng() < p[i]) events.push({ p: p[i], at: Date.now() })
+			for (let index = 0; index < M; index++)
+				if (rng() < p[index]) events.push({ p: p[index], at: Date.now() })
 			observed = events.length
 			const { estimate } = estimatePopulation(events)
 			rounds.push(observed)
@@ -157,7 +155,7 @@ test('clampP handles invalid input', () => {
 test('census estimate tracks population through gradual join (to 2000) and churn (to 1000)', () => {
 	const mean = values => values.reduce((sum, value) => sum + value, 0) / values.length
 	// 200 起步，6 回合每回合 +300 到 2000，hold 10 回合；再 5 回合每回合 -200 到 1000，hold 10 回合。
-	const timeline = (round, alive) => {
+	const timeline = round => {
 		if (round < 6) return 300
 		if (round < 16) return 0
 		if (round < 21) return -200

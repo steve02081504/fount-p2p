@@ -4,7 +4,6 @@ import { compareHex64Asc, isHex64 } from '../core/hexIds.mjs'
 import { keyPairFromSeed } from '../crypto/crypto.mjs'
 import { noteAdvertPeerHints } from '../discovery/advert_peer_hints.mjs'
 import { watchVerifiedNodeAdvert, setDiscoveryLinkDialer, prepareConnectToNode } from '../discovery/index.mjs'
-import { setPeerRoute } from '../discovery/nostr/relays.mjs'
 import { setDiscoveryPeerClueListener } from '../discovery/peer_clue.mjs'
 import { listLinkProviders } from '../link/providers/index.mjs'
 import { ensureNodeSeed, getNodeHash } from '../node/identity.mjs'
@@ -144,7 +143,6 @@ export function createLinkRegistry(options = {}) {
 			const wasCanonical = links.get(remoteNodeHash) === link
 			if (!wasCanonical) return
 			links.delete(remoteNodeHash)
-			if (link.providerId === 'webrtc') setPeerRoute(remoteNodeHash, { webrtcLastOk: false })
 			emitSafe(linkDownListeners, remoteNodeHash, reason)
 		})
 	}
@@ -164,7 +162,6 @@ export function createLinkRegistry(options = {}) {
 		}
 		links.set(normalized, candidate)
 		wireLink(normalized, candidate)
-		if (candidate.providerId === 'webrtc') setPeerRoute(normalized, { webrtcLastOk: true })
 		if (existing && existing !== candidate)
 			await existing.close(candidate.level !== existing.level ? 'provider-replaced' : 'glare-replaced')
 		emitSafe(linkUpListeners, normalized, candidate)

@@ -30,7 +30,6 @@ test('resolveP2PFeatures rejects non-boolean values', () => {
 	assertThrows(() => resolveP2PFeatures({ census: null }), /must be boolean/)
 })
 
-test('resolveP2PFeatures tolerates undefined/null patch', () => {
+test('resolveP2PFeatures tolerates undefined patch', () => {
 	assertEquals(resolveP2PFeatures(), { census: true })
-	assertEquals(resolveP2PFeatures(null), { census: true })
 })

@@ -12,12 +12,9 @@ import {
 import { createLanDiscoveryProvider } from '../discovery/lan.mjs'
 import {
 	createNostrDiscoveryProvider,
-	getListenRelays,
-	getWorkingRelays,
-	loadRelayPool,
 	resolveNostrRelayUrls,
-	startNostrRelayDiscovery,
 } from '../discovery/nostr/index.mjs'
+import { getListenRelays, getWorkingRelays, loadRelayPool, startNostrRelayDiscovery } from '../discovery/nostr/relays.mjs'
 import { createBleGattLinkProvider } from '../link/providers/ble_gatt.mjs'
 import {
 	listLinkProviders,
@@ -165,7 +162,9 @@ export function createRuntimeBootstrap(deps) {
 		// 仅 network 域注入 relay 字段；LAN 域传空对象（签名消息仍含空的 relays: 段）。
 		const relayData = scope === 'network'
 			? {
-				pool: getWorkingRelays().slice(0, 16).map(entry => ({ url: entry.url, rttMs: entry.rttMs ?? undefined })),
+				pool: getWorkingRelays().slice(0, 16)
+					.filter(entry => entry.rttMs != null)
+					.map(entry => ({ url: entry.url, rttMs: entry.rttMs })),
 				listen: getListenRelays().map(entry => entry.url),
 			}
 			: { pool: [], listen: [] }
@@ -312,10 +311,9 @@ export function createRuntimeBootstrap(deps) {
 			stopSignalListener?.()
 			stopPresence = null
 			stopSignalListener = null
-			// 重启 NIP-66 发现并同步池文件。
+			// 重启 NIP-66 发现（不重新 loadRelayPool：避免用磁盘旧数据覆盖内存中的 poolEntries/peerRoutes）。
 			stopRelayDiscovery?.()
 			stopRelayDiscovery = startNostrRelayDiscovery()
-			loadRelayPool()
 			reconcileLinkProviders()
 			reconcileDiscoveryProviders()
 			if (generation !== gen || !isLive()) return

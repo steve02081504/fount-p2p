@@ -4,13 +4,12 @@ import { test } from 'node:test'
 import { WebSocket } from 'ws'
 
 import {
-	buildCensusPacket,
 	buildCensusPacketFromSeed,
 	getNodePopulationEstimate,
 	NOSTR_CENSUS_KIND,
 	resetCensusEvents,
 } from '../../discovery/nostr/census.mjs'
-import { getNodeHash } from '../../node/identity.mjs'
+import { ensureNodeSeed, getNodeHash } from '../../node/identity.mjs'
 import { setP2PFeatures } from '../../node/instance.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { startFakeRelay } from '../helpers/fake_relay.mjs'
@@ -97,14 +96,30 @@ function publishBatchViaWs(port, events) {
 		})
 		ws.on('error', reject)
 		ws.on('close', () => {
-			if (okCount >= expected) resolve()
-			else reject(new Error('publishBatchViaWs: socket closed early'))
+			if (okCount < expected) reject(new Error('publishBatchViaWs: socket closed early'))
 		})
 	})
 }
 
 /**
- * 两个临时节点目录：peer 目录先激活以构建对端 census 包，随后切换回主目录。
+ * 在测试体内固定 Math.random 为指定值，结束（含异常）后恢复。
+ * @param {number} value 固定值（0 或 1）
+ * @param {() => Promise<void>} testFn 测试体
+ * @returns {Promise<void>}
+ */
+async function withFixedRandom(value, testFn) {
+	const originalRandom = Math.random
+	Math.random = () => value
+	try {
+		await testFn()
+	}
+	finally {
+		Math.random = originalRandom
+	}
+}
+
+/**
+ * 两个临时节点目录，传给 testFn，测试结束后清理两者。
  * @param {(dirA: string, dirB: string) => Promise<void>} testFn 测试函数
  * @returns {Promise<void>}
  */
@@ -125,6 +140,7 @@ test('census disabled gates subscription', async () => {
 	try {
 		initTestP2pNode({ nodeDir: dir })
 		setP2PFeatures({ census: false })
+		resetCensusEvents()
 		assertEquals(getNodePopulationEstimate(), { estimate: 0, sampleSize: 0, eventsInWindow: 0 })
 		const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
 		const relay = await startFakeRelay()
@@ -149,105 +165,98 @@ test('census disabled gates subscription', async () => {
 test('census ingests a verified peer event and estimates population', async () => {
 	await withTwoNodes(async (dirA, dirB) => {
 		initTestP2pNode({ nodeDir: dirB })
-		const peerHash = getNodeHash()
-		const peerPacket = await buildCensusPacket({ nodeHash: peerHash, p: 0.1, ts: Date.now() })
+		const peerPacket = await buildCensusPacketFromSeed(ensureNodeSeed(), { p: 0.1, ts: Date.now() })
 
 		initTestP2pNode({ nodeDir: dirA })
 		setP2PFeatures({ census: true })
 		resetCensusEvents()
-		const originalRandom = Math.random
-		// 抑制 census worker 自动发布（避免它带自身 p 污染本测试手造的 p 值）。
-		Math.random = () => 1
-		const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
-		const relay = await startFakeRelay(() => true, { broadcast: true })
-		const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
-		try {
-			const stop = await provider.startPresence(async () => ({ nodeHash: getNodeHash() }))
-			// advert 订阅 + census 订阅共用一条 socket
-			await relay.waitReqs(2)
-			assertEquals(relay.openCount(), 1)
+		await withFixedRandom(1, async () => {
+			const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
+			const relay = await startFakeRelay(() => true, { broadcast: true })
+			const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
+			try {
+				const stop = await provider.startPresence(async () => ({ nodeHash: getNodeHash() }))
+				// advert 订阅 + census 订阅共用一条 socket
+				await relay.waitReqs(2)
+				assertEquals(relay.openCount(), 1)
 
-			const peerEvent = {
-				id: randomBytes(32).toString('hex'),
-				pubkey: peerPacket.nodePubKey,
-				created_at: Math.floor(Date.now() / 1000),
-				kind: NOSTR_CENSUS_KIND,
-				tags: [['t', 'fount'], ['x', 'census']],
-				content: Buffer.from(JSON.stringify(peerPacket), 'utf8').toString('base64'),
-				sig: peerPacket.sig,
+				const peerEvent = {
+					id: randomBytes(32).toString('hex'),
+					pubkey: peerPacket.nodePubKey,
+					created_at: Math.floor(Date.now() / 1000),
+					kind: NOSTR_CENSUS_KIND,
+					tags: [['t', 'fount'], ['x', 'census']],
+					content: Buffer.from(JSON.stringify(peerPacket), 'utf8').toString('base64'),
+					sig: peerPacket.sig,
+				}
+				await publishViaWs(relay.port, peerEvent)
+				await waitUntil(() => getNodePopulationEstimate().sampleSize === 1)
+				// 1/0.1 = 10（对端）+ 1（自身）= 11。
+				assertEquals(getNodePopulationEstimate(), { estimate: 11, sampleSize: 1, eventsInWindow: 1 })
+				stop()
 			}
-			await publishViaWs(relay.port, peerEvent)
-			await waitUntil(() => getNodePopulationEstimate().sampleSize === 1)
-			// 1/0.1 = 10（对端）+ 1（自身）= 11。
-			assertEquals(getNodePopulationEstimate(), { estimate: 11, sampleSize: 1, eventsInWindow: 1 })
-			stop()
-		}
-		finally {
-			Math.random = originalRandom
-			provider.dispose?.()
-			await relay.stop()
-		}
+			finally {
+				provider.dispose?.()
+				await relay.stop()
+			}
+		})
 	})
 })
 
 test('census excludes own event from sample but counts self once', async () => {
 	await withTwoNodes(async (dirA, dirB) => {
 		initTestP2pNode({ nodeDir: dirB })
-		const peerHash = getNodeHash()
-		const peerPacket = await buildCensusPacket({ nodeHash: peerHash, p: 0.1, ts: Date.now() })
+		const peerPacket = await buildCensusPacketFromSeed(ensureNodeSeed(), { p: 0.1, ts: Date.now() })
 
 		initTestP2pNode({ nodeDir: dirA })
 		setP2PFeatures({ census: true })
 		resetCensusEvents()
-		const originalRandom = Math.random
-		// 抑制 census worker 自动发布（避免它带自身 p 污染本测试手造的 p 值）。
-		Math.random = () => 1
-		const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
-		const relay = await startFakeRelay(() => true, { broadcast: true })
-		const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
-		try {
-			const stop = await provider.startPresence(async () => ({ nodeHash: getNodeHash() }))
-			await relay.waitReqs(2)
-			// 单机：无任何事件，但 +1 计入自身 → 1，不是 0。
-			assertEquals(getNodePopulationEstimate(), { estimate: 1, sampleSize: 0, eventsInWindow: 0 })
+		await withFixedRandom(1, async () => {
+			const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
+			const relay = await startFakeRelay(() => true, { broadcast: true })
+			const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
+			try {
+				const stop = await provider.startPresence(async () => ({ nodeHash: getNodeHash() }))
+				await relay.waitReqs(2)
+				// 单机：无任何事件，但 +1 计入自身 → 1，不是 0。
+				assertEquals(getNodePopulationEstimate(), { estimate: 1, sampleSize: 0, eventsInWindow: 0 })
 
-			// 自身事件（p=0.2）经中继回显到达：self 事件算进去（Σ 含其权重 1/0.2=5），
-			// 同时 -1 把自身事件移出自己的数据（−5），再 +1（自身确定性存在）→ 仍为 1。
-			const selfHash = getNodeHash()
-			const selfPacket = await buildCensusPacket({ nodeHash: selfHash, p: 0.2, ts: Date.now() })
-			const selfEvent = {
-				id: randomBytes(32).toString('hex'),
-				pubkey: selfPacket.nodePubKey,
-				created_at: Math.floor(Date.now() / 1000),
-				kind: NOSTR_CENSUS_KIND,
-				tags: [['t', 'fount'], ['x', 'census']],
-				content: Buffer.from(JSON.stringify(selfPacket), 'utf8').toString('base64'),
-				sig: selfPacket.sig,
-			}
-			await publishViaWs(relay.port, selfEvent)
-			await waitUntil(() => getNodePopulationEstimate().sampleSize === 1)
-			assertEquals(getNodePopulationEstimate(), { estimate: 1, sampleSize: 1, eventsInWindow: 1 })
+				// 自身事件（p=0.2）经中继回显到达：self 事件算进去（Σ 含其权重 1/0.2=5），
+				// 同时 -1 把自身事件移出自己的数据（−5），再 +1（自身确定性存在）→ 仍为 1。
+				const selfPacket = await buildCensusPacketFromSeed(ensureNodeSeed(), { p: 0.2, ts: Date.now() })
+				const selfEvent = {
+					id: randomBytes(32).toString('hex'),
+					pubkey: selfPacket.nodePubKey,
+					created_at: Math.floor(Date.now() / 1000),
+					kind: NOSTR_CENSUS_KIND,
+					tags: [['t', 'fount'], ['x', 'census']],
+					content: Buffer.from(JSON.stringify(selfPacket), 'utf8').toString('base64'),
+					sig: selfPacket.sig,
+				}
+				await publishViaWs(relay.port, selfEvent)
+				await waitUntil(() => getNodePopulationEstimate().sampleSize === 1)
+				assertEquals(getNodePopulationEstimate(), { estimate: 1, sampleSize: 1, eventsInWindow: 1 })
 
-			// 对端事件计入：Σ = 5（自身）+ 10（对端）→ -5（移出自身）+ 1 = 11，自身不重复。
-			const peerEvent = {
-				id: randomBytes(32).toString('hex'),
-				pubkey: peerPacket.nodePubKey,
-				created_at: Math.floor(Date.now() / 1000),
-				kind: NOSTR_CENSUS_KIND,
-				tags: [['t', 'fount'], ['x', 'census']],
-				content: Buffer.from(JSON.stringify(peerPacket), 'utf8').toString('base64'),
-				sig: peerPacket.sig,
+				// 对端事件计入：Σ = 5（自身）+ 10（对端）→ -5（移出自身）+ 1 = 11，自身不重复。
+				const peerEvent = {
+					id: randomBytes(32).toString('hex'),
+					pubkey: peerPacket.nodePubKey,
+					created_at: Math.floor(Date.now() / 1000),
+					kind: NOSTR_CENSUS_KIND,
+					tags: [['t', 'fount'], ['x', 'census']],
+					content: Buffer.from(JSON.stringify(peerPacket), 'utf8').toString('base64'),
+					sig: peerPacket.sig,
+				}
+				await publishViaWs(relay.port, peerEvent)
+				await waitUntil(() => getNodePopulationEstimate().sampleSize === 2)
+				assertEquals(getNodePopulationEstimate(), { estimate: 11, sampleSize: 2, eventsInWindow: 2 })
+				stop()
 			}
-			await publishViaWs(relay.port, peerEvent)
-			await waitUntil(() => getNodePopulationEstimate().sampleSize === 2)
-			assertEquals(getNodePopulationEstimate(), { estimate: 11, sampleSize: 2, eventsInWindow: 2 })
-			stop()
-		}
-		finally {
-			Math.random = originalRandom
-			provider.dispose?.()
-			await relay.stop()
-		}
+			finally {
+				provider.dispose?.()
+				await relay.stop()
+			}
+		})
 	})
 })
 
@@ -257,31 +266,30 @@ test('census publishes a signed event carrying its inclusion probability', async
 		initTestP2pNode({ nodeDir: dir })
 		setP2PFeatures({ census: true })
 		resetCensusEvents()
-		const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
-		const relay = await startFakeRelay(() => true)
-		const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
-		const originalRandom = Math.random
-		Math.random = () => 0
-		try {
-			const stop = await provider.startPresence(async () => ({ nodeHash: getNodeHash() }))
-			await waitUntil(() => relay.publishedEvents.some(event => event.kind === NOSTR_CENSUS_KIND))
-			const censusEvent = relay.publishedEvents.find(event => event.kind === NOSTR_CENSUS_KIND)
-			assertEquals(censusEvent.tags.some(tag => tag[0] === 't' && tag[1] === 'fount'), true)
-			assertEquals(censusEvent.tags.some(tag => tag[0] === 'x' && tag[1] === 'census'), true)
-			const { verifyCensusBytes } = await import('../../discovery/nostr/census.mjs')
-			const verified = await verifyCensusBytes(
-				Buffer.from(censusEvent.content, 'base64'),
-				Date.now(),
-			)
-			assertEquals(verified.nodeHash, getNodeHash())
-			assertEquals(verified.p > 0 && verified.p <= 1, true)
-			stop()
-		}
-		finally {
-			Math.random = originalRandom
-			provider.dispose?.()
-			await relay.stop()
-		}
+		await withFixedRandom(0, async () => {
+			const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
+			const relay = await startFakeRelay(() => true)
+			const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
+			try {
+				const stop = await provider.startPresence(async () => ({ nodeHash: getNodeHash() }))
+				await waitUntil(() => relay.publishedEvents.some(event => event.kind === NOSTR_CENSUS_KIND))
+				const censusEvent = relay.publishedEvents.find(event => event.kind === NOSTR_CENSUS_KIND)
+				assertEquals(censusEvent.tags.some(tag => tag[0] === 't' && tag[1] === 'fount'), true)
+				assertEquals(censusEvent.tags.some(tag => tag[0] === 'x' && tag[1] === 'census'), true)
+				const { verifyCensusBytes } = await import('../../discovery/nostr/census.mjs')
+				const verified = await verifyCensusBytes(
+					Buffer.from(censusEvent.content, 'base64'),
+					Date.now(),
+				)
+				assertEquals(verified.nodeHash, getNodeHash())
+				assertEquals(verified.p > 0 && verified.p <= 1, true)
+				stop()
+			}
+			finally {
+				provider.dispose?.()
+				await relay.stop()
+			}
+		})
 	}
 	finally {
 		await teardownTestNodeDir(dir)
@@ -294,32 +302,31 @@ test('census: 4 multiplier-1 peers on relay + joining node estimates 5', async (
 		initTestP2pNode({ nodeDir: dir })
 		setP2PFeatures({ census: true })
 		resetCensusEvents()
-		const originalRandom = Math.random
 		// 抑制 census worker 自动发布（避免它带自身 p 污染本测试手造的 p 值）。
-		Math.random = () => 1
-		const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
-		const relay = await startFakeRelay(() => true, { broadcast: true })
-		const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
-		try {
-			const stop = await provider.startPresence(async () => ({ nodeHash: getNodeHash() }))
-			// advert 订阅 + census 订阅共用一条 socket
-			await relay.waitReqs(2)
+		await withFixedRandom(1, async () => {
+			const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
+			const relay = await startFakeRelay(() => true, { broadcast: true })
+			const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
+			try {
+				const stop = await provider.startPresence(async () => ({ nodeHash: getNodeHash() }))
+				// advert 订阅 + census 订阅共用一条 socket
+				await relay.waitReqs(2)
 
-			// 4 条乘数为 1（p=1 → 每条贡献 1）的对端数据 + 自身（+1）= 5。
-			const first = await buildSignedCensusEvent({ p: 1 })
-			const second = await buildSignedCensusEvent({ p: 1 })
-			const third = await buildSignedCensusEvent({ p: 1 })
-			const fourth = await buildSignedCensusEvent({ p: 1 })
-			await publishBatchViaWs(relay.port, [first, second, third, fourth])
-			await waitUntil(() => getNodePopulationEstimate().sampleSize === 4)
-			assertEquals(getNodePopulationEstimate(), { estimate: 5, sampleSize: 4, eventsInWindow: 4 })
-			stop()
-		}
-		finally {
-			Math.random = originalRandom
-			provider.dispose?.()
-			await relay.stop()
-		}
+				// 4 条乘数为 1（p=1 → 每条贡献 1）的对端数据 + 自身（+1）= 5。
+				const first = await buildSignedCensusEvent({ p: 1 })
+				const second = await buildSignedCensusEvent({ p: 1 })
+				const third = await buildSignedCensusEvent({ p: 1 })
+				const fourth = await buildSignedCensusEvent({ p: 1 })
+				await publishBatchViaWs(relay.port, [first, second, third, fourth])
+				await waitUntil(() => getNodePopulationEstimate().sampleSize === 4)
+				assertEquals(getNodePopulationEstimate(), { estimate: 5, sampleSize: 4, eventsInWindow: 4 })
+				stop()
+			}
+			finally {
+				provider.dispose?.()
+				await relay.stop()
+			}
+		})
 	}
 	finally {
 		await teardownTestNodeDir(dir)
@@ -332,30 +339,29 @@ test('census: 200 nodes on an empty relay estimate 200', async () => {
 		initTestP2pNode({ nodeDir: dir })
 		setP2PFeatures({ census: true })
 		resetCensusEvents()
-		const originalRandom = Math.random
 		// 抑制 census worker 自动发布（避免它带自身 p 污染本测试手造的 p 值）。
-		Math.random = () => 1
-		const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
-		const relay = await startFakeRelay(() => true, { broadcast: true })
-		const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
-		try {
-			const stop = await provider.startPresence(async () => ({ nodeHash: getNodeHash() }))
-			await relay.waitReqs(2)
+		await withFixedRandom(1, async () => {
+			const { createNostrDiscoveryProvider } = await import('../../discovery/nostr/index.mjs')
+			const relay = await startFakeRelay(() => true, { broadcast: true })
+			const provider = createNostrDiscoveryProvider({ relayUrls: [`ws://127.0.0.1:${relay.port}`] })
+			try {
+				const stop = await provider.startPresence(async () => ({ nodeHash: getNodeHash() }))
+				await relay.waitReqs(2)
 
-			// 200 个节点（含观察者自身）：199 条乘数为 1 的对端事件 + 自身（+1）= 200。
-			const events = []
-			for (let index = 0; index < 199; index++)
-				events.push(await buildSignedCensusEvent({ p: 1 }))
-			await publishBatchViaWs(relay.port, events)
-			await waitUntil(() => getNodePopulationEstimate().sampleSize === 199, 15000)
-			assertEquals(getNodePopulationEstimate(), { estimate: 200, sampleSize: 199, eventsInWindow: 199 })
-			stop()
-		}
-		finally {
-			Math.random = originalRandom
-			provider.dispose?.()
-			await relay.stop()
-		}
+				// 200 个节点（含观察者自身）：199 条乘数为 1 的对端事件 + 自身（+1）= 200。
+				const events = []
+				for (let index = 0; index < 199; index++)
+					events.push(await buildSignedCensusEvent({ p: 1 }))
+				await publishBatchViaWs(relay.port, events)
+				await waitUntil(() => getNodePopulationEstimate().sampleSize === 199, 15000)
+				assertEquals(getNodePopulationEstimate(), { estimate: 200, sampleSize: 199, eventsInWindow: 199 })
+				stop()
+			}
+			finally {
+				provider.dispose?.()
+				await relay.stop()
+			}
+		})
 	}
 	finally {
 		await teardownTestNodeDir(dir)

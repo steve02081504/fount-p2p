@@ -101,6 +101,10 @@ test({
 		let stopBSignal = null
 		/** @type {(() => void) | null} */
 		let stopCSignal = null
+		/** @type {(() => void) | null} */
+		let stopListenC = null
+		/** @type {(() => void) | null} */
+		let stopListenB = null
 		try {
 			// a↔b：真实 loopback LAN TCP。
 			const aliceLan = createLanTcpLinkProvider()
@@ -130,11 +134,11 @@ test({
 				const packet = decryptNodeSignalPacket(carol.nodeHash, bytes)
 				if (packet?.type === 'link') void cLinkB.deliverPacket(packet)
 			})
-			cLinkB.ensureListening({
+			stopListenC = cLinkB.ensureListening({
 				localIdentity: carol,
 				onInbound(link) { cLinkBInbound = link },
 			})
-			bLinkC.ensureListening({
+			stopListenB = bLinkC.ensureListening({
 				localIdentity: bob,
 				onInbound() { },
 			})
@@ -183,6 +187,8 @@ test({
 			}
 		}
 		finally {
+			stopListenC?.()
+			stopListenB?.()
 			stopBSignal?.()
 			stopCSignal?.()
 			stopAliceLan?.()

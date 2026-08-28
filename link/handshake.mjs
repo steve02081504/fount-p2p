@@ -154,7 +154,7 @@ export function buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort = null, 
 }
 
 /**
- * 规范化并裁剪 advert 携带的 relay 字段（不可信入站 / 出站构建共用）。
+ * 规范化并裁剪入站（不可信）advert 携带的 relay 字段：无效项丢弃并记审计日志，不抛错。
  * - pool：url 经 normalize 有效且 rttMs∈[0,MAX_RTT_MS]，取整、去重、裁剪前 MAX_ADVERT_RELAY_POOL。
  * - listen：url normalize 有效、去重、裁剪前 MAX_ADVERT_LISTEN_RELAYS。
  * - 每个丢弃项记审计日志（含原始值），不静默。
@@ -210,9 +210,50 @@ export function sanitizeAdvertRelayFields(rawPool, rawListen) {
  * @returns {string} hex 编码 blob
  */
 export function canonicalAdvertRelayBlob(pool, listen) {
-	const sortedPool = [...pool].sort((a, b) => a.url < b.url ? -1 : a.url > b.url ? 1 : 0)
-	const sortedListen = [...listen].sort()
-	return Buffer.from(JSON.stringify({ p: sortedPool, l: sortedListen }), 'utf8').toString('hex')
+	return Buffer.from(JSON.stringify({
+		p: [...pool].sort((a, b) => a.url < b.url ? -1 : a.url > b.url ? 1 : 0),
+		l: [...listen].sort(),
+	}), 'utf8').toString('hex')
+}
+
+/**
+ * 严格规范化本机（出站）提供的 relay 字段：无效数据立即抛错，不静默丢弃。
+ * 本地调用方应提供已规范化字段；入站校验仍走 lenient 的 sanitizeAdvertRelayFields。
+ * @param {unknown} rawPool 原始 pool（[{url, rttMs}]）
+ * @param {unknown} rawListen 原始 listen（[url]）
+ * @returns {{ pool: Array<{ url: string, rtt: number }>, listen: string[] }} 规范化结果
+ */
+function normalizeLocalRelayFields(rawPool, rawListen) {
+	/** @type {Array<{ url: string, rtt: number }>} */
+	const pool = []
+	/** @type {Set<string>} */
+	const seenPool = new Set()
+	if (Array.isArray(rawPool)) for (const item of rawPool) {
+		const url = normalizeNostrRelayUrl(item?.url)
+		if (!url) throw new Error('p2p: advert pool invalid url')
+		const rtt = Number(item?.rttMs ?? item?.rtt)
+		if (!Number.isFinite(rtt) || rtt < 0 || rtt > MAX_RTT_MS)
+			throw new Error('p2p: advert pool invalid rtt')
+		if (seenPool.has(url)) continue
+		seenPool.add(url)
+		pool.push({ url, rtt: Math.round(rtt) })
+		if (pool.length >= MAX_ADVERT_RELAY_POOL) break
+	}
+
+	/** @type {string[]} */
+	const listen = []
+	/** @type {Set<string>} */
+	const seenListen = new Set()
+	if (Array.isArray(rawListen)) for (const raw of rawListen) {
+		const url = normalizeNostrRelayUrl(raw)
+		if (!url) throw new Error('p2p: advert listen invalid url')
+		if (seenListen.has(url)) continue
+		seenListen.add(url)
+		listen.push(url)
+		if (listen.length >= MAX_ADVERT_LISTEN_RELAYS) break
+	}
+
+	return { pool, listen }
 }
 
 /**
@@ -235,9 +276,10 @@ export async function buildSignedAdvert(rendezvousKey, ts = Date.now(), options 
 	if (options?.tcpPort && !tcpPort)
 		throw new Error('p2p: advert tcpPort invalid')
 	const lanHosts = normalizeLanHosts(options?.lanHosts)
-	const sanitized = sanitizeAdvertRelayFields(options?.nostrRelayPool, options?.listenNostrRelays)
-	const relayBlobHex = canonicalAdvertRelayBlob(sanitized.pool, sanitized.listen)
-	const message = buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort, lanHosts, relayBlobHex)
+	// 出站字段要求已规范化，无效数据直接抛错（入站路径才用 lenient sanitize）。
+	const normalized = normalizeLocalRelayFields(options?.nostrRelayPool, options?.listenNostrRelays)
+	const message = buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort, lanHosts,
+		canonicalAdvertRelayBlob(normalized.pool, normalized.listen))
 	const sig = await sign(message, secretKey)
 	const advert = {
 		nodeHash,
@@ -247,8 +289,8 @@ export async function buildSignedAdvert(rendezvousKey, ts = Date.now(), options 
 	}
 	if (tcpPort) advert.tcpPort = tcpPort
 	if (lanHosts.length) advert.lanHosts = lanHosts
-	if (sanitized.pool.length) advert.nostrRelayPool = sanitized.pool
-	if (sanitized.listen.length) advert.listenNostrRelays = sanitized.listen
+	if (normalized.pool.length) advert.nostrRelayPool = normalized.pool
+	if (normalized.listen.length) advert.listenNostrRelays = normalized.listen
 	return advert
 }
 
@@ -270,11 +312,12 @@ export async function verifySignedAdvert(rendezvousKey, advert, now = Date.now()
 	const tcpPort = normalizeTcpPort(advert?.tcpPort)
 	if (hasTcpPortField && !tcpPort) return null
 	const lanHosts = normalizeLanHosts(advert?.lanHosts)
-	// 出站与入站共用同一 sanitize：防御畸形输入，重建消息比对签名。
+	// 入站用 lenient sanitize 防御畸形输入，重建消息比对签名。
 	const sanitized = sanitizeAdvertRelayFields(advert?.nostrRelayPool, advert?.listenNostrRelays)
-	const relayBlobHex = canonicalAdvertRelayBlob(sanitized.pool, sanitized.listen)
-	const message = buildAdvertMessage(rendezvousKey, ts, parsedHello.nodeHash, tcpPort, lanHosts, relayBlobHex)
-	const ok = await verify(Buffer.from(sig, 'hex'), message, Buffer.from(parsedHello.nodePubKey, 'hex'))
+	const ok = await verify(Buffer.from(sig, 'hex'),
+		buildAdvertMessage(rendezvousKey, ts, parsedHello.nodeHash, tcpPort, lanHosts,
+			canonicalAdvertRelayBlob(sanitized.pool, sanitized.listen)),
+		Buffer.from(parsedHello.nodePubKey, 'hex'))
 	if (!ok) return null
 	return { nodeHash: parsedHello.nodeHash, relayPool: sanitized.pool, listenRelays: sanitized.listen }
 }

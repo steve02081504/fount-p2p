@@ -7,13 +7,10 @@
  */
 const CENSUS_KIND = 30789
 const CENSUS_TTL_MS = 10 * 60_000
+const CENSUS_SUB_ID = 'census'
 const TARGET_EVENTS = 20
 
-const estimateEl = document.querySelector('#estimate')
-const sampleEl = document.querySelector('#sample-size')
-const windowEl = document.querySelector('#window-events')
 const statusEl = document.querySelector('#status')
-const footerEl = document.querySelector('#footer')
 const toggleEl = document.querySelector('#toggle')
 
 const params = new URLSearchParams(location.search)
@@ -33,24 +30,22 @@ function clampP(p) {
 
 /** @param {number} p @param {number} observed @param {number} [target] @returns {number} */
 function nextInclusionProbability(p, observed, target = TARGET_EVENTS) {
-	const E = Math.max(0, Math.floor(observed))
-	const T = Math.max(1, Math.floor(target))
+	const observedCount = Math.max(0, Math.floor(observed))
 	const base = clampP(p)
-	if (E === 0) return clampP(base * 1.5)
-	return clampP(base * (T / E))
+	if (observedCount === 0) return clampP(base * 1.5)
+	return clampP(base * (Math.max(1, Math.floor(target)) / observedCount))
 }
 
 /**
- * HT 估计。
+ * HT 估计；遍历时逐出过期事件，避免窗口 Map 持续增长。
  * @returns {{ estimate: number, sampleSize: number }}
  */
 function estimatePopulation() {
 	let total = 0
 	let sampleSize = 0
 	const now = Date.now()
-	for (const { p, at } of events.values()) {
-		if (!Number.isFinite(p) || p <= 0 || p > 1) continue
-		if (!Number.isFinite(at) || now - at > CENSUS_TTL_MS) continue
+	for (const [hash, { p, at }] of events) {
+		if (!Number.isFinite(at) || now - at > CENSUS_TTL_MS) { events.delete(hash); continue }
 		total += 1 / p
 		sampleSize++
 	}
@@ -83,37 +78,35 @@ async function verifyCensusPacket(packet) {
 	if (!Number.isFinite(p) || p <= 0 || p > 1) return null
 	const [{ ed25519 }, { sha256 }] = await loadNoble()
 	const pubBytes = new Uint8Array(nodePubKey.match(/.{2}/gu).map(hex => parseInt(hex, 16)))
-	const hashHex = [...sha256(pubBytes)].map(byte => byte.toString(16).padStart(2, '0')).join('')
-	if (hashHex !== nodeHash) return null
-	const message = new TextEncoder().encode(`fount-census\0${ts}\0${nodeHash}\0${p}`)
-	const sigBytes = new Uint8Array(sig.match(/.{2}/gu).map(hex => parseInt(hex, 16)))
-	const ok = ed25519.verify(sigBytes, message, pubBytes)
+	if ([...sha256(pubBytes)].map(byte => byte.toString(16).padStart(2, '0')).join('') !== nodeHash) return null
+	const ok = ed25519.verify(
+		new Uint8Array(sig.match(/.{2}/gu).map(hex => parseInt(hex, 16))),
+		new TextEncoder().encode(`fount-census\0${ts}\0${nodeHash}\0${p}`),
+		pubBytes,
+	)
 	return ok ? { nodeHash, p, ts } : null
 }
 
-/** @param {object} packet @returns {void} */
-function ingest(packet) {
-	const hash = String(packet?.nodeHash ?? '')
-	if (!/^[\da-f]{64}$/u.test(hash)) return
-	events.set(hash, { p: Number(packet.p), at: Number(packet.ts) })
+/** @param {{ nodeHash: string, p: number, ts: number }} verified 已验签 census 包 @returns {void} */
+function ingest(verified) {
+	events.set(verified.nodeHash, { p: verified.p, at: verified.ts })
 	render()
 }
 
 function render() {
 	const { estimate, sampleSize } = estimatePopulation()
-	estimateEl.textContent = estimate.toLocaleString('zh-CN', { maximumFractionDigits: 1 })
-	sampleEl.textContent = String(sampleSize)
-	windowEl.textContent = String(events.size)
+	document.querySelector('#estimate').textContent = estimate.toLocaleString('zh-CN', { maximumFractionDigits: 1 })
+	document.querySelector('#sample-size').textContent = String(sampleSize)
+	document.querySelector('#window-events').textContent = String(events.size)
 }
 
 function seedDemo() {
 	events.clear()
 	for (let index = 0; index < 20; index++) {
-		const fakeHash = (index + 1).toString(16).padStart(2, '0').repeat(32)
-		events.set(fakeHash, { p: 0.1, at: Date.now() })
+		events.set((index + 1).toString(16).padStart(2, '0').repeat(32), { p: 0.1, at: Date.now() })
 	}
 	statusEl.textContent = '演示模式：20 条 p=0.1 样本（HT 估计 = 200）'
-	footerEl.textContent = '演示模式样本为虚构数据；添加 ?relay=wss://... 进入 live 模式。'
+	document.querySelector('#footer').textContent = '演示模式样本为虚构数据；添加 ?relay=wss://... 进入 live 模式。'
 	render()
 }
 
@@ -126,21 +119,21 @@ function connectRelay() {
 	statusEl.textContent = `连接 ${relayUrl} …`
 	ws = new WebSocket(relayUrl)
 	ws.onopen = () => {
-		ws.send(JSON.stringify(['REQ', 'census', { kinds: [CENSUS_KIND], '#t': ['fount'], '#x': ['census'] }]))
+		ws.send(JSON.stringify(['REQ', CENSUS_SUB_ID, { kinds: [CENSUS_KIND], '#t': ['fount'], '#x': ['census'] }]))
 		statusEl.textContent = `监听 ${relayUrl}（kind ${CENSUS_KIND}）`
 	}
 	ws.onmessage = async rawMessage => {
-		const parsed = JSON.parse(String(rawMessage.data))
-		if (parsed?.[0] !== 'EVENT') return
-		const event = parsed[1]
+		let parsed
+		try { parsed = JSON.parse(String(rawMessage.data)) } catch { return }
+		if (parsed?.[0] !== 'EVENT' || parsed[1] !== CENSUS_SUB_ID) return
+		const event = parsed[2]
 		if (event?.kind !== CENSUS_KIND) return
-		let packet = null
 		try {
-			packet = JSON.parse(atob(event.content))
+			const packet = JSON.parse(atob(event.content))
+			const verified = await verifyCensusPacket(packet)
+			if (verified) ingest(verified)
 		}
-		catch { return }
-		const verified = await verifyCensusPacket(packet)
-		if (verified) ingest(verified)
+		catch { /* ignore malformed */ }
 	}
 	ws.onclose = () => { statusEl.textContent = '已断开' }
 	ws.onerror = () => { statusEl.textContent = '中继连接失败' }

@@ -30,8 +30,8 @@ export function clampP(p) {
  * @returns {number} 下一轮包含概率
  */
 export function nextInclusionProbability(currentP, observedCount, target = CENSUS_TARGET_EVENTS) {
-	const observed = Math.max(0, Math.floor(Number(observedCount) || 0))
-	const targetEvents = Math.max(1, Math.floor(Number(target) || CENSUS_TARGET_EVENTS))
+	const observed = observedCount
+	const targetEvents = Math.max(1, target)
 	const base = clampP(currentP)
 	if (observed === 0) return clampP(base * CENSUS_GROW_FACTOR)
 	return clampP(base * (targetEvents / observed))
@@ -39,20 +39,16 @@ export function nextInclusionProbability(currentP, observedCount, target = CENSU
 
 /**
  * HT 估计在线节点数：对每个有效采样事件累加 `1/p`。
- * 剔除 p 非法（≤0 / >1 / 非有限）或已过期（超出 ttlMs）的事件。
- * @param {Array<{ p?: unknown, at?: unknown }>} events 采样事件（含包含概率与时间戳）
- * @param {number} [now=Date.now()] 当前时间（毫秒）
- * @param {number} [ttlMs=10 * 60_000] 窗口 TTL（毫秒）
+ * 剔除 p 非法（≤0 / >1 / 非有限）。TTL 过期由调用方（窗口存储）负责清理。
+ * @param {Array<{ p?: unknown }>} events 采样事件（含包含概率）
  * @returns {{ estimate: number, sampleSize: number }} 估计值与有效采样数
  */
-export function estimatePopulation(events, now = Date.now(), ttlMs = 10 * 60_000) {
+export function estimatePopulation(events) {
 	let total = 0
 	let sampleSize = 0
 	for (const event of events || []) {
 		const p = Number(event?.p)
-		const at = Number(event?.at)
 		if (!Number.isFinite(p) || p <= 0 || p > 1) continue
-		if (!Number.isFinite(at) || now - at > ttlMs) continue
 		total += 1 / p
 		sampleSize++
 	}

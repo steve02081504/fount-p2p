@@ -32,24 +32,6 @@ import { dedupeRelayUrls, publishViaSharedRelay, subscribeNostrKind } from './se
 
 import { createNostrCensus } from './census.mjs'
 
-/**
- *
- */
-export { NOSTR_CONNECT_TIMEOUT_MS } from './session.mjs'
-
-/** 再导出 relay 池 / NIP-66 发现接口（供 runtime_bootstrap 等消费）。 */
-export {
-	DEFAULT_RELAY_URLS,
-	getListenRelays,
-	getPeerRoute,
-	getWorkingRelays,
-	loadRelayPool,
-	normalizeNostrRelayUrl,
-	probeRelay,
-	startNostrRelayDiscovery,
-	upsertRelay,
-} from './relays.mjs'
-
 /** Nostr network advert 事件 kind（addressable，可存储）。 */
 export const NOSTR_ADVERT_KIND = 30787
 /** Nostr signal 事件 kind（ephemeral，实时转发）。 */
@@ -134,8 +116,36 @@ export function listNostrGroupVisibleNodeHashes(roomSecret, now = Date.now(), tt
 }
 
 /**
+ * 判定规范化 relay URL 是否为公网可达（loopback/私网/链路本地/保留段视为非公网）。
+ * @param {string} normalizedUrl 已 normalize 的 relay URL
+ * @returns {boolean} 公网为 true
+ */
+function isPublicRelayUrl(normalizedUrl) {
+	let hostname
+	try { hostname = String(new URL(normalizedUrl).hostname || '').toLowerCase().replace(/^\[|\]$/g, '') } catch { return false }
+	if (!hostname) return false
+	if (hostname === 'localhost' || hostname === '::1' || hostname === '::' || hostname === '0.0.0.0') return false
+	if (/\.(local|internal|lan|home|corp)$/.test(hostname)) return false
+	if (/^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname)) return false
+	if (/^fe[89ab][\da-f]:/i.test(hostname)) return false
+	if (/^f[cd][\da-f]:/i.test(hostname)) return false
+	return true
+}
+
+/**
+ * 本机显式配置的 relay 集（signaling 配置优先；无节点时按空处理）。
+ * @returns {string[]} 显式配置的 relay URL
+ */
+function locallyAllowedRelayUrls() {
+	const configRelay = getSignalingRuntimeConfig().channels?.nostr?.relay
+	if (Array.isArray(configRelay) && configRelay.length) return configRelay
+	try { return getNodeTransportSettings().relayUrls } catch { return [] }
+}
+
+/**
  * 捕获对端 advert 中的 relay 字段：listen 存 peerRoutes.listenRelays、pool 存 peerPool；
  * 本机池中未见 url 以 source='peer' upsert 并后台 probe。
+ * 仅吸收/探测公网地址（或本机显式配置的中继），阻止远端 advert 驱动对 loopback/私网地址的 probe。
  * @param {string} verifiedNodeHash 验签 nodeHash
  * @param {string[]} listenRelays 规范化 listen
  * @param {Array<{ url: string, rtt: number }>} relayPool 规范化 pool
@@ -147,8 +157,10 @@ function capturePeerRelayFields(verifiedNodeHash, listenRelays, relayPool) {
 		listenRelays,
 		peerPool: relayPool,
 	})
+	const locallyAllowed = new Set(locallyAllowedRelayUrls())
 	for (const item of relayPool) {
 		if (getPoolByUrl().has(item.url)) continue
+		if (!isPublicRelayUrl(item.url) && !locallyAllowed.has(item.url)) continue
 		upsertRelay({ url: item.url, rttMs: item.rtt, source: 'peer' })
 		void probeRelay(item.url).catch(() => { })
 	}
@@ -249,7 +261,7 @@ async function publishEvent(relayUrls, event, signal) {
  * @returns {import('../index.mjs').DiscoveryProvider} Nostr discovery provider
  */
 export function createNostrDiscoveryProvider(options = {}) {
-	const hasExplicitRelay = options.relayUrls !== undefined && options.relayUrls !== null || !!options.getRelayUrls
+	const hasExplicitRelay = options.relayUrls != null || !!options.getRelayUrls
 	/**
 	 * @returns {string[]} 去重后的中继 URL 列表
 	 */
@@ -258,7 +270,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 			const urls = options.getRelayUrls()
 			return dedupeRelayUrls(urls == null ? DEFAULT_RELAY_URLS : urls)
 		}
-		if (options.relayUrls === undefined || options.relayUrls === null)
+		if (options.relayUrls == null)
 			return resolveNostrRelayUrls()
 		return dedupeRelayUrls(options.relayUrls)
 	}
@@ -302,7 +314,6 @@ export function createNostrDiscoveryProvider(options = {}) {
 	 * @returns {() => void} 取消 listener；无 listener 时 no-op（hold 至 dispose）
 	 */
 	function ensureAdvertSubscription(key, bind, listener) {
-		if (!key) return () => { }
 		let entry = advertSubs.get(key)
 		if (!entry) {
 			/** @type {AdvertSubEntry} */
@@ -361,7 +372,6 @@ export function createNostrDiscoveryProvider(options = {}) {
 	 * @returns {() => void} 取消 listener
 	 */
 	function ensureGroupSubscription(roomSecret, listener) {
-		if (!roomSecret) return () => { }
 		return ensureAdvertSubscription('group:' + roomSecret, {
 			rendezvousKey: groupRendezvousKey(roomSecret),
 			roomSecret,
@@ -380,6 +390,9 @@ export function createNostrDiscoveryProvider(options = {}) {
 			rendezvousKey: nodeRendezvousKey(hash),
 		}, listener)
 	}
+
+	/** @type {Array<() => void>} */
+	const extraSubs = []
 
 	/**
 	 * connectToNode 额外订阅对端历史/声称的中继以加速汇聚（adhoc，dispose 时释放）。
@@ -411,8 +424,6 @@ export function createNostrDiscoveryProvider(options = {}) {
 			}),
 		}))
 	}
-	/** @type {Array<() => void>} */
-	const extraSubs = []
 
 	return {
 		id: 'nostr',

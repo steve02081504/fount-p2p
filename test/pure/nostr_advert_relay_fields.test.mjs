@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer'
 import { test } from 'node:test'
 
 import { buildSignedAdvert, verifySignedAdvert, sanitizeAdvertRelayFields, canonicalAdvertRelayBlob } from '../../link/handshake.mjs'
+import { MAX_ADVERT_RELAY_POOL, MAX_ADVERT_LISTEN_RELAYS, MAX_RTT_MS } from '../../discovery/nostr/constants.mjs'
 import { setNodeLogger } from '../../node/instance.mjs'
 import { setConnectivityDebug } from '../../node/log.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
@@ -69,9 +70,7 @@ test('tampering with pool or listen invalidates signature', async () => {
 	assertEquals((await verifySignedAdvert(RENDEZVOUS, advert, 1234))?.nodeHash, local.nodeHash)
 })
 
-test('sanitizeAdvertRelayFields trims invalid entries and caps sizes', async () => {
-	const { sanitizeAdvertRelayFields } = await import('../../link/handshake.mjs')
-	const { MAX_ADVERT_RELAY_POOL, MAX_ADVERT_LISTEN_RELAYS, MAX_RTT_MS } = await import('../../discovery/nostr/constants.mjs')
+test('sanitizeAdvertRelayFields trims invalid entries and caps sizes', () => {
 	const pool = [
 		{ url: 'http://bad.example.com', rttMs: 10 },
 		{ url: 'wss://ok.example.com', rttMs: 10 },
@@ -87,11 +86,9 @@ test('sanitizeAdvertRelayFields trims invalid entries and caps sizes', async () 
 	assertEquals(result.listen[0], 'wss://good.example.com')
 })
 
-test('sanitize caps pool/listen to limits', async () => {
-	const { sanitizeAdvertRelayFields } = await import('../../link/handshake.mjs')
-	const { MAX_ADVERT_RELAY_POOL, MAX_ADVERT_LISTEN_RELAYS } = await import('../../discovery/nostr/constants.mjs')
-	const pool = Array.from({ length: MAX_ADVERT_RELAY_POOL + 10 }, (_, i) => ({ url: `wss://p${i}.example.com`, rttMs: 10 }))
-	const listen = Array.from({ length: MAX_ADVERT_LISTEN_RELAYS + 10 }, (_, i) => `wss://l${i}.example.com`)
+test('sanitize caps pool/listen to limits', () => {
+	const pool = Array.from({ length: MAX_ADVERT_RELAY_POOL + 10 }, (_, relayIndex) => ({ url: `wss://p${relayIndex}.example.com`, rttMs: 10 }))
+	const listen = Array.from({ length: MAX_ADVERT_LISTEN_RELAYS + 10 }, (_, relayIndex) => `wss://l${relayIndex}.example.com`)
 	const result = sanitizeAdvertRelayFields(pool, listen)
 	assertEquals(result.pool.length, MAX_ADVERT_RELAY_POOL)
 	assertEquals(result.listen.length, MAX_ADVERT_LISTEN_RELAYS)

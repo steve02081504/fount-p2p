@@ -33,8 +33,6 @@ export async function startFakeRelay(accept = () => true, options = {}) {
 		response.end()
 	})
 	const webSocketServer = new WebSocketServer({ server })
-	/** @type {Set<import('ws').WebSocket>} */
-	const sockets = new Set()
 	/** @type {Array<object>} */
 	const publishedEvents = []
 	let connectionCount = 0
@@ -83,7 +81,6 @@ export async function startFakeRelay(accept = () => true, options = {}) {
 
 	webSocketServer.on('connection', socket => {
 		connectionCount++
-		sockets.add(socket)
 		subsBySocket.set(socket, new Map())
 		flushOpenWaiters()
 		socket.on('message', rawMessage => {
@@ -97,18 +94,19 @@ export async function startFakeRelay(accept = () => true, options = {}) {
 			}
 			if (parsed?.[0] !== 'EVENT') return
 			const event = parsed[1]
+			const eventId = String(event?.id || '')
+			const ok = accept(eventId)
+			socket.send(JSON.stringify(['OK', eventId, ok, ok ? '' : 'blocked: test']))
+			if (!ok) return
 			publishedEvents.push(event)
-			const ok = accept(String(event?.id || ''))
-			socket.send(JSON.stringify(['OK', event.id, ok, ok ? '' : 'blocked: test']))
-			if (ok && broadcast)
-				for (const [other, subs] of subsBySocket)
+			if (broadcast)
+				for (const [subscriber, subs] of subsBySocket)
 					for (const [subscriptionId, filter] of subs)
 						if (filterMatchesEvent(filter, event)) {
-							try { other.send(JSON.stringify(['EVENT', subscriptionId, event])) } catch { /* ignore */ }
+							try { subscriber.send(JSON.stringify(['EVENT', subscriptionId, event])) } catch { /* ignore */ }
 						}
 		})
 		socket.on('close', () => {
-			sockets.delete(socket)
 			subsBySocket.delete(socket)
 			flushCloseWaiters()
 		})
@@ -124,7 +122,7 @@ export async function startFakeRelay(accept = () => true, options = {}) {
 		/**
 		 * @returns {number} 当前仍打开的 socket 数
 		 */
-		openCount: () => sockets.size,
+		openCount: () => subsBySocket.size,
 		/**
 		 * @returns {number} 累计收到的 REQ 数
 		 */
@@ -150,19 +148,19 @@ export async function startFakeRelay(accept = () => true, options = {}) {
 		 * @returns {Promise<void>}
 		 */
 		async waitClosed() {
-			while (sockets.size > 0)
+			while (subsBySocket.size > 0)
 				await new Promise(resolve => closeWaiters.push(resolve))
 		},
 		/** 断开全部已连接 socket */
 		dropAll() {
-			for (const ws of [...sockets])
+			for (const ws of [...subsBySocket.keys()])
 				try { ws.close() } catch { /* ignore */ }
 		},
 		/**
 		 * @returns {Promise<void>}
 		 */
 		async stop() {
-			for (const ws of [...sockets])
+			for (const ws of [...subsBySocket.keys()])
 				try { ws.terminate() } catch { /* ignore */ }
 			await new Promise(resolve => webSocketServer.close(() => resolve()))
 			await new Promise(resolve => server.close(() => resolve()))

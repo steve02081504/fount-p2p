@@ -4,10 +4,13 @@ import {
 	BACKOFF_BASE_MS,
 	BACKOFF_CAP_MS,
 	DEFAULT_RTT_MS,
+	LAST_GOOD_RELAYS_MAX,
 	MAX_ROUTING_ATTEMPTS,
 	MAX_ROUTING_FANOUT,
+	ROUND0_TARGET_COUNT,
 } from './constants.mjs'
 import {
+	computeRelayHealth,
 	getPeerRoute,
 	getPinnedRelays,
 	getPoolByUrl,
@@ -35,7 +38,7 @@ export function backoffDelay(attempt) {
  */
 function compositeScore(url, route) {
 	const ownPool = getPoolByUrl().get(url)
-	const ownScore = ownPool ? Date.now() - (ownPool.lastProbe || 0) > 24 * 3600 * 1000 ? 300 * 2 : ownPool.rttMs ?? DEFAULT_RTT_MS : DEFAULT_RTT_MS
+	const ownScore = ownPool ? computeRelayHealth(ownPool) : DEFAULT_RTT_MS
 	const peerPool = route?.peerPool?.find(item => item.url === url)
 	const peerRtt = peerPool?.rttMs ?? DEFAULT_RTT_MS
 	return ownScore + peerRtt
@@ -56,15 +59,14 @@ export function getReachPeerRelays(nodeHash) {
 
 /**
  * 按健康分加权随机采样（权重 = 1/score，score 越低越可能被选）。
+ * 与 getWorkingRelays 共用 computeRelayHealth 评分语义。
  * @param {import('./relays.mjs').RelayPoolEntry[]} entries 候选
  * @param {number} k 采样数量
  * @returns {string[]} 采样 URL
  */
 export function weightedRandomSample(entries, k) {
-	const weights = entries.map(entry => {
-		const health = entry.rttMs ?? DEFAULT_RTT_MS
-		return Math.max(Number.EPSILON, 1 / Math.max(1, health))
-	})
+	const weightOf = entry => Math.max(Number.EPSILON, 1 / computeRelayHealth(entry))
+	const weights = entries.map(weightOf)
 	let total = weights.reduce((a, b) => a + b, 0)
 	/** @type {string[]} */
 	const picked = []
@@ -73,13 +75,13 @@ export function weightedRandomSample(entries, k) {
 		let r = Math.random() * total
 		let index = 0
 		for (let i = 0; i < remaining.length; i++) {
-			const w = Math.max(Number.EPSILON, 1 / Math.max(1, remaining[i].rttMs ?? DEFAULT_RTT_MS))
+			const w = weightOf(remaining[i])
 			if (r < w) { index = i; break }
 			r -= w
 		}
 		const chosen = remaining.splice(index, 1)[0]
 		picked.push(chosen.url)
-		total -= Math.max(Number.EPSILON, 1 / Math.max(1, chosen.rttMs ?? DEFAULT_RTT_MS))
+		total -= weightOf(chosen)
 	}
 	return picked
 }
@@ -133,30 +135,31 @@ export function handshakeTargets(nodeHash, attempt) {
 	const targets = []
 
 	/**
-	 *
-	 */
-	const round0 = () => {
-		const reach = getReachPeerRelays(nodeHash)
-		if (reach.length) {
-			for (const { url } of reach.slice(0, 4)) push(url)
-			return
-		}
-		const working = getWorkingRelays()
-		if (working.length) {
-			for (const entry of working.slice(0, 4)) push(entry.url)
-			return
-		}
-		const pinned = getPinnedRelays()
-		for (const url of pinned.slice(0, 4)) push(url)
-	}
-
-	/**
 	 * 添加尚未出现的 relay URL。
 	 * @param {string} url relay URL
 	 * @returns {void}
 	 */
 	const push = url => {
 		if (!seen.has(url)) { seen.add(url); targets.push(url) }
+	}
+
+	/**
+	 * Round 0：对端声称前 ROUND0_TARGET_COUNT（无则本机工作集，再空则 pinned）。
+	 * @returns {void}
+	 */
+	const round0 = () => {
+		const reach = getReachPeerRelays(nodeHash)
+		if (reach.length) {
+			for (const { url } of reach.slice(0, ROUND0_TARGET_COUNT)) push(url)
+			return
+		}
+		const working = getWorkingRelays()
+		if (working.length) {
+			for (const entry of working.slice(0, ROUND0_TARGET_COUNT)) push(entry.url)
+			return
+		}
+		const pinned = getPinnedRelays()
+		for (const url of pinned.slice(0, ROUND0_TARGET_COUNT)) push(url)
 	}
 
 	if (attempt <= 0) {
@@ -168,18 +171,18 @@ export function handshakeTargets(nodeHash, attempt) {
 	const route = getPeerRoute(nodeHash)
 	if (route?.lastGoodNostrRelays?.length) {
 		const base = route.lastGoodNostrRelays
-		for (const url of expandFromHistory(nodeHash, base, 16)) push(url)
+		for (const url of expandFromHistory(nodeHash, base, LAST_GOOD_RELAYS_MAX)) push(url)
 	}
 	else {
 		const working = getWorkingRelays()
-		for (const url of weightedRandomSample(working, 16)) push(url)
+		for (const url of weightedRandomSample(working, LAST_GOOD_RELAYS_MAX)) push(url)
 	}
 	// 公共核心始终尝试
 	const core = []
 	{
 		const reach = getReachPeerRelays(nodeHash)
-		if (reach.length) for (const { url } of reach.slice(0, 4)) core.push(url)
-		else for (const entry of getWorkingRelays().slice(0, 4)) core.push(entry.url)
+		if (reach.length) for (const { url } of reach.slice(0, ROUND0_TARGET_COUNT)) core.push(url)
+		else for (const entry of getWorkingRelays().slice(0, ROUND0_TARGET_COUNT)) core.push(entry.url)
 	}
 	for (const url of core) push(url)
 
@@ -195,7 +198,7 @@ export function handshakeTargets(nodeHash, attempt) {
 function recordPeerRouteLastGood(nodeHash, okRelays) {
 	const route = getPeerRoute(nodeHash)
 	const merged = [...route?.lastGoodNostrRelays || [], ...okRelays]
-	const unique = [...new Set(merged)].slice(0, 16)
+	const unique = [...new Set(merged)].slice(0, LAST_GOOD_RELAYS_MAX)
 	setPeerRoute(nodeHash, { lastGoodNostrRelays: unique })
 }
 
@@ -230,9 +233,21 @@ export async function routePublishEvent(toNodeHash, event, signal) {
 		if (attempt >= MAX_ROUTING_ATTEMPTS - 1) return false
 		if (signal?.aborted) return false
 		await new Promise(resolve => {
-			const timer = setTimeout(resolve, delayMs)
+			/**
+			 * 处理 abort 事件：清理定时器与监听器后立即结算。
+			 * @returns {void}
+			 */
+			const onAbort = () => {
+				clearTimeout(timer)
+				signal?.removeEventListener('abort', onAbort)
+				resolve()
+			}
+			const timer = setTimeout(() => {
+				signal?.removeEventListener('abort', onAbort)
+				resolve()
+			}, delayMs)
 			timer.unref?.()
-			signal?.addEventListener('abort', () => { clearTimeout(timer); resolve() }, { once: true })
+			signal?.addEventListener('abort', onAbort, { once: true })
 		})
 	}
 	return false

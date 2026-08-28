@@ -1,31 +1,7 @@
 import { test } from 'node:test'
 
 import { assert, assertEquals } from '../helpers/assert.mjs'
-
-/**
- * 初始化 relay 测试状态。
- * @returns {Promise<object>} relay 模块
- */
-async function setup() {
-	const relays = await import('../../discovery/nostr/relays.mjs')
-	let data = null
-	relays.setRelayStorageIOForTests({
-		/**
-		 * 读取测试存储。
-		 * @returns {object | null} 存储数据
-		 */
-		read: () => data,
-		/**
-		 *
-		 * @param {object} value 存储数据
-		 * @returns {void}
-		 */
-		write: value => { data = value }
-	})
-	relays.resetNostrRelaysForTests()
-	relays.loadRelayPool()
-	return relays
-}
+import { setupRelayTests } from '../helpers/relay_test_setup.mjs'
 
 test('backoffDelay exponentiates and caps', async () => {
 	const { backoffDelay } = await import('../../discovery/nostr/selection.mjs')
@@ -37,7 +13,7 @@ test('backoffDelay exponentiates and caps', async () => {
 })
 
 test('handshakeTargets round 0 prefers peer listen relays then local working', async () => {
-	const relays = await setup()
+	const { relays } = await setupRelayTests()
 	const selection = await import('../../discovery/nostr/selection.mjs')
 	relays.setPeerRoute('11'.repeat(32), { listenRelays: ['wss://peer-1.example.com', 'wss://peer-2.example.com', 'wss://peer-3.example.com', 'wss://peer-4.example.com', 'wss://peer-5.example.com'], peerPool: [{ url: 'wss://peer-1.example.com', rttMs: 10 }] })
 	const { urls } = selection.handshakeTargets('11'.repeat(32), 0)
@@ -70,7 +46,7 @@ test('weightedRandomSample biases toward low-rtt relays', async () => {
 })
 
 test('expandFromHistory fills from history then peer reach then working', async () => {
-	const relays = await setup()
+	const { relays } = await setupRelayTests()
 	const { expandFromHistory, getReachPeerRelays } = await import('../../discovery/nostr/selection.mjs')
 	relays.setPeerRoute('33'.repeat(32), {
 		listenRelays: ['wss://peer-a.example.com'],
@@ -85,7 +61,7 @@ test('expandFromHistory fills from history then peer reach then working', async 
 })
 
 test('handshakeTargets round 1+ expands from lastGood and caps fanout', async () => {
-	const relays = await setup()
+	const { relays } = await setupRelayTests()
 	const { MAX_ROUTING_FANOUT } = await import('../../discovery/nostr/constants.mjs')
 	const { handshakeTargets } = await import('../../discovery/nostr/selection.mjs')
 	// 历史 40 条 + 对端 listen
@@ -101,7 +77,7 @@ test('handshakeTargets round 1+ expands from lastGood and caps fanout', async ()
 })
 
 test('routePublishEvent returns false with no targets', async () => {
-	const relays = await setup()
+	const { relays } = await setupRelayTests()
 	relays.clearRelayPoolForTests()
 	const { routePublishEvent } = await import('../../discovery/nostr/selection.mjs')
 	const ok = await routePublishEvent('55'.repeat(32), { id: 'a'.repeat(64) })

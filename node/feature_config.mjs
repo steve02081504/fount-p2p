@@ -15,11 +15,10 @@ export function defaultP2PFeatures() {
 
 /**
  * 归一化 feature map：已知 key 用默认值，patch 中未知 key 原样透传（值必须为 boolean）。
- * @param {Record<string, boolean> | undefined | null} [patch] 部分 feature 覆盖
+ * @param {Record<string, boolean>} [patch] 部分 feature 覆盖
  * @returns {Record<string, boolean>} 完整 boolean feature map
  */
 export function resolveP2PFeatures(patch = {}) {
-	if (!patch || typeof patch !== 'object') return defaultP2PFeatures()
 	/** @type {Record<string, boolean>} */
 	const out = defaultP2PFeatures()
 	for (const [key, value] of Object.entries(patch)) {

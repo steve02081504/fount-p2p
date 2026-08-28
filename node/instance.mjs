@@ -1,7 +1,7 @@
 import path from 'node:path'
 
 import { createFsEntityStore } from './entity_store.mjs'
-import { defaultP2PFeatures, resolveP2PFeatures } from './feature_config.mjs'
+import { resolveP2PFeatures } from './feature_config.mjs'
 import { closeAllFileStreams } from './handles.mjs'
 import { defaultSignalingRuntimeConfig, resolveSignalingRuntimeConfig } from './signaling_config.mjs'
 
@@ -119,7 +119,7 @@ export function setP2PFeatures(config) {
  * @returns {Record<string, boolean>} 当前包级 feature map
  */
 export function getP2PFeatures() {
-	return runtime?.features ? { ...runtime.features } : defaultP2PFeatures()
+	return { ...getNode().features }
 }
 
 /**

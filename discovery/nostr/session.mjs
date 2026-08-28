@@ -23,7 +23,6 @@ const NOSTR_IDLE_DROP_MS = 2_000
 export function dedupeRelayUrls(urls) {
 	const seen = new Set()
 	return (urls || [])
-		.map(url => String(url || ''))
 		.filter(url => url && !seen.has(url) && (seen.add(url), true))
 }
 
@@ -105,7 +104,7 @@ export function connectRelay(relayUrl, timeoutMs = NOSTR_CONNECT_TIMEOUT_MS, sig
  * @param {string} relayUrl 中继 URL
  * @param {object} event 待发布事件
  * @param {AbortSignal} [signal] 取消信号
- * @param {() => boolean} [isCurrent] 该尝试是否仍是 publishRequest 的当前尝试（断线重发后过期）
+ * @param {() => boolean} isCurrent 该尝试是否仍是 publishRequest 的当前尝试（断线重发后过期）
  * @returns {Promise<boolean>} relay 是否接受 EVENT
  */
 function publishEventOnRelay(ws, relayUrl, event, signal, isCurrent) {
@@ -267,6 +266,8 @@ function clearSharedRelayReconnect(session) {
  */
 function attachSharedRelaySocket(relayUrl, session, ws) {
 	session.ws = ws
+	// 提升监听器上限：每个并发 publish 的临时 message 监听 + 会话自身监听，避免 MaxListenersExceededWarning。
+	ws.setMaxListeners(session.pendingPublishes.length + session.inflightPublishes.length + 8)
 	nodeDebug('p2p:nostr relay up', { url: relayUrl })
 	ws.on('message', data => {
 		let parsed
