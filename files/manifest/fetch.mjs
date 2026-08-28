@@ -45,15 +45,14 @@ export async function fetchManifest(context) {
 		: DEFAULT_MANIFEST_FETCH_TIMEOUT_MS
 	const expectedKey = manifestFetchExpectedKey(ownerEntityHash, logicalPath)
 	const wantCache = context.cache === true
-	const targeted = Array.isArray(context.fanoutTargets) && context.fanoutTargets.length > 0
+	const targeted = Array.isArray(context.fanoutTargets)
 	const fanoutTargets = targeted ? canonicalizeFanoutTargets(context.fanoutTargets) : undefined
-	const mode = targeted ? 'targeted' : 'public'
 
 	// 先同步挂 in-flight，再读本地 — 避免并发调用在 await 间隙各自 start（本地慢读可能晚于对端结算）。
 	const localPromise = loadFileManifest(ownerEntityHash, logicalPath)
 	const shared = beginFedFanoutFetch({
 		inflight: manifestInflight,
-		inflightKey: `${username}\0${expectedKey}\0${mode}` + (fanoutTargets?.length ? `\0${fanoutTargets.join('\0')}` : ''),
+		inflightKey: `${username}\0${expectedKey}\0${targeted ? 'targeted' : 'public'}` + (fanoutTargets?.length ? `\0${fanoutTargets.join('\0')}` : ''),
 		username,
 		action: 'fed_manifest_get',
 		/**
@@ -68,12 +67,10 @@ export async function fetchManifest(context) {
 		),
 		/**
 		 * @param {string} requestId 请求 id
-		 * @param {string} nodeHash 目标节点 hash
 		 * @returns {object} fanout 载荷
 		 */
-		buildPayload: (requestId, nodeHash) => ({
+		buildPayload: requestId => ({
 			requestId,
-			nodeHash,
 			ownerEntityHash,
 			logicalPath,
 		}),
@@ -125,7 +122,7 @@ export async function cachePublicManifest(ownerEntityHash, logicalPath, incoming
  * 响应 fed_manifest_get：public 只回验签公开清单；非 public 经 ACL servicer 授权后回完整清单。
  * @param {object} payload 请求
  * @param {(response: object, peerId: string) => void} sendResponse 发送
- * @param {string} peerId 对端（传输层认证的发送方 nodeHash）
+ * @param {string} peerId 对端（传输层认证的发送方 nodeHash，即 requesterNodeHash）
  * @returns {Promise<void>}
  */
 export async function handleIncomingManifestGet(payload, sendResponse, peerId) {
@@ -139,8 +136,6 @@ export async function handleIncomingManifestGet(payload, sendResponse, peerId) {
 	const requestId = String(payload?.requestId || '')
 	if (!requestId) return
 	const { entityHash: ownerEntityHash } = parsedOwner
-	// 自报 nodeHash 不可信：声明身份与传输层认证的发送方不一致时直接拒绝。
-	if (payload?.nodeHash && payload.nodeHash !== peerId) return
 
 	const raw = await getEntityStore().readManifest(ownerEntityHash, logicalPath)
 	const manifest = normalizeFileManifest(raw)

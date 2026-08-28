@@ -35,13 +35,14 @@ export function canonicalizeFanoutTargets(targets) {
  * @param {string} username 用户
  * @param {string} action wire action 名
  * @param {object} payload 请求载荷
- * @param {string[]} [fanoutTargets] 显式目标节点集（非 public manifest 的授权边界）；存在时只发目标集，不走 node-scope
+ * @param {string[]} [fanoutTargets] 显式目标节点集（非 public manifest 的授权边界）；提供时（含空/全非法集）只发目标集，不走 node-scope
  * @returns {Promise<void>}
  */
 export async function fanoutFedFetch(username, action, payload, fanoutTargets) {
 	const trustGraph = requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER)
-	if (fanoutTargets?.length) {
+	if (fanoutTargets !== undefined) {
 		// 定向：只发显式目标集（非 public manifest 的授权边界）。
+		// 空/全非法集也视为定向——调用方显式提供目标集即声明授权边界，不发 node-scope。
 		// 依赖已有链路/群房间投递，不主动拨号——目标本就是已授权成员，无通道即不应服务。
 		const graph = await trustGraph.buildMergedGraph(username)
 		for (const nodeHash of canonicalizeFanoutTargets(fanoutTargets))

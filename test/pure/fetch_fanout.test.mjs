@@ -90,3 +90,19 @@ test('fanoutFedFetch without targets keeps node-scope fanoutToTopNodes', async (
 		await teardownTestNodeDir(nodeDirectory)
 	}
 })
+
+test('fanoutFedFetch with invalid-only targets sends nothing, no node-scope fanout', async () => {
+	const nodeDirectory = await mkTestNodeDir('fount-fetch-fanout-invalid-')
+	initTestP2pNode({ nodeDir: nodeDirectory })
+	const mock = createMockTrustGraph()
+	registerTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER, mock.provider)
+	try {
+		const payload = { requestId: 'r3', nodeHash: 'self' }
+		await fanoutFedFetch('u', 'fed_manifest_get', payload, ['not-hex', '', '0x' + 'a'.repeat(64)])
+		assertEquals(mock.sent.length, 0)
+		assertEquals(mock.fanouts.length, 0)
+	}
+	finally {
+		await teardownTestNodeDir(nodeDirectory)
+	}
+})
