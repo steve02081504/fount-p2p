@@ -120,7 +120,7 @@ export function normalizeNostrRelayUrl(raw) {
 	let url
 	try { url = new URL(value) } catch { return null }
 	if (url.protocol === 'ws:') {
-		const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+		const host = url.hostname.toLowerCase().replace(/^\[|]$/g, '')
 		const isLoopback = host === 'localhost' || host === '::1' || /^127\./.test(host)
 		if (!isLoopback) return null
 	}
@@ -142,7 +142,7 @@ export function normalizeNostrRelayUrl(raw) {
  */
 function isPublicRelayUrl(normalizedUrl) {
 	let hostname
-	try { hostname = new URL(normalizedUrl).hostname.toLowerCase().replace(/^\[|\]$/g, '') } catch { return false }
+	try { hostname = new URL(normalizedUrl).hostname.toLowerCase().replace(/^\[|]$/g, '') } catch { return false }
 	if (!hostname) return false
 	if (hostname.endsWith('.')) return false
 	if (['localhost', '::1', '::', '0.0.0.0'].includes(hostname)) return false
@@ -151,12 +151,12 @@ function isPublicRelayUrl(normalizedUrl) {
 	if (/^(192\.0\.0\.|192\.0\.2\.|198\.(18|19)\.|203\.0\.113\.|198\.51\.100\.|224\.|225\.|226\.|227\.|228\.|229\.|230\.|231\.|232\.|233\.|234\.|235\.|236\.|237\.|238\.|239\.|240\.|241\.|242\.|243\.|244\.|245\.|246\.|247\.|248\.|249\.|250\.|251\.|252\.|253\.|254\.|255\.)/.test(hostname)) return false
 	if (/^fe[89ab][\da-f]:/i.test(hostname) || /^f[cd][\da-f]:/i.test(hostname) || /^fec0:/i.test(hostname)) return false
 	if (/^2001:db8:/i.test(hostname) || /^ff[\da-f]{2}:/i.test(hostname)) return false
-	if (/^::ffff:[\da-f.]+$/i.test(hostname)) {
+	if (/^::ffff:[\d.a-f]+$/i.test(hostname)) {
 		const ipv4 = hostname.replace(/^::ffff:/i, '')
-		if (/^\d+\.\d+\.\d+\.\d+$/.test(ipv4)) return isPublicRelayUrl(`ws://${ipv4}`)
+		if (/^(?:\d+\.){3}\d+$/.test(ipv4)) return isPublicRelayUrl(`ws://${ipv4}`)
 		return false
 	}
-	if (/^::\d+\.\d+\.\d+\.\d+$/i.test(hostname)) return false
+	if (/^:{2}(?:\d+\.){3}\d+$/i.test(hostname)) return false
 	return true
 }
 
@@ -178,7 +178,7 @@ function locallyAllowedRelayUrls() {
  */
 export async function lookupRelayHost(relayUrl) {
 	let hostname
-	try { hostname = new URL(relayUrl).hostname.toLowerCase().replace(/^\[|\]$/g, '') } catch { return null }
+	try { hostname = new URL(relayUrl).hostname.toLowerCase().replace(/^\[|]$/g, '') } catch { return null }
 	if (!hostname || hostname.endsWith('.')) return null
 	if (isIP(hostname)) return { hostname, addresses: [hostname] }
 	try {
