@@ -30,21 +30,21 @@ function createMockTrustGraph() {
 		fanouts,
 		provider: {
 			/**
-			 *
+			 * @returns {Promise<Map<string, object>>} 空信任图
 			 */
 			async buildMergedGraph() { return new Map() },
 			/**
-			 *
-			 * @param _username
-			 * @param nodeHash
+			 * @param {string} username 用户名（占位未使用）
+			 * @param {string} nodeHash 目标 nodeHash
+			 * @returns {Promise<boolean>} 是否发送成功
 			 */
-			async sendToNode(_username, nodeHash) { sent.push({ nodeHash }); return true },
+			async sendToNode(username, nodeHash) { sent.push({ nodeHash }); return true },
 			/**
-			 *
-			 * @param username
-			 * @param action
-			 * @param payload
-			 * @param limit
+			 * @param {string} username 用户名
+			 * @param {string} action 动作名
+			 * @param {object} payload 负载
+			 * @param {number} limit 扇出上限
+			 * @returns {Promise<number>} 扇出数量
 			 */
 			async fanoutToTopNodes(username, action, payload, limit) {
 				fanouts.push({ username, action, payload, limit })
