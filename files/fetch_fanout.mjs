@@ -1,4 +1,5 @@
 import { FEDERATION_CHUNK_FETCH_FANOUT_K } from '../core/constants.mjs'
+import { isHex64 } from '../core/hexIds.mjs'
 import { loadNetwork } from '../node/network.mjs'
 import { ensureLinkToNode, listLinks } from '../transport/link_registry.mjs'
 import { DEFAULT_TRUST_GRAPH_OWNER, requireTrustGraphProvider } from '../trust_graph/registry.mjs'
@@ -25,10 +26,20 @@ function fetchPeerTargets() {
  * @param {string} username 用户
  * @param {string} action wire action 名
  * @param {object} payload 请求载荷
+ * @param {string[]} [targets] 显式目标节点集（非 public manifest 的授权边界）；存在时只发目标集，不走 node-scope
  * @returns {Promise<void>}
  */
-export async function fanoutFedFetch(username, action, payload) {
+export async function fanoutFedFetch(username, action, payload, targets) {
 	const tg = requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER)
+	if (targets?.length) {
+		// 定向：只发显式目标集（非 public manifest 的授权边界）。
+		// 依赖已有链路/群房间投递，不主动拨号——目标本就是已授权成员，无通道即不应服务。
+		const graph = await tg.buildMergedGraph(username)
+		for (const nodeHash of [...new Set(targets.filter(isHex64))])
+			void tg.sendToNode(username, nodeHash, action, payload, graph)
+		return
+	}
+
 	const graph = await tg.buildMergedGraph(username)
 	const peerTargets = fetchPeerTargets()
 	await Promise.all(peerTargets.map(nodeHash => ensureLinkToNode(nodeHash).catch(() => null)))

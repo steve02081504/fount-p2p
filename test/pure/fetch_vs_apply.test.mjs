@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 
-import { cachePublicManifest, fetchPublicManifest } from '../../files/manifest/fetch.mjs'
+import { cachePublicManifest, fetchManifest } from '../../files/manifest/fetch.mjs'
 import { buildUnverifiedSlashAlert } from '../../node/reputation_store.mjs'
 
 test('buildUnverifiedSlashAlert builds volatile slash alert', () => {
@@ -13,7 +13,7 @@ test('buildUnverifiedSlashAlert builds volatile slash alert', () => {
 	assert.equal(alert.sender, sender)
 })
 
-test('fetchPublicManifest and cachePublicManifest are separate exports', () => {
-	assert.equal(typeof fetchPublicManifest, 'function')
+test('fetchManifest and cachePublicManifest are separate exports', () => {
+	assert.equal(typeof fetchManifest, 'function')
 	assert.equal(typeof cachePublicManifest, 'function')
 })

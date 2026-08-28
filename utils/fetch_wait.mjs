@@ -3,14 +3,14 @@
  * @template T
  * @param {{ maxSize: number }} options 容量
  * @returns {{
- *   pending: Map<string, { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void } }>,
+ *   pending: Map<string, { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void }, options: Record<string, unknown> }>,
  *   register: (key: string, expectedKey: string, timeoutMs: number, options?: { rejectOnTimeout?: boolean }) => { done: Promise<T | null>, cancel: () => void },
- *   peek: (key: string) => { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void } } | undefined,
+ *   peek: (key: string) => { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void }, options: Record<string, unknown> } | undefined,
  *   settle: (key: string, value: T | null | Error) => boolean,
  * }} 等待表 API
  */
 export function createFetchWaitTable({ maxSize }) {
-	/** @type {Map<string, { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void } }>} */
+	/** @type {Map<string, { expectedKey: string, timer: ReturnType<typeof setTimeout>, finish: (value: T | null | Error) => void, handle: { done: Promise<T | null>, cancel: () => void }, options: Record<string, unknown> }>} */
 	const pending = new Map()
 
 	/**
@@ -80,8 +80,8 @@ export function createFetchWaitTable({ maxSize }) {
 				/** @returns {void} 取消等待 */
 				cancel: () => settle(key, null),
 			}
-			pending.set(key, { expectedKey, timer, finish, handle })
-			return handle
+pending.set(key, { expectedKey, timer, finish, handle, options })
+		return handle
 		},
 
 		/**

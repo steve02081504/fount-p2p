@@ -13,6 +13,7 @@ import { fanoutFedFetch } from '../fetch_fanout.mjs'
  *   action: string,
  *   registerWait: (requestId: string) => { done: Promise<T | null>, cancel: () => void },
  *   buildPayload: (requestId: string, nodeHash: string) => object,
+ *   fanoutTargets?: string[],
  * }} options 选项
  * @returns {Promise<T | null> | null} 共享 Promise；队满为 null
  */
@@ -23,6 +24,7 @@ export function beginFedFanoutFetch({
 	action,
 	registerWait,
 	buildPayload,
+	fanoutTargets,
 }) {
 	return inflight.acquire(inflightKey, () => {
 		const requestId = randomUUID()
@@ -30,7 +32,7 @@ export function beginFedFanoutFetch({
 		void (async () => {
 			try {
 				const { nodeHash } = await resolveNodeHash(username)
-				await fanoutFedFetch(username, action, buildPayload(requestId, nodeHash))
+				await fanoutFedFetch(username, action, buildPayload(requestId, nodeHash), fanoutTargets)
 			}
 			catch { /* pending wait 超时/cancel 负责 settle */ }
 		})()
