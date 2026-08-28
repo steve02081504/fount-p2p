@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer'
 import { lookup } from 'node:dns/promises'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
+import { isIP } from 'node:net'
 
 import WebSocket from 'ws'
 
@@ -79,6 +80,8 @@ const NIP66_PROBE_BATCH_SIZE = 8
 let poolEntries = new Map()
 /** @type {Map<string, PeerRoute>} */
 let peerRoutes = new Map()
+/** @type {Set<string>} 提供方显式配置的 relay（本机配置来源，受信）。 */
+const providerTrustedRelayUrls = new Set()
 /** @type {boolean} */
 let dirty = false
 /** @type {ReturnType<typeof setTimeout> | null} */
@@ -116,15 +119,12 @@ export function normalizeNostrRelayUrl(raw) {
 	if (!value) return null
 	let url
 	try { url = new URL(value) } catch { return null }
-	if (url.protocol === 'wss:') {
-		// ok
-	}
-	else if (url.protocol === 'ws:') {
-		const host = url.hostname.toLowerCase()
+	if (url.protocol === 'ws:') {
+		const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
 		const isLoopback = host === 'localhost' || host === '::1' || /^127\./.test(host)
 		if (!isLoopback) return null
 	}
-	else return null
+	else if (url.protocol !== 'wss:') return null
 
 	if (!url.hostname) return null
 	url.hostname = url.hostname.toLowerCase()
@@ -176,12 +176,11 @@ function locallyAllowedRelayUrls() {
  * @param {string} relayUrl relay URL（ws/wss/http/https 均可）
  * @returns {Promise<{ hostname: string, addresses: string[] } | null>} 解析结果；解析失败为 null
  */
-async function lookupRelayHost(relayUrl) {
+export async function lookupRelayHost(relayUrl) {
 	let hostname
 	try { hostname = new URL(relayUrl).hostname.toLowerCase().replace(/^\[|\]$/g, '') } catch { return null }
 	if (!hostname || hostname.endsWith('.')) return null
-	const isIpLiteral = /^[\d.]+$/.test(hostname) || /^[0-9a-f:]+$/i.test(hostname)
-	if (isIpLiteral) return { hostname, addresses: [hostname] }
+	if (isIP(hostname)) return { hostname, addresses: [hostname] }
 	try {
 		const records = await lookup(hostname, { all: true })
 		if (!records.length) return null
@@ -219,22 +218,26 @@ export async function resolveRelayConnectTarget(relayUrl) {
 }
 
 /**
- * 本机/提供方显式配置的 relay 的受控连接目标：不做公网校验（信任来自配置来源），
- * 但仍经受控 lookup 解析并钉住地址，避免 ws 对同一 hostname 的第二次不受控解析。
- * @param {string} relayUrl 规范化 relay URL
- * @returns {Promise<{ hostname: string, addresses: string[] } | null>} 连接目标；解析失败为 null
+ * 注册提供方显式配置的 relay（本机配置来源，视为受信）。
+ * 仅注册静态 relayUrls；getRelayUrls() 输出的动态集（含 getListenRelays nip66）不入受信集，仍走公网校验。
+ * @param {string[]} urls relay URL 列表
+ * @returns {void}
  */
-export async function resolveTrustedRelayConnectTarget(relayUrl) {
-	return lookupRelayHost(relayUrl)
+export function registerProviderTrustedRelayUrls(urls) {
+	for (const url of dedupeRelayUrls(urls)) {
+		const normalized = normalizeNostrRelayUrl(url)
+		if (normalized) providerTrustedRelayUrls.add(normalized)
+	}
 }
 
 /**
- * 当前信任集：本机显式配置 ∪ NIP-66 引导集（含 pinned）。
+ * 当前信任集：本机显式配置 ∪ 提供方显式 relay ∪ NIP-66 引导集（含 pinned）。
  * @returns {Set<string>} 信任的规范化 relay URL
  */
 function currentTrustedRelayUrls() {
 	return new Set([
 		...locallyAllowedRelayUrls(),
+		...providerTrustedRelayUrls,
 		...bootstrapRelaysOverride.length ? bootstrapRelaysOverride : NIP66_BOOTSTRAP_RELAYS,
 		...getPinnedRelays(),
 	])
@@ -1039,6 +1042,7 @@ export function clearRelayPoolForTests() {
 	}
 	poolEntries = new Map()
 	peerRoutes = new Map()
+	providerTrustedRelayUrls.clear()
 	dirty = false
 }
 
@@ -1050,6 +1054,7 @@ export function resetNostrRelaysForTests() {
 	}
 	poolEntries = new Map()
 	peerRoutes = new Map()
+	providerTrustedRelayUrls.clear()
 	dirty = false
 	seedPublicDefaults()
 }

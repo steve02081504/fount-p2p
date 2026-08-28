@@ -180,11 +180,11 @@ export async function routePublishEvent(toNodeHash, event, signal) {
 		if (signal?.aborted) return false
 		const { urls, backoffDelay: delayMs } = handshakeTargets(toNodeHash, attempt)
 		if (!urls.length) return false
-		const resolved = await Promise.all(urls.map(url => resolveRelayConnectTarget(url)))
-		const valid = urls.map((url, index) => ({ url, target: resolved[index] })).filter(entry => entry.target)
+		const valid = (await Promise.all(urls.map(async url => ({ url, target: await resolveRelayConnectTarget(url) }))))
+			.filter(entry => entry.target)
 		if (!valid.length) return false
 		const targets = valid.map(entry => entry.url)
-		const results = await Promise.allSettled(valid.map(entry => publishViaSharedRelay(entry.url, event, signal, entry.target)))
+		const results = await Promise.allSettled(valid.map(({ url, target }) => publishViaSharedRelay(url, event, signal, target)))
 		const okRelays = targets.filter((_, index) => {
 			const result = results[index]
 			return result.status === 'fulfilled' && result.value === true

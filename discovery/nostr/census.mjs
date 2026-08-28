@@ -27,7 +27,7 @@ import {
 	estimatePopulation,
 	nextInclusionProbability,
 } from './census_math.mjs'
-import { resolveTrustedRelayConnectTarget } from './relays.mjs'
+import { resolveRelayConnectTarget } from './relays.mjs'
 
 /** Nostr census 事件 kind（每节点每窗口至多一条，按 nodeHash 去重）。 */
 export const NOSTR_CENSUS_KIND = 30789
@@ -220,7 +220,7 @@ export function createNostrCensus(deps) {
 			kind: NOSTR_CENSUS_KIND,
 			rendezvousKey: CENSUS_TAG_FOUNT,
 			tagX: CENSUS_TAG_X,
-			resolveConnectTarget: resolveTrustedRelayConnectTarget,
+			resolveConnectTarget: resolveRelayConnectTarget,
 			/**
 			 * @param {Uint8Array} bytes content 字节
 			 * @returns {Promise<void>}

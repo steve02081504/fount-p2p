@@ -125,6 +125,7 @@ function connectRelay() {
 	connection.onmessage = rawMessage => {
 		if (connection !== webSocket || !enabled) return
 		if (inflightVerifications >= MAX_INFLIGHT_VERIFICATIONS) return
+		if (typeof rawMessage.data !== 'string' || rawMessage.data.length > MAX_FRAME_BYTES) return
 		let parsed
 		try { parsed = JSON.parse(String(rawMessage.data)) } catch { return }
 		if (parsed?.[0] !== 'EVENT' || parsed[1] !== CENSUS_SUB_ID) return

@@ -25,9 +25,10 @@ import {
 	getPeerRoute,
 	getPoolByUrl,
 	isRelayDestinationAllowed,
+	lookupRelayHost,
 	probeRelay,
+	registerProviderTrustedRelayUrls,
 	resolveRelayConnectTarget,
-	resolveTrustedRelayConnectTarget,
 	setPeerRoute,
 	upsertRelay,
 } from './relays.mjs'
@@ -216,7 +217,7 @@ async function publishEvent(relayUrls, event, signal) {
 	let lastError = null
 	await Promise.allSettled(urls.map(async relayUrl => {
 		try {
-			const connectTarget = await resolveTrustedRelayConnectTarget(relayUrl)
+			const connectTarget = await resolveRelayConnectTarget(relayUrl)
 			if (!connectTarget) return
 			if (await publishViaSharedRelay(relayUrl, event, signal, connectTarget)) published = true
 		}
@@ -234,6 +235,7 @@ async function publishEvent(relayUrls, event, signal) {
  */
 export function createNostrDiscoveryProvider(options = {}) {
 	const hasExplicitRelay = options.relayUrls != null || !!options.getRelayUrls
+	if (options.relayUrls != null) registerProviderTrustedRelayUrls(options.relayUrls)
 	/** @returns {string[]} 去重后的中继 URL 列表 */
 	const resolveRelayUrls = () => {
 		if (options.getRelayUrls) return dedupeRelayUrls(options.getRelayUrls() ?? DEFAULT_RELAY_URLS)
@@ -293,7 +295,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 				rendezvousKey: bind.rendezvousKey,
 				tagX: 'advert',
 				addressable: true,
-				resolveConnectTarget: resolveTrustedRelayConnectTarget,
+				resolveConnectTarget: lookupRelayHost,
 				/**
 				 * @param {Uint8Array} bytes 加密 advert 载荷
 				 * @param {object} meta relay 元数据
@@ -522,7 +524,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 				kind: NOSTR_SIGNAL_KIND,
 				rendezvousKey,
 				tagX: 'signal',
-				resolveConnectTarget: resolveTrustedRelayConnectTarget,
+				resolveConnectTarget: lookupRelayHost,
 				onPayload: onSignal,
 			})
 			nodeSignalSubs.set(hash, stop)

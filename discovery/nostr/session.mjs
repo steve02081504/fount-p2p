@@ -112,6 +112,10 @@ export function connectRelay(relayUrl, timeoutMs = NOSTR_CONNECT_TIMEOUT_MS, sig
 			let wsOptions
 			try {
 				const target = typeof connectTarget === 'function' ? await connectTarget(relayUrl) : connectTarget
+				if (connectTarget != null && (!target || !target.addresses?.length)) {
+					fail(new Error(`nostr: connect target resolution returned empty for ${relayUrl}`))
+					return
+				}
 				if (target) wsOptions = { lookup: pinnedLookup(target.addresses) }
 			}
 			catch (error) {

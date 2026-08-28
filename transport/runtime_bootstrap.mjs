@@ -167,8 +167,9 @@ export function createRuntimeBootstrap(deps) {
 			tcpPort ?? undefined,
 			scope === 'network'
 				? {
-					pool: getWorkingRelays().slice(0, MAX_ADVERT_RELAY_POOL)
+					pool: getWorkingRelays()
 						.filter(entry => entry.rttMs != null)
+						.slice(0, MAX_ADVERT_RELAY_POOL)
 						.map(entry => ({ url: entry.url, rttMs: entry.rttMs })),
 					listen: getListenRelays().map(entry => entry.url),
 				}
