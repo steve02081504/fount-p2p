@@ -139,7 +139,7 @@ export function normalizeNostrRelayUrl(raw) {
  */
 function isPublicRelayUrl(normalizedUrl) {
 	let hostname
-	try { hostname = String(new URL(normalizedUrl).hostname || '').toLowerCase().replace(/^\[|]$/g, '') } catch { return false }
+	try { hostname = new URL(normalizedUrl).hostname.toLowerCase().replace(/^\[|]$/g, '') } catch { return false }
 	if (!hostname) return false
 	if (hostname.endsWith('.')) return false
 	if (['localhost', '::1', '::', '0.0.0.0'].includes(hostname)) return false
@@ -175,7 +175,7 @@ function locallyAllowedRelayUrls() {
  */
 async function relayUrlResolvesPublic(relayUrl) {
 	let hostname
-	try { hostname = String(new URL(relayUrl).hostname || '').toLowerCase().replace(/^\[|]$/g, '') } catch { return false }
+	try { hostname = new URL(relayUrl).hostname.toLowerCase().replace(/^\[|]$/g, '') } catch { return false }
 	if (!hostname || hostname.endsWith('.')) return false
 	const isIpLiteral = /^[\d.]+$/.test(hostname) || /^[0-9a-f:]+$/i.test(hostname)
 	if (isIpLiteral) return isPublicRelayUrl(relayUrl)
@@ -664,18 +664,24 @@ async function queryRelayInfo(relayUrl, signal) {
 	const timer = setTimeout(() => controller.abort(), 4_000)
 	timer.unref?.()
 	signal?.addEventListener('abort', onAbort, { once: true })
+	const maxRedirects = 5
 	try {
-		let response = await fetch(httpUrl, { headers: { Accept: 'application/nostr+json' }, signal: controller.signal, redirect: 'manual' })
-		if (response.status >= 300 && response.status < 400) {
-			const location = String(response.headers.get('location') || '')
-			if (!location) return { nips: [] }
-			let target
-			try { target = normalizeNostrRelayUrl(new URL(location, httpUrl).toString()) } catch { return { nips: [] } }
-			if (!target || !await relayUrlResolvesPublic(target)) return { nips: [] }
-			response = await fetch(target.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:'), { headers: { Accept: 'application/nostr+json' }, signal: controller.signal, redirect: 'follow' })
+		let url = httpUrl
+		for (let redirects = 0; ; redirects++) {
+			if (redirects > maxRedirects) return { nips: [] }
+			const response = await fetch(url, { headers: { Accept: 'application/nostr+json' }, signal: controller.signal, redirect: 'manual' })
+			if (response.status >= 300 && response.status < 400) {
+				const location = String(response.headers.get('location') || '')
+				if (!location) return { nips: [] }
+				let target
+				try { target = normalizeNostrRelayUrl(new URL(location, url).toString()) } catch { return { nips: [] } }
+				if (!target || !await relayUrlResolvesPublic(target)) return { nips: [] }
+				url = target.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:')
+				continue
+			}
+			const info = await response.json()
+			return { nips: Array.isArray(info?.supported_nips) ? info.supported_nips.map(String) : [] }
 		}
-		const info = await response.json()
-		return { nips: Array.isArray(info?.supported_nips) ? info.supported_nips.map(String) : [] }
 	}
 	catch {
 		return { nips: [] }

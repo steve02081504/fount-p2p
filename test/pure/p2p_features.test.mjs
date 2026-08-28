@@ -20,12 +20,11 @@ test('resolveP2PFeatures overrides known default', () => {
 
 test('resolveP2PFeatures returns full snapshot copy', () => {
 	const patch = { census: true }
-	const defaults = defaultP2PFeatures()
 	const resolved = resolveP2PFeatures(patch)
 	resolved.census = false
 	assertEquals(resolved, { census: false })
 	assertEquals(patch, { census: true })
-	assertEquals(defaults, { census: true })
+	assertEquals(defaultP2PFeatures(), { census: true })
 	assertEquals(Object.isFrozen(resolved), false)
 })
 

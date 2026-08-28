@@ -19,7 +19,7 @@ const demoMode = params.get('demo') === '1' || !relayUrl
 
 /** @type {Map<string, { p: number, at: number }>} */
 const events = new Map()
-let ws = null
+let webSocket = null
 let enabled = true
 
 /**
@@ -95,46 +95,55 @@ function seedDemo() {
 		events.set((index + 1).toString(16).padStart(2, '0').repeat(32), { p: 0.1, at: Date.now() })
 	statusEl.textContent = '演示模式：20 条 p=0.1 样本（HT 估计 = 200）'
 	document.querySelector('#footer').textContent = '演示模式样本为虚构数据；添加 ?relay=wss://... 进入 live 模式。'
-	render()
 }
 
 /** @returns {void} 连接中继并订阅 */
 function connectRelay() {
-	if (ws) {
-		try { ws.close() } catch { /* ignore */ }
-		ws = null
+	if (webSocket) {
+		try { webSocket.close() } catch { /* ignore */ }
+		webSocket = null
 	}
 	if (!relayUrl || !enabled) return
 	statusEl.textContent = `连接 ${relayUrl} …`
-	ws = new WebSocket(relayUrl)
-	ws.onopen = () => {
-		ws.send(JSON.stringify(['REQ', CENSUS_SUB_ID, { kinds: [CENSUS_KIND], '#t': ['fount'], '#x': ['census'] }]))
+	const connection = new WebSocket(relayUrl)
+	webSocket = connection
+	connection.onopen = () => {
+		if (connection !== webSocket || !enabled) return
+		connection.send(JSON.stringify(['REQ', CENSUS_SUB_ID, { kinds: [CENSUS_KIND], '#t': ['fount'], '#x': ['census'] }]))
 		statusEl.textContent = `监听 ${relayUrl}（kind ${CENSUS_KIND}）`
 	}
 	/**
 	 * @param {MessageEvent} rawMessage 中继消息事件
 	 * @returns {Promise<void>}
 	 */
-	ws.onmessage = async rawMessage => {
+	connection.onmessage = async rawMessage => {
+		if (connection !== webSocket || !enabled) return
 		let parsed
 		try { parsed = JSON.parse(String(rawMessage.data)) } catch { return }
 		if (parsed?.[0] !== 'EVENT' || parsed[1] !== CENSUS_SUB_ID) return
 		if (parsed[2]?.kind !== CENSUS_KIND) return
 		try {
 			const verified = await verifyCensusPacket(JSON.parse(atob(parsed[2].content)))
+			if (connection !== webSocket || !enabled) return
 			if (verified) ingest(verified)
 		}
 		catch { /* ignore malformed */ }
 	}
-	ws.onclose = () => { statusEl.textContent = '已断开' }
-	ws.onerror = () => { statusEl.textContent = '中继连接失败' }
+	connection.onclose = () => {
+		if (connection !== webSocket || !enabled) return
+		statusEl.textContent = '已断开'
+	}
+	connection.onerror = () => {
+		if (connection !== webSocket || !enabled) return
+		statusEl.textContent = '中继连接失败'
+	}
 }
 
 toggleEl.addEventListener('change', () => {
 	enabled = toggleEl.checked
 	if (!enabled) {
 		events.clear()
-		if (ws) { try { ws.close() } catch { /* ignore */ } ws = null }
+		if (webSocket) { try { webSocket.close() } catch { /* ignore */ } webSocket = null }
 		statusEl.textContent = '已关闭'
 	}
 	else if (demoMode) seedDemo()
