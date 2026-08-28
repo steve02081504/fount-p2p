@@ -29,8 +29,23 @@ function createMockTrustGraph() {
 		sent,
 		fanouts,
 		provider: {
+			/**
+			 *
+			 */
 			async buildMergedGraph() { return new Map() },
+			/**
+			 *
+			 * @param _username
+			 * @param nodeHash
+			 */
 			async sendToNode(_username, nodeHash) { sent.push({ nodeHash }); return true },
+			/**
+			 *
+			 * @param username
+			 * @param action
+			 * @param payload
+			 * @param limit
+			 */
 			async fanoutToTopNodes(username, action, payload, limit) {
 				fanouts.push({ username, action, payload, limit })
 				return 0

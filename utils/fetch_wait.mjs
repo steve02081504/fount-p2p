@@ -80,8 +80,8 @@ export function createFetchWaitTable({ maxSize }) {
 				/** @returns {void} 取消等待 */
 				cancel: () => settle(key, null),
 			}
-pending.set(key, { expectedKey, timer, finish, handle, options })
-		return handle
+			pending.set(key, { expectedKey, timer, finish, handle, options })
+			return handle
 		},
 
 		/**

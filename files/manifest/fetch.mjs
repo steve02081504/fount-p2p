@@ -96,12 +96,12 @@ export async function fetchManifest(context) {
 
 	const result = await shared
 	if (!result) return null
-	if (wantCache || targeted) {
+	if (wantCache || targeted)
 		if (result.transferKeyDescriptor.type === 'public')
 			await cachePublicManifest(ownerEntityHash, logicalPath, result)
 		else if (!isWritableLocalEntity(ownerEntityHash))
 			await saveFileManifest(result)
-	}
+
 	return result
 }
 
