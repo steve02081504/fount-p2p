@@ -1,4 +1,6 @@
 import { lookup } from 'node:dns/promises'
+import { request as httpRequest } from 'node:http'
+import { request as httpsRequest } from 'node:https'
 
 import WebSocket from 'ws'
 
@@ -23,7 +25,7 @@ import {
 	STALE_PENALTY,
 	WORKING_RELAYS_COUNT,
 } from './constants.mjs'
-import { connectRelay, dedupeRelayUrls } from './session.mjs'
+import { connectRelay, dedupeRelayUrls, pinnedLookup } from './session.mjs'
 
 /** 默认公共中继（source='public'，永不淘汰）。 */
 export const DEFAULT_RELAY_URLS = [
@@ -169,25 +171,60 @@ function locallyAllowedRelayUrls() {
 }
 
 /**
+ * 解析 relay host 的全部地址（IP 字面量直接返回自身；hostname 经受控 lookup 解析）。
+ * @param {string} relayUrl relay URL（ws/wss/http/https 均可）
+ * @returns {Promise<{ hostname: string, addresses: string[] } | null>} 解析结果；解析失败为 null
+ */
+async function lookupRelayHost(relayUrl) {
+	let hostname
+	try { hostname = new URL(relayUrl).hostname.toLowerCase().replace(/^\[|\]$/g, '') } catch { return null }
+	if (!hostname || hostname.endsWith('.')) return null
+	const isIpLiteral = /^[\d.]+$/.test(hostname) || /^[0-9a-f:]+$/i.test(hostname)
+	if (isIpLiteral) return { hostname, addresses: [hostname] }
+	try {
+		const records = await lookup(hostname, { all: true })
+		if (!records.length) return null
+		return { hostname, addresses: records.map(record => record.address) }
+	}
+	catch { return null }
+}
+
+/**
  * 解析 relay host 的 DNS（全部记录须为公网地址）。IP 字面量直接判定；hostname 解析失败视为非公网。
- * @param {string} relayUrl 规范化 relay URL
+ * @param {string} relayUrl relay URL
  * @returns {Promise<boolean>} 解析到公网地址为 true
  */
 async function relayUrlResolvesPublic(relayUrl) {
-	let hostname
-	try { hostname = new URL(relayUrl).hostname.toLowerCase().replace(/^\[|\]$/g, '') } catch { return false }
-	if (!hostname || hostname.endsWith('.')) return false
-	const isIpLiteral = /^[\d.]+$/.test(hostname) || /^[0-9a-f:]+$/i.test(hostname)
-	if (isIpLiteral) return isPublicRelayUrl(relayUrl)
-	try {
-		const records = await lookup(hostname, { all: true })
-		if (!records.length) return false
-		return records.every(record => {
-			const candidate = `ws://${record.address}`
-			return isPublicRelayUrl(candidate)
-		})
-	}
-	catch { return false }
+	const resolved = await lookupRelayHost(relayUrl)
+	if (!resolved) return false
+	return resolved.addresses.every(address => isPublicRelayUrl(`ws://${address}`))
+}
+
+/**
+ * 解析 relay 连接目标：受信集（本机显式配置/引导集/固定）解析任意地址供连接钉 IP；
+ * 其余须为公网 hostname 且全部 DNS 记录解析为公网地址。返回的 addresses 用于连接时
+ * 钉住已验证的 IP，避免 ws/HTTP 对同一 hostname 做不受控的第二次解析（DNS 重绑定）。
+ * @param {string} relayUrl 规范化 relay URL
+ * @returns {Promise<{ hostname: string, addresses: string[] } | null>} 连接目标；不允许为 null
+ */
+export async function resolveRelayConnectTarget(relayUrl) {
+	if (!relayUrl) return null
+	const trusted = currentTrustedRelayUrls().has(relayUrl)
+	if (!trusted && !isPublicRelayUrl(relayUrl)) return null
+	const resolved = await lookupRelayHost(relayUrl)
+	if (!resolved) return null
+	if (!trusted && !resolved.addresses.every(address => isPublicRelayUrl(`ws://${address}`))) return null
+	return resolved
+}
+
+/**
+ * 本机/提供方显式配置的 relay 的受控连接目标：不做公网校验（信任来自配置来源），
+ * 但仍经受控 lookup 解析并钉住地址，避免 ws 对同一 hostname 的第二次不受控解析。
+ * @param {string} relayUrl 规范化 relay URL
+ * @returns {Promise<{ hostname: string, addresses: string[] } | null>} 连接目标；解析失败为 null
+ */
+export async function resolveTrustedRelayConnectTarget(relayUrl) {
+	return lookupRelayHost(relayUrl)
 }
 
 /**
@@ -628,11 +665,12 @@ export function setPeerRoute(nodeHash, patch) {
 export async function probeRelay(url, signal) {
 	const normalized = normalizeNostrRelayUrl(url)
 	if (!normalized) return null
-	if (!await isRelayDestinationAllowed(normalized)) return null
+	const connectTarget = await resolveRelayConnectTarget(normalized)
+	if (!connectTarget) return null
 	const startedAt = Date.now()
 	let ws = null
 	try {
-		ws = await connectRelay(normalized, PROBE_TIMEOUT_MS, signal)
+		ws = await connectRelay(normalized, PROBE_TIMEOUT_MS, signal, connectTarget)
 		const rttMs = Date.now() - startedAt
 		const info = await queryRelayInfo(normalized, signal)
 		recordProbeSuccess(normalized, rttMs)
@@ -646,6 +684,55 @@ export async function probeRelay(url, signal) {
 		if (ws && ws.readyState !== WebSocket.CLOSED)
 			try { ws.terminate() } catch { /* ignore */ }
 	}
+}
+
+/**
+ * 以钉死的地址发起 NIP-11 HTTP(S) GET（避免对已校验 hostname 做不受控的第二次解析）。
+ * @param {string} url HTTP(S) 目标
+ * @param {string[]} addresses 已校验/受控解析的地址
+ * @param {AbortSignal} signal 取消信号
+ * @returns {Promise<{ status: number, location: string, body: string }>} 响应概要
+ */
+function relayInfoRequest(url, addresses, signal) {
+	return new Promise((resolve, reject) => {
+		let parsed
+		try { parsed = new URL(url) } catch { reject(new Error('nostr: invalid relay info url')); return }
+		const isSecure = parsed.protocol === 'https:'
+		/**
+		 * @param {import('node:http').IncomingMessage} response 响应
+		 * @returns {void}
+		 */
+		const onResponse = response => {
+			const chunks = []
+			let total = 0
+			response.on('data', chunk => {
+				total += chunk.length
+				if (total > 64 * 1024) {
+					response.destroy()
+					reject(new Error('nostr: relay info response too large'))
+					return
+				}
+				chunks.push(chunk)
+			})
+			response.on('error', reject)
+			response.on('end', () => resolve({
+				status: response.statusCode || 0,
+				location: String(response.headers.location || ''),
+				body: Buffer.concat(chunks).toString('utf8'),
+			}))
+		}
+		const request = (isSecure ? httpsRequest : httpRequest)({
+			hostname: parsed.hostname,
+			port: parsed.port || (isSecure ? 443 : 80),
+			path: parsed.pathname + parsed.search,
+			method: 'GET',
+			headers: { Accept: 'application/nostr+json', Host: parsed.host },
+			lookup: pinnedLookup(addresses),
+			signal,
+		}, onResponse)
+		request.on('error', reject)
+		request.end()
+	})
 }
 
 /**
@@ -664,22 +751,30 @@ async function queryRelayInfo(relayUrl, signal) {
 	const timer = setTimeout(() => controller.abort(), 4_000)
 	timer.unref?.()
 	signal?.addEventListener('abort', onAbort, { once: true })
+	if (signal?.aborted) controller.abort()
 	const maxRedirects = 5
 	try {
 		let url = httpUrl
 		for (let redirects = 0; ; redirects++) {
 			if (redirects > maxRedirects) return { nips: [] }
-			const response = await fetch(url, { headers: { Accept: 'application/nostr+json' }, signal: controller.signal, redirect: 'manual' })
-			if (response.status >= 300 && response.status < 400) {
-				const location = String(response.headers.get('location') || '')
+			const resolved = await lookupRelayHost(url)
+			if (!resolved) return { nips: [] }
+			const { status, location, body } = await relayInfoRequest(url, resolved.addresses, controller.signal)
+			if (status >= 300 && status < 400) {
 				if (!location) return { nips: [] }
 				let target
-				try { target = normalizeNostrRelayUrl(new URL(location, url).toString()) } catch { return { nips: [] } }
-				if (!target || !await relayUrlResolvesPublic(target)) return { nips: [] }
-				url = target.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:')
+				try {
+					const targetUrl = new URL(location, url)
+					if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') return { nips: [] }
+					target = targetUrl.toString()
+				}
+				catch { return { nips: [] } }
+				if (!await relayUrlResolvesPublic(target)) return { nips: [] }
+				url = target
 				continue
 			}
-			const info = await response.json()
+			let info
+			try { info = JSON.parse(body) } catch { return { nips: [] } }
 			return { nips: Array.isArray(info?.supported_nips) ? info.supported_nips.map(String) : [] }
 		}
 	}
@@ -787,7 +882,9 @@ export async function discoverNostrRelays(options = {}) {
  * @returns {Promise<void>}
  */
 async function collectNip66Events(relayUrl, signal, onCandidate) {
-	const ws = await connectRelay(relayUrl, PROBE_TIMEOUT_MS, signal)
+	const connectTarget = await resolveRelayConnectTarget(relayUrl)
+	if (!connectTarget) return
+	const ws = await connectRelay(relayUrl, PROBE_TIMEOUT_MS, signal, connectTarget)
 	try {
 		const subId = 'nip66-' + Math.random().toString(36).slice(2)
 		const filters = [

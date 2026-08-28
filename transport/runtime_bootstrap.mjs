@@ -161,15 +161,19 @@ export function createRuntimeBootstrap(deps) {
 		await whenListening()
 		const tcpPort = lanTcpPort()
 		// 仅 network 域注入 relay 字段；LAN 域传空对象（签名消息仍含空的 relays: 段）。
-		const relayData = scope === 'network'
-			? {
-				pool: getWorkingRelays().slice(0, MAX_ADVERT_RELAY_POOL)
-					.filter(entry => entry.rttMs != null)
-					.map(entry => ({ url: entry.url, rttMs: entry.rttMs })),
-				listen: getListenRelays().map(entry => entry.url),
-			}
-			: { pool: [], listen: [] }
-		return await buildSignedAdvertForScope(scope, localIdentity, tcpPort ?? undefined, relayData)
+		return buildSignedAdvertForScope(
+			scope,
+			localIdentity,
+			tcpPort ?? undefined,
+			scope === 'network'
+				? {
+					pool: getWorkingRelays().slice(0, MAX_ADVERT_RELAY_POOL)
+						.filter(entry => entry.rttMs != null)
+						.map(entry => ({ url: entry.url, rttMs: entry.rttMs })),
+					listen: getListenRelays().map(entry => entry.url),
+				}
+				: { pool: [], listen: [] },
+		)
 	}
 
 	/**

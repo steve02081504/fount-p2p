@@ -26,6 +26,8 @@ import {
 	getPoolByUrl,
 	isRelayDestinationAllowed,
 	probeRelay,
+	resolveRelayConnectTarget,
+	resolveTrustedRelayConnectTarget,
 	setPeerRoute,
 	upsertRelay,
 } from './relays.mjs'
@@ -214,7 +216,9 @@ async function publishEvent(relayUrls, event, signal) {
 	let lastError = null
 	await Promise.allSettled(urls.map(async relayUrl => {
 		try {
-			if (await publishViaSharedRelay(relayUrl, event, signal)) published = true
+			const connectTarget = await resolveTrustedRelayConnectTarget(relayUrl)
+			if (!connectTarget) return
+			if (await publishViaSharedRelay(relayUrl, event, signal, connectTarget)) published = true
 		}
 		catch (error) {
 			lastError = error
@@ -289,6 +293,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 				rendezvousKey: bind.rendezvousKey,
 				tagX: 'advert',
 				addressable: true,
+				resolveConnectTarget: resolveTrustedRelayConnectTarget,
 				/**
 				 * @param {Uint8Array} bytes 加密 advert 载荷
 				 * @param {object} meta relay 元数据
@@ -379,6 +384,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 			rendezvousKey,
 			tagX: 'advert',
 			addressable: true,
+			resolveConnectTarget: resolveRelayConnectTarget,
 			/**
 			 * 处理订阅收到的 advert 字节。
 			 * @param {Uint8Array} bytes advert 字节
@@ -516,6 +522,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 				kind: NOSTR_SIGNAL_KIND,
 				rendezvousKey,
 				tagX: 'signal',
+				resolveConnectTarget: resolveTrustedRelayConnectTarget,
 				onPayload: onSignal,
 			})
 			nodeSignalSubs.set(hash, stop)

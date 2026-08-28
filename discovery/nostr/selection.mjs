@@ -15,8 +15,8 @@ import {
 	getPinnedRelays,
 	getPoolByUrl,
 	getWorkingRelays,
-	isRelayDestinationAllowed,
 	recordPublishResult,
+	resolveRelayConnectTarget,
 	setPeerRoute,
 } from './relays.mjs'
 import { publishViaSharedRelay } from './session.mjs'
@@ -180,10 +180,11 @@ export async function routePublishEvent(toNodeHash, event, signal) {
 		if (signal?.aborted) return false
 		const { urls, backoffDelay: delayMs } = handshakeTargets(toNodeHash, attempt)
 		if (!urls.length) return false
-		const allowed = await Promise.all(urls.map(url => isRelayDestinationAllowed(url)))
-		const targets = urls.filter((_, index) => allowed[index])
-		if (!targets.length) return false
-		const results = await Promise.allSettled(targets.map(url => publishViaSharedRelay(url, event, signal)))
+		const resolved = await Promise.all(urls.map(url => resolveRelayConnectTarget(url)))
+		const valid = urls.map((url, index) => ({ url, target: resolved[index] })).filter(entry => entry.target)
+		if (!valid.length) return false
+		const targets = valid.map(entry => entry.url)
+		const results = await Promise.allSettled(valid.map(entry => publishViaSharedRelay(entry.url, event, signal, entry.target)))
 		const okRelays = targets.filter((_, index) => {
 			const result = results[index]
 			return result.status === 'fulfilled' && result.value === true

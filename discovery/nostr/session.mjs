@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { isIP } from 'node:net'
 
 import WebSocket from 'ws'
 
@@ -53,18 +54,38 @@ function dropWebSocket(ws) {
 }
 
 /**
+ * 生成钉死地址集的 dns.lookup 形状函数：忽略请求的 hostname，始终返回给定地址，
+ * 供 `new WebSocket(url, { lookup })` / node:http(s) 使用，避免对同一 hostname 的第二次不受控解析。
+ * @param {string[]} addresses 已校验/受控解析的地址
+ * @returns {(hostname: string, options: object | ((err: Error | null, address?: string | object[], family?: number) => void), callback?: (err: Error | null, address?: string | object[], family?: number) => void) => void} lookup 函数
+ */
+export function pinnedLookup(addresses) {
+	return (hostname, options, callback) => {
+		if (typeof options === 'function') {
+			callback = options
+			options = {}
+		}
+		const family = addresses.length ? isIP(addresses[0]) : 0
+		if (options?.all)
+			callback(null, addresses.map(address => ({ address, family: isIP(address) })), family)
+		else
+			callback(null, addresses[0], family)
+	}
+}
+
+/**
  * @param {string} relayUrl 中继 URL
  * @param {number} [timeoutMs] 超时毫秒
  * @param {AbortSignal} [signal] 取消信号
+ * @param {{ hostname: string, addresses: string[] } | ((url: string) => Promise<{ hostname: string, addresses: string[] } | null>) | null} [connectTarget] 已解析的连接目标（钉 IP 用）或解析函数
  * @returns {Promise<import('ws').WebSocket>} 已打开的 WebSocket
  */
-export function connectRelay(relayUrl, timeoutMs = NOSTR_CONNECT_TIMEOUT_MS, signal) {
+export function connectRelay(relayUrl, timeoutMs = NOSTR_CONNECT_TIMEOUT_MS, signal, connectTarget) {
 	return new Promise((resolve, reject) => {
 		if (signal?.aborted) {
 			reject(new Error('nostr: aborted'))
 			return
 		}
-		const ws = new WebSocket(relayUrl)
 		let settled = false
 		/**
 		 * @param {Error} error 失败原因
@@ -75,7 +96,7 @@ export function connectRelay(relayUrl, timeoutMs = NOSTR_CONNECT_TIMEOUT_MS, sig
 			settled = true
 			clearTimeout(timer)
 			signal?.removeEventListener('abort', onAbort)
-			dropWebSocket(ws)
+			if (ws) dropWebSocket(ws)
 			reject(error)
 		}
 		/**
@@ -86,16 +107,30 @@ export function connectRelay(relayUrl, timeoutMs = NOSTR_CONNECT_TIMEOUT_MS, sig
 		const timer = setTimeout(() => fail(new Error(`nostr: connect timeout for ${relayUrl}`)), timeoutMs)
 		timer.unref()
 		signal?.addEventListener('abort', onAbort, { once: true })
-		ws.once('open', () => {
+		let ws = null
+		void (async () => {
+			let wsOptions
+			try {
+				const target = typeof connectTarget === 'function' ? await connectTarget(relayUrl) : connectTarget
+				if (target) wsOptions = { lookup: pinnedLookup(target.addresses) }
+			}
+			catch (error) {
+				fail(error instanceof Error ? error : new Error(String(error)))
+				return
+			}
 			if (settled) return
-			settled = true
-			clearTimeout(timer)
-			signal?.removeEventListener('abort', onAbort)
-			resolve(ws)
-		})
-		ws.once('error', () => {
-			fail(new Error(`nostr: websocket error for ${relayUrl}`))
-		})
+			ws = new WebSocket(relayUrl, wsOptions)
+			ws.once('open', () => {
+				if (settled) return
+				settled = true
+				clearTimeout(timer)
+				signal?.removeEventListener('abort', onAbort)
+				resolve(ws)
+			})
+			ws.once('error', () => {
+				fail(new Error(`nostr: websocket error for ${relayUrl}`))
+			})
+		})()
 	})
 }
 
@@ -191,6 +226,7 @@ function publishEventOnRelay(ws, relayUrl, event, signal, isCurrent) {
  *   connecting: boolean,
  *   reconnectTimer: ReturnType<typeof setTimeout> | null,
  *   idleTimer: ReturnType<typeof setTimeout> | null,
+ *   connectTarget: { hostname: string, addresses: string[] } | ((url: string) => Promise<{ hostname: string, addresses: string[] } | null>) | null,
  *   subs: Map<string, { filter: object, onEvent: (event: object, relayUrl: string) => void }>,
  *   pendingPublishes: Array<NostrPublishRequest>,
  *   inflightPublishes: Array<NostrPublishRequest>,
@@ -319,7 +355,7 @@ function scheduleSharedRelayConnect(relayUrl, session, delayMs = 0) {
 			return
 		}
 		session.connecting = true
-		void connectRelay(relayUrl, NOSTR_CONNECT_TIMEOUT_MS).then(ws => {
+		void connectRelay(relayUrl, NOSTR_CONNECT_TIMEOUT_MS, undefined, session.connectTarget).then(ws => {
 			session.connecting = false
 			if (!isLiveSharedSession(relayUrl, session) || !hasPendingWork(session)) {
 				sharedRelaySessions.delete(relayUrl)
@@ -353,9 +389,10 @@ function scheduleSharedRelayConnect(relayUrl, session, delayMs = 0) {
 
 /**
  * @param {string} relayUrl 中继 URL
+ * @param {{ hostname: string, addresses: string[] } | ((url: string) => Promise<{ hostname: string, addresses: string[] } | null>) | null} [connectTarget] 钉 IP 用的连接目标（首个请求方提供；重连复用）
  * @returns {SharedRelaySession} 共享会话
  */
-function acquireSharedRelay(relayUrl) {
+function acquireSharedRelay(relayUrl, connectTarget) {
 	const existing = sharedRelaySessions.get(relayUrl)
 	if (existing) return existing
 	/** @type {SharedRelaySession} */
@@ -364,6 +401,7 @@ function acquireSharedRelay(relayUrl) {
 		connecting: false,
 		reconnectTimer: null,
 		idleTimer: null,
+		connectTarget: connectTarget || null,
 		subs: new Map(),
 		pendingPublishes: [],
 		inflightPublishes: [],
@@ -487,15 +525,16 @@ function settleInflightPublish(relayUrl, session, publishRequest, attempt, settl
  * @param {string} relayUrl 中继 URL
  * @param {object} event 待发布事件
  * @param {AbortSignal} [signal] 取消信号
+ * @param {{ hostname: string, addresses: string[] } | ((url: string) => Promise<{ hostname: string, addresses: string[] } | null>) | null} [connectTarget] 钉 IP 用的连接目标
  * @returns {Promise<boolean>} relay 是否接受 EVENT
  */
-export function publishViaSharedRelay(relayUrl, event, signal) {
+export function publishViaSharedRelay(relayUrl, event, signal, connectTarget) {
 	return new Promise((resolve, reject) => {
 		if (signal?.aborted) {
 			reject(new Error('nostr: aborted'))
 			return
 		}
-		const session = acquireSharedRelay(relayUrl)
+		const session = acquireSharedRelay(relayUrl, connectTarget)
 		clearIdleDrop(session)
 		/** @type {SharedRelaySession['pendingPublishes'][number]} */
 		const publishRequest = { event, signal, attempt: 0, resolve, reject, onAbort: null, removeAbort: null }
@@ -511,11 +550,11 @@ export function publishViaSharedRelay(relayUrl, event, signal) {
 /**
  * 内部：按 rendezvous 键订阅 Nostr kind（topic 不导出）。多订阅共享每 URL 一条连接。
  * @param {string[]} relayUrls 中继 URL 列表
- * @param {{ kind: number, rendezvousKey: string, tagX: string, onPayload: (bytes: Uint8Array, meta: { relayUrl: string, event: object }) => void | Promise<void>, addressable?: boolean }} options 订阅选项
+ * @param {{ kind: number, rendezvousKey: string, tagX: string, onPayload: (bytes: Uint8Array, meta: { relayUrl: string, event: object }) => void | Promise<void>, addressable?: boolean, resolveConnectTarget?: (url: string) => Promise<{ hostname: string, addresses: string[] } | null> }} options 订阅选项
  * @returns {() => void} 取消订阅
  */
 export function subscribeNostrKind(relayUrls, options) {
-	const { kind, rendezvousKey, tagX, onPayload, addressable = false } = options
+	const { kind, rendezvousKey, tagX, onPayload, addressable = false, resolveConnectTarget } = options
 	const subscriptionId = randomBytes(8).toString('hex')
 	const filter = { kinds: [kind], '#t': [rendezvousKey], '#x': [tagX] }
 	if (addressable) filter['#d'] = [rendezvousKey]
@@ -534,7 +573,7 @@ export function subscribeNostrKind(relayUrls, options) {
 	}
 	const urls = dedupeRelayUrls(relayUrls)
 	for (const relayUrl of urls)
-		registerSharedRelaySub(acquireSharedRelay(relayUrl), subscriptionId, filter, onEvent)
+		registerSharedRelaySub(acquireSharedRelay(relayUrl, resolveConnectTarget), subscriptionId, filter, onEvent)
 	return () => {
 		for (const relayUrl of urls) releaseSharedRelaySub(relayUrl, subscriptionId)
 	}

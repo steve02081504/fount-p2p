@@ -9,6 +9,10 @@ const CENSUS_KIND = 30789
 const CENSUS_TTL_MS = 10 * 60_000
 const CENSUS_SUB_ID = 'census'
 const CENSUS_MIN_P = 0.001
+/** relay 帧 content 最大长度（超出直接丢弃，避免先 Base64 解码再被拒）。 */
+const MAX_FRAME_BYTES = 16 * 1024
+/** 并发验签任务上限；达上限时多余帧直接丢弃。 */
+const MAX_INFLIGHT_VERIFICATIONS = 8
 
 const statusEl = document.querySelector('#status')
 const toggleEl = document.querySelector('#toggle')
@@ -21,6 +25,7 @@ const demoMode = params.get('demo') === '1' || !relayUrl
 const events = new Map()
 let webSocket = null
 let enabled = true
+let inflightVerifications = 0
 
 /**
  * HT 估计；遍历时逐出过期事件，避免窗口 Map 持续增长。
@@ -115,20 +120,27 @@ function connectRelay() {
 	}
 	/**
 	 * @param {MessageEvent} rawMessage 中继消息事件
-	 * @returns {Promise<void>}
+	 * @returns {void}
 	 */
-	connection.onmessage = async rawMessage => {
+	connection.onmessage = rawMessage => {
 		if (connection !== webSocket || !enabled) return
+		if (inflightVerifications >= MAX_INFLIGHT_VERIFICATIONS) return
 		let parsed
 		try { parsed = JSON.parse(String(rawMessage.data)) } catch { return }
 		if (parsed?.[0] !== 'EVENT' || parsed[1] !== CENSUS_SUB_ID) return
 		if (parsed[2]?.kind !== CENSUS_KIND) return
-		try {
-			const verified = await verifyCensusPacket(JSON.parse(atob(parsed[2].content)))
-			if (connection !== webSocket || !enabled) return
-			if (verified) ingest(verified)
-		}
-		catch { /* ignore malformed */ }
+		const content = parsed[2]?.content
+		if (typeof content !== 'string' || content.length > MAX_FRAME_BYTES) return
+		inflightVerifications++
+		void (async () => {
+			try {
+				const verified = await verifyCensusPacket(JSON.parse(atob(content)))
+				if (connection !== webSocket || !enabled) return
+				if (verified) ingest(verified)
+			}
+			catch { /* ignore malformed */ }
+			finally { inflightVerifications-- }
+		})()
 	}
 	/** WebSocket 关闭时更新状态为已断开。 */
 	connection.onclose = () => {
