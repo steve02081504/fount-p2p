@@ -1,6 +1,7 @@
 import { compositeKey } from '../../core/composite_key.mjs'
 import { createFetchWaitTable } from '../../utils/fetch_wait.mjs'
 
+import { normalizeFileManifest } from './normalize.mjs'
 import { verifySignedPublicManifest } from './public.mjs'
 
 /** 并发 pending manifest fetch 上限。 */
@@ -24,14 +25,15 @@ export function manifestFetchExpectedKey(ownerEntityHash, logicalPath) {
  * @param {string} key requestId
  * @param {string} expectedKey owner+path 复合键
  * @param {number} timeoutMs 超时毫秒
+ * @param {{ allowNonPublic?: boolean, targetNodeHashes?: string[] }} [options] allowNonPublic 时接受无签名的非 public manifest（sender 须在 targetNodeHashes 内）
  * @returns {{ done: Promise<object | null>, cancel: () => void }} 等待 Promise 与取消
  */
-export function registerManifestFetchWait(key, expectedKey, timeoutMs) {
-	return table.register(key, expectedKey, timeoutMs)
+export function registerManifestFetchWait(key, expectedKey, timeoutMs, options) {
+	return table.register(key, expectedKey, timeoutMs, options)
 }
 
 /**
- * 处理 fed_manifest_data：验签通过后 resolve pending。
+ * 处理 fed_manifest_data：public 验签通过或（allowNonPublic 槽位）非 public 校验通过后 resolve pending。
  * @param {object} payload 入站载荷
  * @returns {Promise<boolean>} 是否命中并完成等待
  */
@@ -42,9 +44,21 @@ export async function resolvePendingManifestFetch(payload) {
 	if (!entry) return false
 
 	const verified = await verifySignedPublicManifest(payload?.manifest)
-	if (!verified) return false
-	const key = manifestFetchExpectedKey(verified.ownerEntityHash, verified.logicalPath)
-	if (key !== entry.expectedKey) return false
+	if (verified) {
+		const key = manifestFetchExpectedKey(verified.ownerEntityHash, verified.logicalPath)
+		if (key !== entry.expectedKey) return false
+		return table.settle(requestId, verified)
+	}
 
-	return table.settle(requestId, verified)
+	if (entry.options?.allowNonPublic) {
+		const normalized = normalizeFileManifest(payload?.manifest)
+		if (!normalized) return false
+		const key = manifestFetchExpectedKey(normalized.ownerEntityHash, normalized.logicalPath)
+		if (key !== entry.expectedKey) return false
+		// 授权边界 = 目标集：无签名 manifest 仅接受来自目标节点集的响应。
+		if (!entry.options?.targetNodeHashes?.includes(payload?.senderNodeHash)) return false
+		return table.settle(requestId, normalized)
+	}
+
+	return false
 }

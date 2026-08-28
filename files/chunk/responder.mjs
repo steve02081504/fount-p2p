@@ -60,8 +60,8 @@ export function attachTrustGraphFedChunkResponder(room, fedOut, guardGet, rtcLim
 		void handleIncomingManifestGet(data, sendManifest, peerId)
 	})
 
-	getManifestData(data => {
+	getManifestData((data, peerId) => {
 		if (!data?.requestId) return
-		resolvePendingManifestFetch(data)
+		resolvePendingManifestFetch({ ...data, senderNodeHash: peerId })
 	})
 }

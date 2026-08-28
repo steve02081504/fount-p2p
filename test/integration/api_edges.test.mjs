@@ -294,8 +294,8 @@ test('rep_sync_req responds for allowlisted peer without writing caller table', 
 	}
 })
 
-test('fetchPublicManifest returns null on bad input without hanging; cache is opt-in export', async () => {
-	const miss = await (await import('../../files/manifest/fetch.mjs')).fetchPublicManifest({
+test('fetchManifest returns null on bad input without hanging; cache is opt-in export', async () => {
+	const miss = await (await import('../../files/manifest/fetch.mjs')).fetchManifest({
 		username: '',
 		ownerEntityHash: '',
 		logicalPath: '',

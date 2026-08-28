@@ -39,9 +39,10 @@ export function attachNodeScopeFedResponder(wire) {
 		},
 		/**
 		 * @param {unknown} data manifest 响应载荷
+		 * @param {string} peerId 对端 nodeHash
 		 */
-		fed_manifest_data(data) {
-			void resolvePendingManifestFetch(data)
+		fed_manifest_data(data, peerId) {
+			void resolvePendingManifestFetch({ ...data, senderNodeHash: peerId })
 		},
 	})
 }

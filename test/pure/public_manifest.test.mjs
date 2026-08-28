@@ -5,7 +5,7 @@ import { entityHashFromRecoveryPubKeyHex } from '../../core/entity_id.mjs'
 import { keyPairFromSeed } from '../../crypto/crypto.mjs'
 import { encryptPlaintextToParts, buildFileManifestFromEnc } from '../../files/assemble.mjs'
 import { loadFileManifest } from '../../files/evfs.mjs'
-import { cachePublicManifest, fetchPublicManifest } from '../../files/manifest/fetch.mjs'
+import { cachePublicManifest, fetchManifest } from '../../files/manifest/fetch.mjs'
 import { publicTransferKeyDescriptor } from '../../files/manifest/normalize.mjs'
 import {
 	manifestFetchExpectedKey,
@@ -188,8 +188,7 @@ test('valid manifest data resolves pending wait', async () => {
 })
 
 test('publishPublicFile writes verifiable public manifest', async () => {
-	const dir = await mkTestNodeDir('fount-pub-manifest-')
-	initTestP2pNode({ nodeDir: dir })
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-pub-manifest-') })
 	const keys = testRecoveryKeys(8)
 	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), keys.pubKeyHex)
 	const published = await publishPublicFile({
@@ -207,16 +206,13 @@ test('publishPublicFile writes verifiable public manifest', async () => {
 	assertEquals(verified?.transferKeyDescriptor?.type, 'public')
 })
 
-test('fed_manifest_get refuses vault-wrap private manifest', async () => {
-	const dir = await mkTestNodeDir('fount-fed-manifest-priv-')
-	initTestP2pNode({ nodeDir: dir })
+test('fed_manifest_get refuses non-public manifest without registered servicer', async () => {
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fed-manifest-priv-') })
 	const { handleIncomingManifestGet } = await import('../../files/manifest/fetch.mjs')
 	const { getEntityStore } = await import('../../node/instance.mjs')
-	const keys = testRecoveryKeys(10)
-	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), keys.pubKeyHex)
+	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), testRecoveryKeys(10).pubKeyHex)
 	const plaintext = Buffer.from('secret')
-	const enc = encryptPlaintextToParts(plaintext, 'convergent')
-	const manifest = buildFileManifestFromEnc({
+	await getEntityStore().writeManifest(owner, 'vault/secret.bin', buildFileManifestFromEnc({
 		ownerEntityHash: owner,
 		logicalPath: 'vault/secret.bin',
 		plaintext,
@@ -224,27 +220,102 @@ test('fed_manifest_get refuses vault-wrap private manifest', async () => {
 		mimeType: 'application/octet-stream',
 		ceMode: 'convergent',
 		transferKeyDescriptor: { type: 'vault-wrap', entityHash: owner },
-	}, enc)
-	await getEntityStore().writeManifest(owner, 'vault/secret.bin', manifest)
+	}, encryptPlaintextToParts(plaintext, 'convergent')))
 	let called = false
 	await handleIncomingManifestGet({
 		requestId: 'r1',
 		ownerEntityHash: owner,
 		logicalPath: 'vault/secret.bin',
-	}, () => { called = true }, 'peer')
+	}, () => { called = true }, 'a'.repeat(64))
 	assertEquals(called, false)
 })
 
+test('fed_manifest_get serves non-public manifest when servicer allows', async () => {
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fed-manifest-servicer-') })
+	const { handleIncomingManifestGet } = await import('../../files/manifest/fetch.mjs')
+	const { registerManifestServicer, unregisterManifestServicer } = await import('../../files/manifest/servicer_registry.mjs')
+	const { getEntityStore } = await import('../../node/instance.mjs')
+	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), testRecoveryKeys(18).pubKeyHex)
+	const plaintext = Buffer.from('secret')
+	await getEntityStore().writeManifest(owner, 'vault/secret.bin', buildFileManifestFromEnc({
+		ownerEntityHash: owner,
+		logicalPath: 'vault/secret.bin',
+		plaintext,
+		name: 'secret.bin',
+		mimeType: 'application/octet-stream',
+		ceMode: 'convergent',
+		transferKeyDescriptor: { type: 'vault-wrap', entityHash: owner },
+		meta: { dagParts: [{ hash: 'a'.repeat(64) }], groupId: 'g1' },
+	}, encryptPlaintextToParts(plaintext, 'convergent')))
+
+	/** @type {object | null} */
+	let seen
+	registerManifestServicer('vault-wrap', 'test', async context => {
+		seen = context
+		return true
+	})
+	try {
+		/** @type {object | null} */
+		let response = null
+		await handleIncomingManifestGet({
+			requestId: 'r2',
+			ownerEntityHash: owner,
+			logicalPath: 'vault/secret.bin',
+		}, payload => { response = payload }, 'b'.repeat(64))
+		assertEquals(response?.requestId, 'r2')
+		// 非 public 回完整 manifest（含 meta.dagParts / groupId），读侧解密依赖它们
+		assertEquals(response?.manifest?.transferKeyDescriptor?.type, 'vault-wrap')
+		assertEquals(response?.manifest?.meta?.groupId, 'g1')
+		assertEquals(response?.manifest?.meta?.dagParts?.length, 1)
+		// 请求方身份透传给 servicer（来自传输层认证的 peerId，非自报 nodeHash）
+		assertEquals(seen?.requesterNodeHash, 'b'.repeat(64))
+		assertEquals(seen?.peerId, 'b'.repeat(64))
+		assertEquals(seen?.logicalPath, 'vault/secret.bin')
+	}
+	finally {
+		unregisterManifestServicer('vault-wrap', 'test')
+	}
+})
+
+test('fed_manifest_get refuses non-public manifest when servicer denies', async () => {
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fed-manifest-deny-') })
+	const { handleIncomingManifestGet } = await import('../../files/manifest/fetch.mjs')
+	const { registerManifestServicer, unregisterManifestServicer } = await import('../../files/manifest/servicer_registry.mjs')
+	const { getEntityStore } = await import('../../node/instance.mjs')
+	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), testRecoveryKeys(19).pubKeyHex)
+	const plaintext = Buffer.from('secret')
+	await getEntityStore().writeManifest(owner, 'vault/secret.bin', buildFileManifestFromEnc({
+		ownerEntityHash: owner,
+		logicalPath: 'vault/secret.bin',
+		plaintext,
+		name: 'secret.bin',
+		mimeType: 'application/octet-stream',
+		ceMode: 'convergent',
+		transferKeyDescriptor: { type: 'vault-wrap', entityHash: owner },
+	}, encryptPlaintextToParts(plaintext, 'convergent')))
+
+	registerManifestServicer('vault-wrap', 'test', async () => false)
+	try {
+		let called = false
+		await handleIncomingManifestGet({
+			requestId: 'r3',
+			ownerEntityHash: owner,
+			logicalPath: 'vault/secret.bin',
+		}, () => { called = true }, 'c'.repeat(64))
+		assertEquals(called, false)
+	}
+	finally {
+		unregisterManifestServicer('vault-wrap', 'test')
+	}
+})
+
 test('fed_manifest_get refuses public manifest without publicSig', async () => {
-	const dir = await mkTestNodeDir('fount-fed-manifest-nosig-')
-	initTestP2pNode({ nodeDir: dir })
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fed-manifest-nosig-') })
 	const { handleIncomingManifestGet } = await import('../../files/manifest/fetch.mjs')
 	const { getEntityStore } = await import('../../node/instance.mjs')
-	const keys = testRecoveryKeys(11)
-	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), keys.pubKeyHex)
+	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), testRecoveryKeys(11).pubKeyHex)
 	const plaintext = Buffer.from('x')
-	const enc = encryptPlaintextToParts(plaintext, 'convergent')
-	const manifest = buildFileManifestFromEnc({
+	await getEntityStore().writeManifest(owner, 'profile.json', buildFileManifestFromEnc({
 		ownerEntityHash: owner,
 		logicalPath: 'profile.json',
 		plaintext,
@@ -252,8 +323,7 @@ test('fed_manifest_get refuses public manifest without publicSig', async () => {
 		mimeType: 'application/json',
 		ceMode: 'convergent',
 		transferKeyDescriptor: publicTransferKeyDescriptor(),
-	}, enc)
-	await getEntityStore().writeManifest(owner, 'profile.json', manifest)
+	}, encryptPlaintextToParts(plaintext, 'convergent')))
 	let called = false
 	await handleIncomingManifestGet({
 		requestId: 'r2',
@@ -264,8 +334,7 @@ test('fed_manifest_get refuses public manifest without publicSig', async () => {
 })
 
 test('fed_manifest_get responds with publicSig-only meta', async () => {
-	const dir = await mkTestNodeDir('fount-fed-manifest-ok-')
-	initTestP2pNode({ nodeDir: dir })
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fed-manifest-ok-') })
 	const { handleIncomingManifestGet } = await import('../../files/manifest/fetch.mjs')
 	const keys = testRecoveryKeys(12)
 	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), keys.pubKeyHex)
@@ -298,47 +367,42 @@ test('fed_manifest_get responds with publicSig-only meta', async () => {
 	assertEquals(resp?.manifest?.transferKeyDescriptor?.type, 'public')
 })
 
-test('fetchPublicManifest returns local publicSig immediately without awaiting fanout', async () => {
+test('fetchManifest returns local publicSig immediately without awaiting fanout', async () => {
 	settleAllPendingManifestFetches()
-	const dir = await mkTestNodeDir('fount-fetch-pub-swr-fast-')
-	initTestP2pNode({ nodeDir: dir })
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-pub-swr-fast-') })
 	const keys = testRecoveryKeys(13)
 	const owner = entityHashFromRecoveryPubKeyHex('a'.repeat(64), keys.pubKeyHex)
 	const local = await buildSignedManifest(owner, 'profile.json', 'cached', keys, 1500)
 	await cachePublicManifest(owner, 'profile.json', local)
 
 	const started = Date.now()
-	const got = await fetchPublicManifest({
+	assertEquals((await fetchManifest({
 		username: 'u',
 		ownerEntityHash: owner,
 		logicalPath: 'profile.json',
 		timeoutMs: ms('8s'),
-	})
-	const elapsed = Date.now() - started
-	assertEquals(got?.meta?.publicSig?.publishedAt, 1500)
-	assertEquals(elapsed < 500, true)
+	}))?.meta?.publicSig?.publishedAt, 1500)
+	assertEquals(Date.now() - started < 500, true)
 	// fanout 仍在飞，供后台刷新
 	assertEquals(Boolean(await waitForPendingManifestRequestId()), true)
 	settleAllPendingManifestFetches()
 })
 
-test('fetchPublicManifest revalidates local publicSig in background and caches newer publishedAt', async () => {
+test('fetchManifest revalidates local publicSig in background and caches newer publishedAt', async () => {
 	settleAllPendingManifestFetches()
-	const dir = await mkTestNodeDir('fount-fetch-pub-revalidate-')
-	initTestP2pNode({ nodeDir: dir })
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-pub-revalidate-') })
 	const keys = testRecoveryKeys(14)
 	const owner = entityHashFromRecoveryPubKeyHex('b'.repeat(64), keys.pubKeyHex)
 	const older = await buildSignedManifest(owner, 'profile.json', 'v1', keys, 1000)
 	const newer = await buildSignedManifest(owner, 'profile.json', 'v2', keys, 2000)
 	await cachePublicManifest(owner, 'profile.json', older)
 
-	const got = await fetchPublicManifest({
+	assertEquals((await fetchManifest({
 		username: 'u',
 		ownerEntityHash: owner,
 		logicalPath: 'profile.json',
 		cache: true,
-	})
-	assertEquals(got?.meta?.publicSig?.publishedAt, 1000)
+	}))?.meta?.publicSig?.publishedAt, 1000)
 
 	const requestId = await waitForPendingManifestRequestId()
 	assertEquals(Boolean(requestId), true)
@@ -355,23 +419,21 @@ test('fetchPublicManifest revalidates local publicSig in background and caches n
 	settleAllPendingManifestFetches()
 })
 
-test('fetchPublicManifest keeps local when incoming publishedAt is not newer', async () => {
+test('fetchManifest keeps local when incoming publishedAt is not newer', async () => {
 	settleAllPendingManifestFetches()
-	const dir = await mkTestNodeDir('fount-fetch-pub-keep-local-')
-	initTestP2pNode({ nodeDir: dir })
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-pub-keep-local-') })
 	const keys = testRecoveryKeys(15)
 	const owner = entityHashFromRecoveryPubKeyHex('c'.repeat(64), keys.pubKeyHex)
 	const newer = await buildSignedManifest(owner, 'profile.json', 'v2', keys, 2000)
 	const older = await buildSignedManifest(owner, 'profile.json', 'v1', keys, 1000)
 	await cachePublicManifest(owner, 'profile.json', newer)
 
-	const got = await fetchPublicManifest({
+	assertEquals((await fetchManifest({
 		username: 'u',
 		ownerEntityHash: owner,
 		logicalPath: 'profile.json',
 		cache: true,
-	})
-	assertEquals(got?.meta?.publicSig?.publishedAt, 2000)
+	}))?.meta?.publicSig?.publishedAt, 2000)
 
 	const requestId = await waitForPendingManifestRequestId()
 	assertEquals(Boolean(requestId), true)
@@ -381,15 +443,14 @@ test('fetchPublicManifest keeps local when incoming publishedAt is not newer', a
 	settleAllPendingManifestFetches()
 })
 
-test('fetchPublicManifest cold miss still awaits fanout', async () => {
+test('fetchManifest cold miss still awaits fanout', async () => {
 	settleAllPendingManifestFetches()
-	const dir = await mkTestNodeDir('fount-fetch-pub-cold-')
-	initTestP2pNode({ nodeDir: dir })
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-pub-cold-') })
 	const keys = testRecoveryKeys(16)
 	const owner = entityHashFromRecoveryPubKeyHex('d'.repeat(64), keys.pubKeyHex)
 	const signed = await buildSignedManifest(owner, 'profile.json', 'cold', keys, 3000)
 
-	const fetchPromise = fetchPublicManifest({
+	const fetchPromise = fetchManifest({
 		username: 'u',
 		ownerEntityHash: owner,
 		logicalPath: 'profile.json',
@@ -398,26 +459,24 @@ test('fetchPublicManifest cold miss still awaits fanout', async () => {
 	const requestId = await waitForPendingManifestRequestId()
 	assertEquals(Boolean(requestId), true)
 	assertEquals(await resolvePendingManifestFetch({ requestId, manifest: signed }), true)
-	const got = await fetchPromise
-	assertEquals(got?.meta?.publicSig?.publishedAt, 3000)
+	assertEquals((await fetchPromise)?.meta?.publicSig?.publishedAt, 3000)
 	settleAllPendingManifestFetches()
 })
 
-test('fetchPublicManifest dedups concurrent in-flight by username+owner+path', async () => {
+test('fetchManifest dedups concurrent in-flight by username+owner+path', async () => {
 	settleAllPendingManifestFetches()
-	const dir = await mkTestNodeDir('fount-fetch-pub-dedup-')
-	initTestP2pNode({ nodeDir: dir })
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-pub-dedup-') })
 	const keys = testRecoveryKeys(17)
 	const owner = entityHashFromRecoveryPubKeyHex('e'.repeat(64), keys.pubKeyHex)
 	const signed = await buildSignedManifest(owner, 'profile.json', 'once', keys, 3000)
 
-	const p1 = fetchPublicManifest({
+	const p1 = fetchManifest({
 		username: 'u',
 		ownerEntityHash: owner,
 		logicalPath: 'profile.json',
 		cache: true,
 	})
-	const p2 = fetchPublicManifest({
+	const p2 = fetchManifest({
 		username: 'u',
 		ownerEntityHash: owner,
 		logicalPath: 'profile.json',
@@ -432,4 +491,243 @@ test('fetchPublicManifest dedups concurrent in-flight by username+owner+path', a
 	assertEquals(a?.meta?.publicSig?.publishedAt, 3000)
 	assertEquals(b?.meta?.publicSig?.publishedAt, 3000)
 	settleAllPendingManifestFetches()
+})
+
+/**
+ * @param {string} ownerEntityHash owner
+ * @param {string} logicalPath 路径
+ * @param {string} plain 明文
+ * @param {string} type transferKeyDescriptor.type
+ * @returns {Promise<import('../../files/manifest/normalize.mjs').FileManifest>} 非 public manifest
+ */
+async function buildNonPublicManifest(ownerEntityHash, logicalPath, plain, type) {
+	const plaintext = Buffer.from(plain)
+	return buildFileManifestFromEnc({
+		ownerEntityHash,
+		logicalPath,
+		plaintext,
+		name: 'x',
+		mimeType: 'text/plain',
+		ceMode: 'convergent',
+		transferKeyDescriptor: { type, entityHash: ownerEntityHash },
+		meta: { dagParts: [{ hash: 'a'.repeat(64) }], groupId: 'g1' },
+	}, encryptPlaintextToParts(plaintext, 'convergent'))
+}
+
+test('fetchManifest targeted cold miss resolves non-public and caches locally', async () => {
+	settleAllPendingManifestFetches()
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-tgt-nonpub-') })
+	const owner = entityHashFromRecoveryPubKeyHex('f'.repeat(64), testRecoveryKeys(20).pubKeyHex)
+	const manifest = await buildNonPublicManifest(owner, 'chat/file-1', 'secret', 'file-master-key-wrap')
+
+	const fetchPromise = fetchManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'chat/file-1',
+		fanoutTargets: ['b'.repeat(64)],
+	})
+	const requestId = await waitForPendingManifestRequestId()
+	assertEquals(Boolean(requestId), true)
+	assertEquals(await resolvePendingManifestFetch({ requestId, manifest, senderNodeHash: 'b'.repeat(64) }), true)
+	const got = await fetchPromise
+	assertEquals(got?.transferKeyDescriptor?.type, 'file-master-key-wrap')
+	assertEquals(got?.meta?.groupId, 'g1')
+	// targeted 命中默认落盘
+	const cached = await loadFileManifest(owner, 'chat/file-1')
+	assertEquals(cached?.transferKeyDescriptor?.type, 'file-master-key-wrap')
+	settleAllPendingManifestFetches()
+})
+
+test('fetchManifest targeted accepts signed public response too', async () => {
+	settleAllPendingManifestFetches()
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-tgt-public-') })
+	const keys = testRecoveryKeys(21)
+	const owner = entityHashFromRecoveryPubKeyHex('1'.repeat(64), keys.pubKeyHex)
+	const signed = await buildSignedManifest(owner, 'profile.json', 'pub', keys, 4000)
+
+	const fetchPromise = fetchManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'profile.json',
+		fanoutTargets: ['2'.repeat(64)],
+	})
+	const requestId = await waitForPendingManifestRequestId()
+	assertEquals(Boolean(requestId), true)
+	assertEquals(await resolvePendingManifestFetch({ requestId, manifest: signed }), true)
+	assertEquals((await fetchPromise)?.meta?.publicSig?.publishedAt, 4000)
+	settleAllPendingManifestFetches()
+})
+
+test('fetchManifest public mode refuses non-public response', async () => {
+	settleAllPendingManifestFetches()
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-pub-refuse-nonpub-') })
+	const owner = entityHashFromRecoveryPubKeyHex('3'.repeat(64), testRecoveryKeys(22).pubKeyHex)
+	const manifest = await buildNonPublicManifest(owner, 'chat/file-1', 'secret', 'file-master-key-wrap')
+
+	const fetchPromise = fetchManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'chat/file-1',
+		timeoutMs: 500,
+	})
+	const requestId = await waitForPendingManifestRequestId()
+	assertEquals(Boolean(requestId), true)
+	assertEquals(await resolvePendingManifestFetch({ requestId, manifest }), false)
+	assertEquals(await fetchPromise, null)
+	settleAllPendingManifestFetches()
+})
+
+test('fetchManifest targeted returns local non-public manifest immediately without fanout wait', async () => {
+	settleAllPendingManifestFetches()
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-local-nonpub-') })
+	const { getEntityStore } = await import('../../node/instance.mjs')
+	const owner = entityHashFromRecoveryPubKeyHex('4'.repeat(64), testRecoveryKeys(23).pubKeyHex)
+	await getEntityStore().writeManifest(owner, 'vault/secret.bin', await buildNonPublicManifest(owner, 'vault/secret.bin', 'secret', 'vault-wrap'))
+
+	const started = Date.now()
+	assertEquals((await fetchManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'vault/secret.bin',
+		fanoutTargets: ['10'.repeat(32)],
+	}))?.transferKeyDescriptor?.type, 'vault-wrap')
+	assertEquals(Date.now() - started < 500, true)
+	settleAllPendingManifestFetches()
+})
+
+test('fetchManifest targeted dedups concurrent in-flight', async () => {
+	settleAllPendingManifestFetches()
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-tgt-dedup-') })
+	const owner = entityHashFromRecoveryPubKeyHex('5'.repeat(64), testRecoveryKeys(24).pubKeyHex)
+	const manifest = await buildNonPublicManifest(owner, 'chat/file-1', 'secret', 'file-master-key-wrap')
+	const targets = ['6'.repeat(64)]
+
+	const firstFetch = fetchManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'chat/file-1',
+		fanoutTargets: targets,
+	})
+	const secondFetch = fetchManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'chat/file-1',
+		fanoutTargets: targets,
+	})
+	const requestId = await waitForPendingManifestRequestId()
+	assertEquals(Boolean(requestId), true)
+	assertEquals(pendingManifestFetches.size, 1)
+	assertEquals(await resolvePendingManifestFetch({ requestId, manifest, senderNodeHash: '6'.repeat(64) }), true)
+	const [firstManifest, secondManifest] = await Promise.all([firstFetch, secondFetch])
+	assertEquals(firstManifest?.transferKeyDescriptor?.type, 'file-master-key-wrap')
+	assertEquals(secondManifest?.transferKeyDescriptor?.type, 'file-master-key-wrap')
+	settleAllPendingManifestFetches()
+})
+
+test('fetchManifest targeted rejects non-public response from sender outside target set', async () => {
+	settleAllPendingManifestFetches()
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-tgt-sender-reject-') })
+	const owner = entityHashFromRecoveryPubKeyHex('7'.repeat(64), testRecoveryKeys(25).pubKeyHex)
+	const manifest = await buildNonPublicManifest(owner, 'chat/file-1', 'secret', 'file-master-key-wrap')
+
+	const fetchPromise = fetchManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'chat/file-1',
+		fanoutTargets: ['8'.repeat(64)],
+	})
+	const requestId = await waitForPendingManifestRequestId()
+	assertEquals(Boolean(requestId), true)
+	// 注入：sender 不在目标集 → 拒绝
+	assertEquals(await resolvePendingManifestFetch({ requestId, manifest, senderNodeHash: '9'.repeat(64) }), false)
+	// 目标集内 sender → 接受
+	assertEquals(await resolvePendingManifestFetch({ requestId, manifest, senderNodeHash: '8'.repeat(64) }), true)
+	assertEquals((await fetchPromise)?.transferKeyDescriptor?.type, 'file-master-key-wrap')
+	settleAllPendingManifestFetches()
+})
+
+test('fetchManifest targeted does not dedup different target sets', async () => {
+	settleAllPendingManifestFetches()
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-tgt-key-') })
+	const owner = entityHashFromRecoveryPubKeyHex('ab'.repeat(32), testRecoveryKeys(26).pubKeyHex)
+
+	const firstFetch = fetchManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'chat/file-1',
+		fanoutTargets: ['cd'.repeat(32)],
+	})
+	const secondFetch = fetchManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'chat/file-1',
+		fanoutTargets: ['ef'.repeat(32)],
+	})
+	const deadline = Date.now() + ms('2s')
+	while (Date.now() < deadline && pendingManifestFetches.size < 2)
+		await new Promise(resolve => setTimeout(resolve, 5))
+	assertEquals(pendingManifestFetches.size, 2)
+	settleAllPendingManifestFetches()
+	await Promise.all([firstFetch, secondFetch])
+})
+
+test('fetchManifest public mode refuses local non-public manifest', async () => {
+	settleAllPendingManifestFetches()
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-pub-refuse-local-nonpub-') })
+	const { getEntityStore } = await import('../../node/instance.mjs')
+	const owner = entityHashFromRecoveryPubKeyHex('de'.repeat(32), testRecoveryKeys(27).pubKeyHex)
+	await getEntityStore().writeManifest(owner, 'vault/secret.bin', await buildNonPublicManifest(owner, 'vault/secret.bin', 'secret', 'vault-wrap'))
+
+	assertEquals(await fetchManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'vault/secret.bin',
+	}), null)
+	settleAllPendingManifestFetches()
+})
+
+test('fed_manifest_get serves fanout request with requester differing from target node', async () => {
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fed-manifest-fanout-') })
+	const { handleIncomingManifestGet } = await import('../../files/manifest/fetch.mjs')
+	const { registerManifestServicer, unregisterManifestServicer } = await import('../../files/manifest/servicer_registry.mjs')
+	const { getEntityStore } = await import('../../node/instance.mjs')
+	const owner = entityHashFromRecoveryPubKeyHex(getNodeHash(), testRecoveryKeys(28).pubKeyHex)
+	const plaintext = Buffer.from('secret')
+	await getEntityStore().writeManifest(owner, 'vault/secret.bin', buildFileManifestFromEnc({
+		ownerEntityHash: owner,
+		logicalPath: 'vault/secret.bin',
+		plaintext,
+		name: 'secret.bin',
+		mimeType: 'application/octet-stream',
+		ceMode: 'convergent',
+		transferKeyDescriptor: { type: 'vault-wrap', entityHash: owner },
+	}, encryptPlaintextToParts(plaintext, 'convergent')))
+
+	/** @type {object | null} */
+	let seen
+	registerManifestServicer('vault-wrap', 'test', async context => {
+		seen = context
+		return true
+	})
+	try {
+		/** @type {object | null} */
+		let response = null
+		const requesterNodeHash = 'a'.repeat(64)
+		const targetNodeHash = 'b'.repeat(64)
+		// fanout：同一请求发给多个目标节点；自报 nodeHash 指向目标节点，而认证方为请求方（二者不同）。
+		// 服务端必须忽略自报字段，始终以传输层认证的 peerId 作为 requesterNodeHash，不得误作目标节点身份。
+		await handleIncomingManifestGet({
+			requestId: 'r4',
+			nodeHash: targetNodeHash,
+			ownerEntityHash: owner,
+			logicalPath: 'vault/secret.bin',
+		}, payload => { response = payload }, requesterNodeHash)
+		assertEquals(response?.requestId, 'r4')
+		assertEquals(seen?.requesterNodeHash, requesterNodeHash)
+		assertEquals(seen?.peerId, requesterNodeHash)
+		assertEquals(seen?.logicalPath, 'vault/secret.bin')
+	}
+	finally {
+		unregisterManifestServicer('vault-wrap', 'test')
+	}
 })

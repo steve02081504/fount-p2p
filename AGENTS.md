@@ -53,12 +53,12 @@ Deno / native / BT: [runtime.md](docs/runtime.md).
 
 ### Trust / ingress
 
-- **Untrusted ingress only:** discovery adverts/signals, link/overlay envelopes, group federation frames, `remoteIngest`, `part_timeline_*` / `part_invoke`, `part_query_*`, public manifest (`fed_manifest_data`). Validate / `canonicalize*` / `verifySignedPublicManifest` **only** here.
+- **Untrusted ingress only:** discovery adverts/signals, link/overlay envelopes, group federation frames, `remoteIngest`, `part_timeline_*` / `part_invoke`, `part_query_*`, manifest fetch responses (`fed_manifest_data`). Validate / `canonicalize*` / `verifySignedPublicManifest` **only** here. Non-public `fed_manifest_data` is accepted only into an `allowNonPublic` pending slot (targeted fanout) and passes `normalizeFileManifest` + owner/path match — the serving node's servicer is the authorization gate. [evfs.md](docs/evfs.md)
 - **Trusted after disk:** from `events.jsonl`, only `stripDagEventLocalExtensions` — no re-canonicalization upstream.
 - **Fanout vs targeted / timed collect:** [wire.md](docs/wire.md).
 - **Channel encryption:** per-channel `K_ch`, scheme `channel-key` (`CHANNEL_KEY_SCHEME`); decrypted payloads are untrusted outside DAG Ed25519 context.
 - **Denylist vs personal lists:** node `denylist.json` vs per-entity `personal_block.json` / `personal_hide.json`.
-- **Manifest ACL / transfer owner:** shells register matchers; core does not hard-code chat/social types.
+- **Manifest ACL / transfer owner / servicer:** shells register matchers and `registerManifestServicer`; core does not hard-code chat/social types. Non-public manifests are served cross-node only via a registered servicer (default deny).
 
 ### Node / network
 

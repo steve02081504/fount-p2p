@@ -222,8 +222,8 @@ export async function putFileManifestFromStream(parameters) {
  * @returns {Promise<Buffer | null>} 明文或 null
  */
 export async function readPublicFile(replicaUsername, entityHash, logicalPath, options = {}) {
-	const { fetchPublicManifest } = await import('./manifest/fetch.mjs')
-	const manifest = await fetchPublicManifest({
+	const { fetchManifest } = await import('./manifest/fetch.mjs')
+	const manifest = await fetchManifest({
 		username: options.username || replicaUsername,
 		ownerEntityHash: entityHash,
 		logicalPath,
