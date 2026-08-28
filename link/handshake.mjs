@@ -224,6 +224,7 @@ function normalizeLocalRelayFields(rawPool, rawListen) {
 	const pool = []
 	/** @type {Set<string>} */
 	const seenPool = new Set()
+	if (rawPool != null && !Array.isArray(rawPool)) throw new Error('p2p: advert pool invalid type')
 	if (Array.isArray(rawPool)) for (const item of rawPool) {
 		const url = normalizeNostrRelayUrl(item?.url)
 		if (!url) throw new Error('p2p: advert pool invalid url')
@@ -240,6 +241,7 @@ function normalizeLocalRelayFields(rawPool, rawListen) {
 	const listen = []
 	/** @type {Set<string>} */
 	const seenListen = new Set()
+	if (rawListen != null && !Array.isArray(rawListen)) throw new Error('p2p: advert listen invalid type')
 	if (Array.isArray(rawListen)) for (const raw of rawListen) {
 		const url = normalizeNostrRelayUrl(raw)
 		if (!url) throw new Error('p2p: advert listen invalid url')

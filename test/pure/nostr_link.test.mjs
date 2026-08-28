@@ -203,7 +203,6 @@ test('two nodes exchange a link envelope through a single real relay', async () 
 			assertEquals(dialed.providerId, 'nostr')
 			await dialed.ready
 			await waitFor(() => !!inbound, 5_000)
-			assertEquals(!!inbound, true)
 			await inbound.ready
 			assertEquals(inbound.nodeHash, alice.nodeHash)
 			assertEquals(dialed.nodeHash, bob.nodeHash)
@@ -317,7 +316,6 @@ test('two nodes link when only the trailing relay of each list overlaps', async 
 			assertEquals(!!dialed, true)
 			await dialed.ready
 			await waitFor(() => !!inbound, 5_000)
-			assertEquals(!!inbound, true)
 			await inbound.ready
 
 			/** @type {object | null} */

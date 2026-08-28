@@ -8,7 +8,7 @@
 const CENSUS_KIND = 30789
 const CENSUS_TTL_MS = 10 * 60_000
 const CENSUS_SUB_ID = 'census'
-const TARGET_EVENTS = 20
+const CENSUS_MIN_P = 0.001
 
 const statusEl = document.querySelector('#status')
 const toggleEl = document.querySelector('#toggle')
@@ -21,28 +21,6 @@ const demoMode = params.get('demo') === '1' || !relayUrl
 const events = new Map()
 let ws = null
 let enabled = true
-
-/**
- * @param {number} p 概率
- * @returns {number} 归一化概率
- */
-function clampP(p) {
-	if (!Number.isFinite(p)) return 0.001
-	return Math.min(1, Math.max(0.001, p))
-}
-
-/**
- * @param {number} p 当前概率
- * @param {number} observed 观察到的事件数
- * @param {number} [target] 目标事件数
- * @returns {number} 下一轮包含概率
- */
-function nextInclusionProbability(p, observed, target = TARGET_EVENTS) {
-	const observedCount = Math.max(0, Math.floor(observed))
-	const base = clampP(p)
-	if (observedCount === 0) return clampP(base * 1.5)
-	return clampP(base * (Math.max(1, Math.floor(target)) / observedCount))
-}
 
 /**
  * HT 估计；遍历时逐出过期事件，避免窗口 Map 持续增长。
@@ -82,7 +60,7 @@ async function verifyCensusPacket(packet) {
 	const p = Number(packet?.p)
 	if (!nodeHash || !nodePubKey || !sig || !Number.isFinite(ts)) return null
 	if (Math.abs(Date.now() - ts) > CENSUS_TTL_MS) return null
-	if (!Number.isFinite(p) || p <= 0 || p > 1) return null
+	if (!Number.isFinite(p) || p < CENSUS_MIN_P || p > 1) return null
 	const [{ ed25519 }, { sha256 }] = await loadNoble()
 	const pubBytes = new Uint8Array(nodePubKey.match(/.{2}/gu).map(hex => parseInt(hex, 16)))
 	if ([...sha256(pubBytes)].map(byte => byte.toString(16).padStart(2, '0')).join('') !== nodeHash) return null
@@ -96,6 +74,8 @@ async function verifyCensusPacket(packet) {
 
 /** @param {{ nodeHash: string, p: number, ts: number }} verified 已验签 census 包 @returns {void} */
 function ingest(verified) {
+	const existing = events.get(verified.nodeHash)
+	if (existing && verified.ts < existing.at) return
 	events.set(verified.nodeHash, { p: verified.p, at: verified.ts })
 	render()
 }
@@ -127,9 +107,6 @@ function connectRelay() {
 	if (!relayUrl || !enabled) return
 	statusEl.textContent = `连接 ${relayUrl} …`
 	ws = new WebSocket(relayUrl)
-	/**
-	 *
-	 */
 	ws.onopen = () => {
 		ws.send(JSON.stringify(['REQ', CENSUS_SUB_ID, { kinds: [CENSUS_KIND], '#t': ['fount'], '#x': ['census'] }]))
 		statusEl.textContent = `监听 ${relayUrl}（kind ${CENSUS_KIND}）`
@@ -149,13 +126,7 @@ function connectRelay() {
 		}
 		catch { /* ignore malformed */ }
 	}
-	/**
-	 *
-	 */
 	ws.onclose = () => { statusEl.textContent = '已断开' }
-	/**
-	 *
-	 */
 	ws.onerror = () => { statusEl.textContent = '中继连接失败' }
 }
 

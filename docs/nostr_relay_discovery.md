@@ -84,7 +84,7 @@ Lower is better. `recordProbeSuccess` / `recordProbeFailure` / `recordPublishRes
 
 - Each node keeps an inclusion probability `p`; per window it publishes an Ed25519-signed packet `{ nodeHash, nodePubKey, ts, p, sig }` (message `fount-census\0ts\0nodeHash\0p`) when `rand < p`.
 - The multiplier updates `p' = p·(T/E)` (T = `CENSUS_TARGET_EVENTS`, E = observed window events); E == 0 probes upward by `CENSUS_GROW_FACTOR`. `clampP` keeps `p` in `[CENSUS_MIN_P, 1]`.
-- Readers estimate online nodes with the HT estimator `M̂ = Σ(1/p)` (`estimatePopulation` in `census_math.mjs`), subtract the self event's weight (`−1/p_self`) and add exactly 1 for the self node.
+- Readers estimate online nodes with the HT estimator `M̂ = Σ(1/p)` (`estimatePopulation` in `census_math.mjs`), subtract the self-event's weight (`−1/p_self`) and add exactly 1 for the self node.
 - Ingress packets are untrusted: `verifyCensusPacket` canonicalizes, checks `ts` within `CENSUS_TTL_MS`, requires `p ∈ [CENSUS_MIN_P, 1]`, and verifies `nodeHash = sha256(nodePubKey)` plus the Ed25519 signature before `noteCensusEvent` stores the event (deduped by `nodeHash`).
 
 ## Config

@@ -76,9 +76,8 @@ export async function deliverOrStoreMailboxPut(username, options) {
 		fromNodeHash: options.record?.fromNodeHash || nodeHash,
 	}
 	const stored = await storeMailboxRecord(record)
-	const { toNodeHash } = options
-	const delivered = isHex64(toNodeHash) && isMailboxRecordWithinSizeLimit(record)
-		? await requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER).sendToNode(username, toNodeHash, 'mailbox_put', { nodeHash, record })
+	const delivered = isHex64(options.toNodeHash) && isMailboxRecordWithinSizeLimit(record)
+		? await requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER).sendToNode(username, options.toNodeHash, 'mailbox_put', { nodeHash, record })
 		: false
 
 	let relayed = 0

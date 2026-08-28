@@ -24,6 +24,7 @@ import {
 	getListenRelays,
 	getPeerRoute,
 	getPoolByUrl,
+	isRelayDestinationAllowed,
 	probeRelay,
 	setPeerRoute,
 	upsertRelay,
@@ -116,49 +117,23 @@ export function listNostrGroupVisibleNodeHashes(roomSecret, now = Date.now(), tt
 }
 
 /**
- * 判定规范化 relay URL 是否为公网可达（loopback/私网/链路本地/保留段视为非公网）。
- * @param {string} normalizedUrl 已 normalize 的 relay URL
- * @returns {boolean} 公网为 true
- */
-function isPublicRelayUrl(normalizedUrl) {
-	let hostname
-	try { hostname = String(new URL(normalizedUrl).hostname || '').toLowerCase().replace(/^\[|]$/g, '') } catch { return false }
-	if (!hostname || ['localhost', '::1', '::', '0.0.0.0'].includes(hostname)) return false
-	if (/\.(local|internal|lan|home|corp)$/.test(hostname)) return false
-	if (/^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname)) return false
-	if (/^fe[89ab][\da-f]:/i.test(hostname) || /^f[cd][\da-f]:/i.test(hostname)) return false
-	return true
-}
-
-/**
- * 本机显式配置的 relay 集（signaling 配置优先；无节点时按空处理）。
- * @returns {string[]} 显式配置的 relay URL
- */
-function locallyAllowedRelayUrls() {
-	const configRelay = getSignalingRuntimeConfig().channels?.nostr?.relay
-	if (Array.isArray(configRelay) && configRelay.length) return configRelay
-	try { return getNodeTransportSettings().relayUrls } catch { return [] }
-}
-
-/**
  * 捕获对端 advert 中的 relay 字段：listen 存 peerRoutes.listenRelays、pool 存 peerPool；
  * 本机池中未见 url 以 source='peer' upsert 并后台 probe。
- * 仅吸收/探测公网地址（或本机显式配置的中继），阻止远端 advert 驱动对 loopback/私网地址的 probe。
+ * 仅吸收/探测允许的公网地址（或本机显式配置/引导集中的中继），阻止远端 advert 驱动对 loopback/私网地址的 probe 与入池。
  * @param {string} verifiedNodeHash 验签 nodeHash
  * @param {string[]} listenRelays 规范化 listen
  * @param {Array<{ url: string, rtt: number }>} relayPool 规范化 pool
- * @returns {void}
+ * @returns {Promise<void>}
  */
-function capturePeerRelayFields(verifiedNodeHash, listenRelays, relayPool) {
+async function capturePeerRelayFields(verifiedNodeHash, listenRelays, relayPool) {
 	if (!isHex64(verifiedNodeHash)) return
 	setPeerRoute(verifiedNodeHash, {
 		listenRelays,
 		peerPool: relayPool,
 	})
-	const locallyAllowed = new Set(locallyAllowedRelayUrls())
 	for (const item of relayPool) {
 		if (getPoolByUrl().has(item.url)) continue
-		if (!isPublicRelayUrl(item.url) && !locallyAllowed.has(item.url)) continue
+		if (!await isRelayDestinationAllowed(item.url)) continue
 		upsertRelay({ url: item.url, rttMs: item.rtt, source: 'peer' })
 		void probeRelay(item.url).catch(() => { })
 	}
@@ -189,7 +164,7 @@ export async function acceptNostrAdvert(rendezvousKey, bytes, options = {}) {
 		noteDiscoveryPeerClue(hash)
 		nodeDebug('p2p:nostr peer visible', { peer: shortHash(hash), group: !!options.roomSecret })
 	}
-	capturePeerRelayFields(hash, ingested.listenRelays, ingested.relayPool)
+	await capturePeerRelayFields(hash, ingested.listenRelays, ingested.relayPool)
 	noteAdvertPeerHints(hash, ingested.body, options.meta || {})
 	return hash
 }
@@ -382,10 +357,11 @@ export function createNostrDiscoveryProvider(options = {}) {
 
 	/**
 	 * connectToNode 额外订阅对端历史/声称的中继以加速汇聚（adhoc，dispose 时释放）。
+	 * 仅订阅允许连接的公网中继，拒绝解析到私网/本机未配置的目的地。
 	 * @param {string} nodeHash 目标节点
-	 * @returns {void}
+	 * @returns {Promise<void>}
 	 */
-	function ensurePeerRelaySubscriptions(nodeHash) {
+	async function ensurePeerRelaySubscriptions(nodeHash) {
 		const hash = isHex64(nodeHash)
 		if (!hash) return
 		const route = getPeerRoute(hash)
@@ -394,8 +370,11 @@ export function createNostrDiscoveryProvider(options = {}) {
 			...route?.listenRelays || [],
 		]).filter(url => !resolveRelayUrls().includes(url))
 		if (!extra.length) return
+		const allowed = (await Promise.all(extra.map(url => isRelayDestinationAllowed(url)))).filter(Boolean)
+		const targets = extra.filter((_, index) => allowed[index])
+		if (!targets.length) return
 		const rendezvousKey = nodeRendezvousKey(hash)
-		extraSubs.push(subscribeNostrKind(extra, {
+		extraSubs.push(subscribeNostrKind(targets, {
 			kind: NOSTR_ADVERT_KIND,
 			rendezvousKey,
 			tagX: 'advert',
@@ -441,7 +420,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 			const hash = isHex64(nodeHash)
 			if (!hash) return false
 			ensureNodeAdvertSubscription(hash)
-			ensurePeerRelaySubscriptions(hash)
+			await ensurePeerRelaySubscriptions(hash)
 			return true
 		},
 		/**

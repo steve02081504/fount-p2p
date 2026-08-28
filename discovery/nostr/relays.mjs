@@ -1,6 +1,10 @@
 import WebSocket from 'ws'
 
+import { lookup } from 'node:dns/promises'
+
 import { nodeDebug } from '../../node/log.mjs'
+import { getSignalingRuntimeConfig } from '../../node/instance.mjs'
+import { getNodeTransportSettings } from '../../node/identity.mjs'
 import {
 	readNostrRelaysJsonSync,
 	writeNostrRelaysJsonSync,
@@ -126,6 +130,89 @@ export function normalizeNostrRelayUrl(raw) {
 	const path = url.pathname.replace(/\/+$/, '') || '/'
 	url.pathname = path
 	return url.toString().replace(/\/$/, '')
+}
+
+/**
+ * 判定规范化 relay URL 是否为公网可达（loopback/私网/链路本地/保留/特殊用途/尾点域名视为非公网）。
+ * @param {string} normalizedUrl 已 normalize 的 relay URL
+ * @returns {boolean} 公网为 true
+ */
+function isPublicRelayUrl(normalizedUrl) {
+	let hostname
+	try { hostname = String(new URL(normalizedUrl).hostname || '').toLowerCase().replace(/^\[|]$/g, '') } catch { return false }
+	if (!hostname) return false
+	if (hostname.endsWith('.')) return false
+	if (['localhost', '::1', '::', '0.0.0.0'].includes(hostname)) return false
+	if (/\.(local|internal|lan|home|corp)$/.test(hostname)) return false
+	if (/^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(hostname)) return false
+	if (/^(192\.0\.0\.|192\.0\.2\.|198\.(18|19)\.|203\.0\.113\.|198\.51\.100\.|224\.|225\.|226\.|227\.|228\.|229\.|230\.|231\.|232\.|233\.|234\.|235\.|236\.|237\.|238\.|239\.|240\.|241\.|242\.|243\.|244\.|245\.|246\.|247\.|248\.|249\.|250\.|251\.|252\.|253\.|254\.|255\.)/.test(hostname)) return false
+	if (/^fe[89ab][\da-f]:/i.test(hostname) || /^f[cd][\da-f]:/i.test(hostname) || /^fec0:/i.test(hostname)) return false
+	if (/^2001:db8:/i.test(hostname) || /^ff[\da-f]{2}:/i.test(hostname)) return false
+	if (/^::ffff:[\da-f.]+$/i.test(hostname)) {
+		const ipv4 = hostname.replace(/^::ffff:/i, '')
+		if (/^\d+\.\d+\.\d+\.\d+$/.test(ipv4)) return isPublicRelayUrl(`ws://${ipv4}`)
+		return false
+	}
+	if (/^::\d+\.\d+\.\d+\.\d+$/i.test(hostname)) return false
+	return true
+}
+
+/**
+ * 本机显式配置的 relay 集（signaling 配置优先；无节点时按空处理），已 normalize。
+ * @returns {string[]} 显式配置的 relay URL
+ */
+function locallyAllowedRelayUrls() {
+	const configRelay = getSignalingRuntimeConfig().channels?.nostr?.relay
+	if (Array.isArray(configRelay) && configRelay.length)
+		return dedupeRelayUrls(configRelay.map(normalizeNostrRelayUrl).filter(Boolean))
+	try { return dedupeRelayUrls(getNodeTransportSettings().relayUrls.map(normalizeNostrRelayUrl).filter(Boolean)) } catch { return [] }
+}
+
+/**
+ * 解析 relay host 的 DNS（全部记录须为公网地址）。IP 字面量直接判定；hostname 解析失败视为非公网。
+ * @param {string} relayUrl 规范化 relay URL
+ * @returns {Promise<boolean>} 解析到公网地址为 true
+ */
+async function relayUrlResolvesPublic(relayUrl) {
+	let hostname
+	try { hostname = String(new URL(relayUrl).hostname || '').toLowerCase().replace(/^\[|]$/g, '') } catch { return false }
+	if (!hostname || hostname.endsWith('.')) return false
+	const isIpLiteral = /^[\d.]+$/.test(hostname) || /^[0-9a-f:]+$/i.test(hostname)
+	if (isIpLiteral) return isPublicRelayUrl(relayUrl)
+	try {
+		const records = await lookup(hostname, { all: true })
+		if (!records.length) return false
+		return records.every(record => {
+			const candidate = `ws://${record.address}`
+			return isPublicRelayUrl(candidate)
+		})
+	}
+	catch { return false }
+}
+
+/**
+ * 当前信任集：本机显式配置 ∪ NIP-66 引导集（含 pinned）。
+ * @returns {Set<string>} 信任的规范化 relay URL
+ */
+function currentTrustedRelayUrls() {
+	return new Set([
+		...locallyAllowedRelayUrls(),
+		...(bootstrapRelaysOverride.length ? bootstrapRelaysOverride : NIP66_BOOTSTRAP_RELAYS),
+		...getPinnedRelays(),
+	])
+}
+
+/**
+ * 判定该 relay 是否允许作为连接目的地（probe/发布/订阅）。
+ * 本机显式配置或 NIP-66 引导集保留信任例外；其余须为公网 hostname 且 DNS 全部解析为公网地址。
+ * @param {string} relayUrl 规范化 relay URL
+ * @returns {Promise<boolean>} 允许连接为 true
+ */
+export async function isRelayDestinationAllowed(relayUrl) {
+	if (!relayUrl) return false
+	if (currentTrustedRelayUrls().has(relayUrl)) return true
+	if (!isPublicRelayUrl(relayUrl)) return false
+	return relayUrlResolvesPublic(relayUrl)
 }
 
 /**
@@ -268,20 +355,20 @@ function toRelayEntry(raw, url) {
 function normalizePeerRouteFields(raw) {
 	if (!raw || typeof raw !== 'object') return null
 	/** @type {Partial<PeerRoute>} */
-	const out = {}
+	const normalizedFields = {}
 	if (Array.isArray(raw.listenRelays))
-		out.listenRelays = dedupeRelayUrls(raw.listenRelays.map(normalizeNostrRelayUrl).filter(Boolean))
+		normalizedFields.listenRelays = dedupeRelayUrls(raw.listenRelays.map(normalizeNostrRelayUrl).filter(Boolean))
 	if (Array.isArray(raw.peerPool))
-		out.peerPool = dedupeByUrl(raw.peerPool.map(item => {
+		normalizedFields.peerPool = dedupeByUrl(raw.peerPool.map(item => {
 			const url = normalizeNostrRelayUrl(item?.url)
 			if (!url) return null
 			const rtt = Number(item?.rttMs)
 			return { url, rttMs: Number.isFinite(rtt) ? Math.round(rtt) : null }
 		}).filter(Boolean))
 	if (Array.isArray(raw.lastGoodNostrRelays))
-		out.lastGoodNostrRelays = dedupeRelayUrls(raw.lastGoodNostrRelays.map(normalizeNostrRelayUrl).filter(Boolean)).slice(0, LAST_GOOD_RELAYS_MAX)
-	if (raw.lastSeen !== undefined) out.lastSeen = Number(raw.lastSeen) || Date.now()
-	return out
+		normalizedFields.lastGoodNostrRelays = dedupeRelayUrls(raw.lastGoodNostrRelays.map(normalizeNostrRelayUrl).filter(Boolean)).slice(0, LAST_GOOD_RELAYS_MAX)
+	if (raw.lastSeen !== undefined) normalizedFields.lastSeen = Number(raw.lastSeen) || Date.now()
+	return normalizedFields
 }
 
 /**
@@ -541,11 +628,11 @@ export function setPeerRoute(nodeHash, patch) {
 export async function probeRelay(url, signal) {
 	const normalized = normalizeNostrRelayUrl(url)
 	if (!normalized) return null
-	const controller = new AbortController()
+	if (!await isRelayDestinationAllowed(normalized)) return null
 	const startedAt = Date.now()
 	let ws = null
 	try {
-		ws = await connectRelay(normalized, PROBE_TIMEOUT_MS, signal || controller.signal)
+		ws = await connectRelay(normalized, PROBE_TIMEOUT_MS, signal)
 		const rttMs = Date.now() - startedAt
 		const info = await queryRelayInfo(normalized, signal)
 		recordProbeSuccess(normalized, rttMs)
@@ -556,8 +643,7 @@ export async function probeRelay(url, signal) {
 		return null
 	}
 	finally {
-		controller.abort()
-		if (ws?.readyState !== WebSocket.CLOSED)
+		if (ws && ws.readyState !== WebSocket.CLOSED)
 			try { ws.terminate() } catch { /* ignore */ }
 	}
 }
@@ -579,7 +665,15 @@ async function queryRelayInfo(relayUrl, signal) {
 	timer.unref?.()
 	signal?.addEventListener('abort', onAbort, { once: true })
 	try {
-		const response = await fetch(httpUrl, { headers: { Accept: 'application/nostr+json' }, signal: controller.signal })
+		let response = await fetch(httpUrl, { headers: { Accept: 'application/nostr+json' }, signal: controller.signal, redirect: 'manual' })
+		if (response.status >= 300 && response.status < 400) {
+			const location = String(response.headers.get('location') || '')
+			if (!location) return { nips: [] }
+			let target
+			try { target = normalizeNostrRelayUrl(new URL(location, httpUrl).toString()) } catch { return { nips: [] } }
+			if (!target || !await relayUrlResolvesPublic(target)) return { nips: [] }
+			response = await fetch(target.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:'), { headers: { Accept: 'application/nostr+json' }, signal: controller.signal, redirect: 'follow' })
+		}
 		const info = await response.json()
 		return { nips: Array.isArray(info?.supported_nips) ? info.supported_nips.map(String) : [] }
 	}
@@ -651,7 +745,9 @@ export async function discoverNostrRelays(options = {}) {
 
 	let added = 0
 	let probedCount = 0
-	const pending = [...candidates.values()]
+	const pending = []
+	for (const candidate of candidates.values())
+		if (await isRelayDestinationAllowed(candidate.url)) pending.push(candidate)
 	while (pending.length && probedCount < MAX_NIP66_PROBES_PER_ROUND && !signal?.aborted) {
 		const batch = pending.splice(0, Math.min(NIP66_PROBE_BATCH_SIZE, MAX_NIP66_PROBES_PER_ROUND - probedCount))
 		probedCount += batch.length

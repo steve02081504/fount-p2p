@@ -126,6 +126,8 @@ const censusEvents = new Map()
  * @returns {void}
  */
 function noteCensusEvent(nodeHash, p, at = Date.now()) {
+	const existing = censusEvents.get(nodeHash)
+	if (existing && at < existing.at) return
 	censusEvents.set(nodeHash, { p, at })
 }
 

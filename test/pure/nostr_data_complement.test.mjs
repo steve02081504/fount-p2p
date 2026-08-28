@@ -7,6 +7,7 @@ import { startFakeRelay } from '../helpers/fake_relay.mjs'
 import { identity } from '../helpers/identity.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'
 import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
+import { waitFor } from '../live/helpers.mjs'
 
 /**
  * 获取网络 rendezvous key。
@@ -58,22 +59,31 @@ async function buildEncryptedAdvert(relayPool, listenRelays) {
 	return { local, bytes: encryptAdvertForScope('network', local, body) }
 }
 
-test('acceptNostrAdvert stores peer listen/pool and absorbs public peer relays', async () => {
-	const relays = await setup()
-	const { acceptNostrAdvert } = await import('../../discovery/nostr/index.mjs')
-	const relayPool = [
-		{ url: 'wss://peer-pool-b.example.com', rttMs: 30 },
-		{ url: 'wss://peer-pool.example.com', rttMs: 40 },
-	]
-	const { local, bytes } = await buildEncryptedAdvert(relayPool, ['wss://peer-listen.example.com'])
-	assertEquals(await acceptNostrAdvert(await networkRendezvousKey(), bytes), local.nodeHash)
-	const route = relays.getPeerRoute(local.nodeHash)
-	assertEquals(route.listenRelays, ['wss://peer-listen.example.com'])
-	assertEquals(route.peerPool.length, 2, 'peer pool stored')
-	const absorbed = relays.getPoolByUrl().get('wss://peer-pool-b.example.com')
-	assert(absorbed, 'peer url absorbed into local pool')
-	assertEquals(absorbed.source, 'peer')
-	assertEquals(relays.getPoolByUrl().get('wss://peer-pool.example.com').source, 'peer')
+test('acceptNostrAdvert stores peer listen/pool and absorbs locally-allowed peer relays', async () => {
+	const nodeDir = await mkTestNodeDir('fount-p2p-peer-absorb-')
+	try {
+		// 本机显式配置两个 loopback relay，远端 advert 才能驱动对它们的吸收/探测（SSRF 门禁）。
+		initTestP2pNode({ nodeDir })
+		setSignalingRuntimeConfig({ channels: { nostr: { relay: ['ws://127.0.0.1:60001', 'ws://127.0.0.1:60002'] } } })
+		const relays = await setup()
+		const { acceptNostrAdvert } = await import('../../discovery/nostr/index.mjs')
+		const relayPool = [
+			{ url: 'ws://127.0.0.1:60002', rttMs: 30 },
+			{ url: 'ws://127.0.0.1:60001', rttMs: 40 },
+		]
+		const { local, bytes } = await buildEncryptedAdvert(relayPool, ['wss://peer-listen.example.com'])
+		assertEquals(await acceptNostrAdvert(await networkRendezvousKey(), bytes), local.nodeHash)
+		const route = relays.getPeerRoute(local.nodeHash)
+		assertEquals(route.listenRelays, ['wss://peer-listen.example.com'])
+		assertEquals(route.peerPool.length, 2, 'peer pool stored')
+		const absorbed = relays.getPoolByUrl().get('ws://127.0.0.1:60002')
+		assert(absorbed, 'locally-allowed peer url absorbed into local pool')
+		assertEquals(absorbed.source, 'peer')
+		assertEquals(relays.getPoolByUrl().get('ws://127.0.0.1:60001').source, 'peer')
+	}
+	finally {
+		await teardownTestNodeDir(nodeDir)
+	}
 })
 
 test('advert loopback relay is not absorbed or probed', async () => {
@@ -110,12 +120,8 @@ test('peer relay probe success upgrades stats on a live fake relay', async () =>
 		const liveUrl = `ws://127.0.0.1:${relay.port}`
 		const { bytes } = await buildEncryptedAdvert([{ url: liveUrl, rttMs: 10 }], [liveUrl])
 		await acceptNostrAdvert(await networkRendezvousKey(), bytes)
-		// 后台 probe 异步执行；等它落到池里（probe 结束前轮询）。
-		for (let attemptIndex = 0; attemptIndex < 100; attemptIndex++) {
-			const entry = relays.getPoolByUrl().get(liveUrl)
-			if (entry && entry.successCount > 0) break
-			await new Promise(resolve => setTimeout(resolve, 25))
-		}
+		// 后台 probe 异步执行；等它落到池里（waitFor 超时给出清晰错误）。
+		await waitFor(() => (relays.getPoolByUrl().get(liveUrl)?.successCount ?? 0) > 0, 2_500)
 		const entry = relays.getPoolByUrl().get(liveUrl)
 		assert(entry.successCount >= 1, `probe success recorded (got ${entry.successCount})`)
 		assert(entry.rttMs != null, 'rtt recorded')

@@ -15,6 +15,7 @@ import {
 	getPinnedRelays,
 	getPoolByUrl,
 	getWorkingRelays,
+	isRelayDestinationAllowed,
 	recordPublishResult,
 	setPeerRoute,
 } from './relays.mjs'
@@ -71,14 +72,14 @@ export function weightedRandomSample(entries, k) {
 	const picked = []
 	const remaining = [...entries]
 	while (picked.length < k && remaining.length) {
-		let r = Math.random() * total
-		let index = 0
-		for (let i = 0; i < remaining.length; i++) {
-			const w = weightOf(remaining[i])
-			if (r < w) { index = i; break }
-			r -= w
+		let remainingWeight = Math.random() * total
+		let position = 0
+		for (let index = 0; index < remaining.length; index++) {
+			const weight = weightOf(remaining[index])
+			if (remainingWeight < weight) { position = index; break }
+			remainingWeight -= weight
 		}
-		const chosen = remaining.splice(index, 1)[0]
+		const chosen = remaining.splice(position, 1)[0]
 		picked.push(chosen.url)
 		total -= weightOf(chosen)
 	}
@@ -179,8 +180,11 @@ export async function routePublishEvent(toNodeHash, event, signal) {
 		if (signal?.aborted) return false
 		const { urls, backoffDelay: delayMs } = handshakeTargets(toNodeHash, attempt)
 		if (!urls.length) return false
-		const results = await Promise.allSettled(urls.map(url => publishViaSharedRelay(url, event, signal)))
-		const okRelays = urls.filter((_, index) => {
+		const allowed = await Promise.all(urls.map(url => isRelayDestinationAllowed(url)))
+		const targets = urls.filter((_, index) => allowed[index])
+		if (!targets.length) return false
+		const results = await Promise.allSettled(targets.map(url => publishViaSharedRelay(url, event, signal)))
+		const okRelays = targets.filter((_, index) => {
 			const result = results[index]
 			return result.status === 'fulfilled' && result.value === true
 		})
@@ -194,7 +198,7 @@ export async function routePublishEvent(toNodeHash, event, signal) {
 			})
 			return true
 		}
-		for (const url of urls) recordPublishResult(url, false)
+		for (const url of targets) recordPublishResult(url, false)
 		if (attempt >= MAX_ROUTING_ATTEMPTS - 1) return false
 		if (signal?.aborted) return false
 		await new Promise(resolve => {
