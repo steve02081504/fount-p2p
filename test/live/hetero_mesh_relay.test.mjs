@@ -111,9 +111,7 @@ test({
 			const bobLan = createLanTcpLinkProvider()
 			stopAliceLan = await aliceLan.ensureListening({
 				localIdentity: alice,
-				/**
-				 *
-				 */
+				/** 空入站回调（Alice 端忽略被动入站，测试中仅主动 dial）。 */
 				onInbound() { },
 			})
 			stopBobLan = await bobLan.ensureListening({
@@ -159,9 +157,7 @@ test({
 			})
 			stopListenB = bLinkC.ensureListening({
 				localIdentity: bob,
-				/**
-				 *
-				 */
+				/** 空入站回调（Bob 端 Nostr 链路忽略被动入站，仅主动 dial）。 */
 				onInbound() { },
 			})
 			const bDialedC = await bLinkC.dial({ nodeHash: carol.nodeHash, localIdentity: bob })

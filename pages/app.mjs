@@ -107,6 +107,7 @@ function connectRelay() {
 	statusEl.textContent = `连接 ${relayUrl} …`
 	const connection = new WebSocket(relayUrl)
 	webSocket = connection
+	/** WebSocket 已连接后发送 REQ 订阅 census 事件。 */
 	connection.onopen = () => {
 		if (connection !== webSocket || !enabled) return
 		connection.send(JSON.stringify(['REQ', CENSUS_SUB_ID, { kinds: [CENSUS_KIND], '#t': ['fount'], '#x': ['census'] }]))
@@ -129,10 +130,12 @@ function connectRelay() {
 		}
 		catch { /* ignore malformed */ }
 	}
+	/** WebSocket 关闭时更新状态为已断开。 */
 	connection.onclose = () => {
 		if (connection !== webSocket || !enabled) return
 		statusEl.textContent = '已断开'
 	}
+	/** WebSocket 出错时提示中继连接失败。 */
 	connection.onerror = () => {
 		if (connection !== webSocket || !enabled) return
 		statusEl.textContent = '中继连接失败'

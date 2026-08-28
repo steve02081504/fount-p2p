@@ -10,12 +10,12 @@ import {
 	unregisterDiscoveryProvider,
 } from '../discovery/index.mjs'
 import { createLanDiscoveryProvider } from '../discovery/lan.mjs'
+import { MAX_ADVERT_RELAY_POOL } from '../discovery/nostr/constants.mjs'
 import {
 	createNostrDiscoveryProvider,
 	resolveNostrRelayUrls,
 } from '../discovery/nostr/index.mjs'
 import { getListenRelays, getWorkingRelays, loadRelayPool, startNostrRelayDiscovery } from '../discovery/nostr/relays.mjs'
-import { MAX_ADVERT_RELAY_POOL } from '../discovery/nostr/constants.mjs'
 import { createBleGattLinkProvider } from '../link/providers/ble_gatt.mjs'
 import {
 	listLinkProviders,

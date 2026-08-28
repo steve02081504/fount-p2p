@@ -1,10 +1,10 @@
-import WebSocket from 'ws'
-
 import { lookup } from 'node:dns/promises'
 
-import { nodeDebug } from '../../node/log.mjs'
-import { getSignalingRuntimeConfig } from '../../node/instance.mjs'
+import WebSocket from 'ws'
+
 import { getNodeTransportSettings } from '../../node/identity.mjs'
+import { getSignalingRuntimeConfig } from '../../node/instance.mjs'
+import { nodeDebug } from '../../node/log.mjs'
 import {
 	readNostrRelaysJsonSync,
 	writeNostrRelaysJsonSync,
@@ -197,7 +197,7 @@ async function relayUrlResolvesPublic(relayUrl) {
 function currentTrustedRelayUrls() {
 	return new Set([
 		...locallyAllowedRelayUrls(),
-		...(bootstrapRelaysOverride.length ? bootstrapRelaysOverride : NIP66_BOOTSTRAP_RELAYS),
+		...bootstrapRelaysOverride.length ? bootstrapRelaysOverride : NIP66_BOOTSTRAP_RELAYS,
 		...getPinnedRelays(),
 	])
 }
