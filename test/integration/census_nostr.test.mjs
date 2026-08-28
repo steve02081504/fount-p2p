@@ -109,6 +109,9 @@ function publishBatchViaWs(port, events) {
  */
 async function withFixedRandom(value, testFn) {
 	const originalRandom = Math.random
+	/**
+	 *
+	 */
 	Math.random = () => value
 	try {
 		await testFn()

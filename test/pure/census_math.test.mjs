@@ -10,7 +10,10 @@ import {
 } from '../../discovery/nostr/census_math.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 
-/** 确定性 PRNG（mulberry32），保证反馈模拟测试非 flaky。 */
+/**
+ * 确定性 PRNG（mulberry32），保证反馈模拟测试非 flaky。
+ * @param seed
+ */
 function makeRng(seed) {
 	return () => {
 		seed = (seed + 0x6D2B79F5) | 0
@@ -109,6 +112,10 @@ test('200-node feedback loop: event count regresses to ~target while estimate st
 		// 次轮起 E 回归到 ~T（20 条），估计值始终 ~M（200）。
 		const laterRounds = rounds.slice(1)
 		const laterEstimates = estimates.slice(1)
+		/**
+		 *
+		 * @param values
+		 */
 		const mean = values => values.reduce((sum, value) => sum + value, 0) / values.length
 		assertEquals(mean(laterRounds) >= 12 && mean(laterRounds) <= 30, true,
 			`seed ${seed} mean later events ${mean(laterRounds)}`)
@@ -153,8 +160,16 @@ test('clampP handles invalid input', () => {
 })
 
 test('census estimate tracks population through gradual join (to 2000) and churn (to 1000)', () => {
+	/**
+	 *
+	 * @param values
+	 */
 	const mean = values => values.reduce((sum, value) => sum + value, 0) / values.length
 	// 200 起步，6 回合每回合 +300 到 2000，hold 10 回合；再 5 回合每回合 -200 到 1000，hold 10 回合。
+	/**
+	 *
+	 * @param round
+	 */
 	const timeline = round => {
 		if (round < 6) return 300
 		if (round < 16) return 0

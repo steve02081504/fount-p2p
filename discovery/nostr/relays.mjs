@@ -195,10 +195,9 @@ function markDirty() {
 function flushRelayState() {
 	if (!dirty) return
 	dirty = false
-	const now = Date.now()
 	try {
 		storageIO.write({
-			updatedAt: now,
+			updatedAt: Date.now(),
 			nostrRelays: sortByHealth([...poolEntries.values()]).map(entry => ({ ...entry })),
 			peerRoutes: Object.fromEntries(
 				[...peerRoutes.entries()].map(([hash, route]) => [hash, { ...route }]),
@@ -243,22 +242,18 @@ export function loadRelayPool() {
  * @returns {RelayPoolEntry | null} 规范化条目或 null
  */
 function toRelayEntry(raw, url) {
-	const source = SOURCE_PRIORITY[String(raw?.source || '')] !== undefined ? raw.source : 'nip66'
 	const rttMs = Number(raw?.rttMs)
-	/** @type {number | null} */
-	const rtt = Number.isFinite(rttMs) ? Math.round(rttMs) : null
-	const now = Date.now()
 	return {
 		url,
-		rttMs: rtt,
+		rttMs: Number.isFinite(rttMs) ? Math.round(rttMs) : null,
 		successCount: Math.max(0, Math.floor(Number(raw?.successCount) || 0)),
 		failureCount: Math.max(0, Math.floor(Number(raw?.failureCount) || 0)),
 		lastSuccess: Number(raw?.lastSuccess) || 0,
 		lastFailure: Number(raw?.lastFailure) || 0,
 		lastProbe: Number(raw?.lastProbe) || 0,
-		firstSeen: Number(raw?.firstSeen) || now,
-		lastSeen: Number(raw?.lastSeen) || now,
-		source,
+		firstSeen: Number(raw?.firstSeen) || Date.now(),
+		lastSeen: Number(raw?.lastSeen) || Date.now(),
+		source: SOURCE_PRIORITY[String(raw?.source || '')] !== undefined ? raw.source : 'nip66',
 		nips: Array.isArray(raw?.nips) ? raw.nips.map(String).filter(Boolean) : [],
 		clearnet: !!raw?.clearnet,
 		monitorCount: Math.max(0, Math.floor(Number(raw?.monitorCount) || 0)),
@@ -338,17 +333,14 @@ export function upsertRelay(input) {
 	const url = normalizeNostrRelayUrl(input.url)
 	if (!url) return
 	const existing = poolEntries.get(url)
-	const now = Date.now()
-	if (!existing) {
-		const entry = toRelayEntry({ ...input, url, firstSeen: now }, url)
-		poolEntries.set(url, entry)
-	}
+	if (!existing) 
+		poolEntries.set(url, toRelayEntry({ ...input, url, firstSeen: Date.now() }, url))
+	
 	else {
 		const incoming = toRelayEntry({ ...input, url }, url)
-		// 统计累加
 		existing.successCount += incoming.successCount
 		existing.failureCount += incoming.failureCount
-		existing.lastSeen = now
+		existing.lastSeen = Date.now()
 		if (incoming.lastSuccess) existing.lastSuccess = incoming.lastSuccess
 		if (incoming.lastFailure) existing.lastFailure = incoming.lastFailure
 		if (incoming.lastProbe) existing.lastProbe = incoming.lastProbe
@@ -386,12 +378,9 @@ export function recordProbeSuccess(url, rttMs) {
 	const normalized = normalizeNostrRelayUrl(url)
 	if (!normalized) return
 	const entry = ensureEntry(normalized)
-	const rtt = Number(rttMs)
-	if (rttMs != null && Number.isFinite(rtt)) entry.rttMs = Math.max(0, Math.min(MAX_RTT_MS, Math.round(rtt)))
+	if (rttMs != null && Number.isFinite(Number(rttMs))) entry.rttMs = Math.max(0, Math.min(MAX_RTT_MS, Math.round(Number(rttMs))))
 	entry.successCount++
-	entry.lastSuccess = Date.now()
-	entry.lastProbe = Date.now()
-	entry.lastSeen = Date.now()
+	entry.lastSuccess = entry.lastProbe = entry.lastSeen = Date.now()
 	markDirty()
 }
 
@@ -404,9 +393,7 @@ export function recordProbeFailure(url) {
 	if (!normalized) return
 	const entry = ensureEntry(normalized)
 	entry.failureCount++
-	entry.lastFailure = Date.now()
-	entry.lastProbe = Date.now()
-	entry.lastSeen = Date.now()
+	entry.lastFailure = entry.lastProbe = entry.lastSeen = Date.now()
 	markDirty()
 }
 
@@ -559,7 +546,6 @@ export async function probeRelay(url, signal) {
 	const startedAt = Date.now()
 	let ws = null
 	try {
-		// 外部取消信号直接中止 WebSocket 连接，避免 shutdown 时遗留 in-flight 连接拖住进程退出。
 		ws = await connectRelay(normalized, PROBE_TIMEOUT_MS, signal || controller.signal)
 		const rttMs = Date.now() - startedAt
 		const info = await queryRelayInfo(normalized, signal)
@@ -572,7 +558,7 @@ export async function probeRelay(url, signal) {
 	}
 	finally {
 		controller.abort()
-		if (ws && ws.readyState !== WebSocket.CLOSED)
+		if (ws?.readyState !== WebSocket.CLOSED)
 			try { ws.terminate() } catch { /* ignore */ }
 	}
 }

@@ -30,11 +30,9 @@ export function clampP(p) {
  * @returns {number} 下一轮包含概率
  */
 export function nextInclusionProbability(currentP, observedCount, target = CENSUS_TARGET_EVENTS) {
-	const observed = observedCount
-	const targetEvents = Math.max(1, target)
 	const base = clampP(currentP)
-	if (observed === 0) return clampP(base * CENSUS_GROW_FACTOR)
-	return clampP(base * (targetEvents / observed))
+	if (!observedCount) return clampP(base * CENSUS_GROW_FACTOR)
+	return clampP(base * (Math.max(1, target) / observedCount))
 }
 
 /**

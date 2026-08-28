@@ -23,9 +23,7 @@ export const LINK_HANDSHAKE_DOMAIN = 'fount-link'
  * @returns {string | null} 规范化 binding，无效时 null
  */
 export function normalizeLinkBinding(value) {
-	const dtls = normalizeDtlsFingerprint(value)
-	if (dtls) return dtls
-	return isHex64(value)
+	return normalizeDtlsFingerprint(value) || isHex64(value)
 }
 
 /**
@@ -36,16 +34,14 @@ export function normalizeLinkBinding(value) {
  * @returns {Uint8Array} 待签名消息字节
  */
 export function buildAuthMessage(peerNonce, localBinding, localNodeHash) {
-	const nonce = peerNonce
 	const binding = normalizeLinkBinding(localBinding)
-	const nodeHash = localNodeHash
-	if (!/^[\da-f]{64}$/u.test(nonce))
+	if (!/^[\da-f]{64}$/u.test(peerNonce))
 		throw new Error('p2p: auth nonce must be 64 hex characters')
 	if (!binding)
 		throw new Error('p2p: link binding missing or invalid')
-	if (!isHex64(nodeHash))
+	if (!isHex64(localNodeHash))
 		throw new Error('p2p: nodeHash must be 64 hex characters')
-	return Buffer.from(`${LINK_HANDSHAKE_DOMAIN}\0${nonce}\0${binding}\0${nodeHash}`, 'utf8')
+	return Buffer.from(`${LINK_HANDSHAKE_DOMAIN}\0${peerNonce}\0${binding}\0${localNodeHash}`, 'utf8')
 }
 
 /**
@@ -144,9 +140,9 @@ export async function verifyAuth(hello, auth, expectedNonce, remoteBinding) {
  * @returns {Uint8Array} 待签名消息字节
  */
 export function buildAdvertMessage(rendezvousKey, ts, nodeHash, tcpPort = null, lanHosts = null, relayBlobHex = null) {
-	const base = `fount-advert\0${rendezvousKey}\0${ts}\0${nodeHash}`
+	let message = `fount-advert\0${rendezvousKey}\0${ts}\0${nodeHash}`
 	const port = normalizeTcpPort(tcpPort)
-	let message = port ? `${base}\0${port}` : base
+	if (port) message += `\0${port}`
 	const hosts = normalizeLanHosts(lanHosts)
 	if (hosts.length) message += `\0${hosts.join(',')}`
 	if (relayBlobHex) message += `\0relays:${relayBlobHex}`
@@ -308,16 +304,12 @@ export async function verifySignedAdvert(rendezvousKey, advert, now = Date.now()
 	const ts = Number(advert?.ts)
 	const sig = isSignatureHex128(advert?.sig)
 	if (!Number.isFinite(ts) || Math.abs(now - ts) > maxSkewMs || !sig) return null
-	const hasTcpPortField = !!advert?.tcpPort
 	const tcpPort = normalizeTcpPort(advert?.tcpPort)
-	if (hasTcpPortField && !tcpPort) return null
-	const lanHosts = normalizeLanHosts(advert?.lanHosts)
-	// 入站用 lenient sanitize 防御畸形输入，重建消息比对签名。
+	if (advert?.tcpPort != null && !tcpPort) return null
 	const sanitized = sanitizeAdvertRelayFields(advert?.nostrRelayPool, advert?.listenNostrRelays)
-	const ok = await verify(Buffer.from(sig, 'hex'),
-		buildAdvertMessage(rendezvousKey, ts, parsedHello.nodeHash, tcpPort, lanHosts,
+	if (!await verify(Buffer.from(sig, 'hex'),
+		buildAdvertMessage(rendezvousKey, ts, parsedHello.nodeHash, tcpPort, normalizeLanHosts(advert?.lanHosts),
 			canonicalAdvertRelayBlob(sanitized.pool, sanitized.listen)),
-		Buffer.from(parsedHello.nodePubKey, 'hex'))
-	if (!ok) return null
+		Buffer.from(parsedHello.nodePubKey, 'hex'))) return null
 	return { nodeHash: parsedHello.nodeHash, relayPool: sanitized.pool, listenRelays: sanitized.listen }
 }

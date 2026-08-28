@@ -27,7 +27,11 @@ async function withTempNodeDir(testFn) {
 	}
 }
 
-/** 用当前节点 seed 构建签名 census 包。 */
+/**
+ * 用当前节点 seed 构建签名 census 包。
+ * @param p
+ * @param ts
+ */
 const buildLocalCensusPacket = (p, ts) => buildCensusPacketFromSeed(ensureNodeSeed(), { p, ts })
 
 test('census kind is outside advert/signal ranges', () => {

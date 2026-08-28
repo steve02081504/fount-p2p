@@ -2,6 +2,7 @@
  * Federation P2P 门面：fount 网络引导与房间/发现入口。
  */
 import { registerDiscoveryProvider } from './discovery/index.mjs'
+import { getNodePopulationEstimate } from './discovery/nostr/census.mjs'
 import {
 	isInfraRunning,
 	setInfraPriority,
@@ -22,7 +23,6 @@ import {
 } from './node/instance.mjs'
 import { setConnectivityDebug } from './node/log.mjs'
 import { loadReputation } from './node/reputation_store.mjs'
-import { getNodePopulationEstimate } from './discovery/nostr/census.mjs'
 import {
 	attachReputationSyncWire,
 	getReputationExportAllowlist,

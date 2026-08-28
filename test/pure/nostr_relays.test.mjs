@@ -1,7 +1,7 @@
 import { afterEach, test } from 'node:test'
 
-import { DEFAULT_RELAY_URLS } from '../../discovery/nostr/relays.mjs'
 import { DEFAULT_RTT_MS, PROBE_STALE_MS } from '../../discovery/nostr/constants.mjs'
+import { DEFAULT_RELAY_URLS } from '../../discovery/nostr/relays.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
 import { setupRelayTests } from '../helpers/relay_test_setup.mjs'
 

@@ -35,13 +35,13 @@ export async function resolveLocalChrome() {
 			return cachedPath
 		}
 	}
-	for (const candidate of COMMON_WINDOWS_PATHS) {
+	for (const candidate of COMMON_WINDOWS_PATHS) 
 		try {
 			await access(candidate)
 			cachedPath = candidate
 			return cachedPath
 		}
 		catch { /* continue */ }
-	}
+	
 	return null
 }

@@ -22,13 +22,21 @@ const events = new Map()
 let ws = null
 let enabled = true
 
-/** @param {number} p @returns {number} */
+/**
+ * @param {number} p 概率
+ * @returns {number} 归一化概率
+ */
 function clampP(p) {
 	if (!Number.isFinite(p)) return 0.001
 	return Math.min(1, Math.max(0.001, p))
 }
 
-/** @param {number} p @param {number} observed @param {number} [target] @returns {number} */
+/**
+ * @param {number} p 当前概率
+ * @param {number} observed 观察到的事件数
+ * @param {number} [target] 目标事件数
+ * @returns {number} 下一轮包含概率
+ */
 function nextInclusionProbability(p, observed, target = TARGET_EVENTS) {
 	const observedCount = Math.max(0, Math.floor(observed))
 	const base = clampP(p)
@@ -38,7 +46,7 @@ function nextInclusionProbability(p, observed, target = TARGET_EVENTS) {
 
 /**
  * HT 估计；遍历时逐出过期事件，避免窗口 Map 持续增长。
- * @returns {{ estimate: number, sampleSize: number }}
+ * @returns {{ estimate: number, sampleSize: number }} 估计与采样数
  */
 function estimatePopulation() {
 	let total = 0
@@ -52,20 +60,19 @@ function estimatePopulation() {
 	return { estimate: total, sampleSize }
 }
 
-/** 懒加载验签所需 noble 模块（仅 live 模式）。 */
 let noblePromise = null
+/** @returns {Promise<[object, object]>} noble 模块 */
 function loadNoble() {
-	if (!noblePromise) noblePromise = Promise.all([
+	return noblePromise ||= Promise.all([
 		import('https://esm.sh/@noble/curves@1/ed25519.js'),
 		import('https://esm.sh/@noble/hashes@1/sha2.js'),
 	])
-	return noblePromise
 }
 
 /**
  * 校验 census 包：nodeHash=sha256(nodePubKey) 且 Ed25519 签名匹配 `fount-census\0ts\0nodeHash\0p`。
  * @param {object} packet 原始包
- * @returns {Promise<{ nodeHash: string, p: number, ts: number } | null>}
+ * @returns {Promise<{ nodeHash: string, p: number, ts: number } | null>} 验签结果
  */
 async function verifyCensusPacket(packet) {
 	const nodeHash = /^[\da-f]{64}$/u.test(String(packet?.nodeHash ?? '')) ? packet.nodeHash : null
@@ -93,6 +100,7 @@ function ingest(verified) {
 	render()
 }
 
+/** @returns {void} 渲染人口估计 */
 function render() {
 	const { estimate, sampleSize } = estimatePopulation()
 	document.querySelector('#estimate').textContent = estimate.toLocaleString('zh-CN', { maximumFractionDigits: 1 })
@@ -100,16 +108,18 @@ function render() {
 	document.querySelector('#window-events').textContent = String(events.size)
 }
 
+/** @returns {void} 注入演示数据 */
 function seedDemo() {
 	events.clear()
-	for (let index = 0; index < 20; index++) {
+	for (let index = 0; index < 20; index++) 
 		events.set((index + 1).toString(16).padStart(2, '0').repeat(32), { p: 0.1, at: Date.now() })
-	}
+	
 	statusEl.textContent = '演示模式：20 条 p=0.1 样本（HT 估计 = 200）'
 	document.querySelector('#footer').textContent = '演示模式样本为虚构数据；添加 ?relay=wss://... 进入 live 模式。'
 	render()
 }
 
+/** @returns {void} 连接中继并订阅 */
 function connectRelay() {
 	if (ws) {
 		try { ws.close() } catch { /* ignore */ }
@@ -118,24 +128,35 @@ function connectRelay() {
 	if (!relayUrl || !enabled) return
 	statusEl.textContent = `连接 ${relayUrl} …`
 	ws = new WebSocket(relayUrl)
+	/**
+	 *
+	 */
 	ws.onopen = () => {
 		ws.send(JSON.stringify(['REQ', CENSUS_SUB_ID, { kinds: [CENSUS_KIND], '#t': ['fount'], '#x': ['census'] }]))
 		statusEl.textContent = `监听 ${relayUrl}（kind ${CENSUS_KIND}）`
 	}
+	/**
+	 * @param {MessageEvent} rawMessage 中继消息事件
+	 * @returns {Promise<void>}
+	 */
 	ws.onmessage = async rawMessage => {
 		let parsed
 		try { parsed = JSON.parse(String(rawMessage.data)) } catch { return }
 		if (parsed?.[0] !== 'EVENT' || parsed[1] !== CENSUS_SUB_ID) return
-		const event = parsed[2]
-		if (event?.kind !== CENSUS_KIND) return
+		if (parsed[2]?.kind !== CENSUS_KIND) return
 		try {
-			const packet = JSON.parse(atob(event.content))
-			const verified = await verifyCensusPacket(packet)
+			const verified = await verifyCensusPacket(JSON.parse(atob(parsed[2].content)))
 			if (verified) ingest(verified)
 		}
 		catch { /* ignore malformed */ }
 	}
+	/**
+	 *
+	 */
 	ws.onclose = () => { statusEl.textContent = '已断开' }
+	/**
+	 *
+	 */
 	ws.onerror = () => { statusEl.textContent = '中继连接失败' }
 }
 

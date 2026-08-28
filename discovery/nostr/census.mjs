@@ -15,10 +15,10 @@
  */
 import { Buffer } from 'node:buffer'
 
-import { keyPairFromSeed, pubKeyHash, sign, verify } from '../../crypto/crypto.mjs'
 import { isHex64, isSignatureHex128 } from '../../core/hexIds.mjs'
-import { getP2PFeatures, isNodeInitialized } from '../../node/instance.mjs'
+import { keyPairFromSeed, pubKeyHash, sign, verify } from '../../crypto/crypto.mjs'
 import { ensureNodeSeed, getNodeHash } from '../../node/identity.mjs'
+import { getP2PFeatures, isNodeInitialized } from '../../node/instance.mjs'
 import { nodeDebug } from '../../node/log.mjs'
 
 import {
@@ -65,14 +65,12 @@ export async function buildCensusPacketFromSeed(seedHex, { p, ts = Date.now() })
 	if (!Number.isFinite(p) || p <= 0 || p > 1) throw new Error('p2p: census invalid p')
 	const { publicKey, secretKey } = keyPairFromSeed(Buffer.from(seedHex, 'hex'))
 	const nodeHash = pubKeyHash(publicKey)
-	const message = buildCensusMessage(ts, nodeHash, p)
-	const sig = Buffer.from(await sign(message, secretKey)).toString('hex')
 	return {
 		nodeHash,
 		nodePubKey: Buffer.from(publicKey).toString('hex'),
 		ts,
 		p,
-		sig,
+		sig: Buffer.from(await sign(buildCensusMessage(ts, nodeHash, p), secretKey)).toString('hex'),
 	}
 }
 
@@ -98,9 +96,7 @@ export async function verifyCensusPacket(packet, now = Date.now(), ttlMs = CENSU
 	catch {
 		return null
 	}
-	const message = buildCensusMessage(ts, nodeHash, p)
-	const ok = await verify(Buffer.from(sig, 'hex'), message, Buffer.from(nodePubKey, 'hex'))
-	return ok ? { nodeHash, p, ts } : null
+	return await verify(Buffer.from(sig, 'hex'), buildCensusMessage(ts, nodeHash, p), Buffer.from(nodePubKey, 'hex')) ? { nodeHash, p, ts } : null
 }
 
 /**
@@ -112,8 +108,7 @@ export async function verifyCensusPacket(packet, now = Date.now(), ttlMs = CENSU
  */
 export async function verifyCensusBytes(bytes, now = Date.now(), ttlMs = CENSUS_TTL_MS) {
 	try {
-		const packet = JSON.parse(Buffer.from(bytes).toString('utf8'))
-		return await verifyCensusPacket(packet, now, ttlMs)
+		return await verifyCensusPacket(JSON.parse(Buffer.from(bytes).toString('utf8')), now, ttlMs)
 	}
 	catch {
 		return null
@@ -181,16 +176,13 @@ export function resetCensusEvents() {
 export function getNodePopulationEstimate(now = Date.now(), ttlMs = CENSUS_TTL_MS) {
 	const events = listCensusEvents(now, ttlMs)
 	const { estimate, sampleSize } = estimatePopulation(events)
-	// self 事件已计入 Σ（含其权重 1/p_self，p=0.01 时即总人口的 1/T=100 人）——
-	// 同时 -1：把自己从自己的数据里移出去，移除自身事件的完整权重。
 	let total = estimate
-	const selfIncluded = isNodeInitialized() && getP2PFeatures().census ? 1 : 0
-	if (selfIncluded) {
+	if (isNodeInitialized() && getP2PFeatures().census) {
 		const selfEvent = selfCensusEvent(now, ttlMs)
 		if (selfEvent) total -= 1 / selfEvent.p
+		total++
 	}
-	// +1：自己确定性存在，只计 1 人。两操作独立，不能抵消。
-	return { estimate: total + selfIncluded, sampleSize, eventsInWindow: events.length }
+	return { estimate: total, sampleSize, eventsInWindow: events.length }
 }
 
 /**
@@ -232,10 +224,7 @@ export function createNostrCensus(deps) {
 			 */
 			async onPayload(bytes) {
 				const verified = await verifyCensusBytes(bytes, now())
-				if (!verified) return
-				// self 事件算进去：自身 census 事件计入窗口数据（含其权重 p），
-				// 由 multiplier（--）与 estimate（-1 权重）在计算时移出自身。
-				noteCensusEvent(verified.nodeHash, verified.p, verified.ts)
+				if (verified) noteCensusEvent(verified.nodeHash, verified.p, verified.ts)
 			},
 		})
 	}
@@ -246,20 +235,15 @@ export function createNostrCensus(deps) {
 	 */
 	const run = async () => {
 		if (abortController.signal.aborted) return
-		// census 需要节点身份（签名/发布）；未 initNode 的 headless registry 不启动。
 		if (!isNodeInitialized() || !getP2PFeatures().census) return
 		ensureSubscription()
-		const events = listCensusEvents(now())
-		// all += block.num（含自身事件）；if (block.self) all--（移出自身计数）；
-		// 20/(all+1)：+1 把 self 计入目标事件数。
-		let observed = events.length
+		let observed = listCensusEvents(now()).length
 		if (selfCensusEvent(now())) observed--
 		localP = nextInclusionProbability(localP, observed + 1, CENSUS_TARGET_EVENTS)
 		if (Math.random() >= localP) return
 		try {
 			const packet = await buildCensusPacketFromSeed(ensureNodeSeed(), { p: localP, ts: now() })
-			const content = Buffer.from(JSON.stringify(packet), 'utf8').toString('base64')
-			const event = await signEvent(NOSTR_CENSUS_KIND, CENSUS_TAGS, content)
+			const event = await signEvent(NOSTR_CENSUS_KIND, CENSUS_TAGS, Buffer.from(JSON.stringify(packet), 'utf8').toString('base64'))
 			await publishEvent(resolveRelayUrls(), event, abortController.signal)
 			nodeDebug('p2p:census published', { p: localP })
 		}

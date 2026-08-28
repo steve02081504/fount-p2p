@@ -18,6 +18,7 @@ import {
 } from '../internal/signal_crypto.mjs'
 import { noteDiscoveryPeerClue } from '../peer_clue.mjs'
 
+import { createNostrCensus } from './census.mjs'
 import {
 	DEFAULT_RELAY_URLS,
 	getListenRelays,
@@ -30,7 +31,6 @@ import {
 import { routePublishEvent } from './selection.mjs'
 import { dedupeRelayUrls, publishViaSharedRelay, subscribeNostrKind } from './session.mjs'
 
-import { createNostrCensus } from './census.mjs'
 
 /** Nostr network advert 事件 kind（addressable，可存储）。 */
 export const NOSTR_ADVERT_KIND = 30787
@@ -123,12 +123,10 @@ export function listNostrGroupVisibleNodeHashes(roomSecret, now = Date.now(), tt
 function isPublicRelayUrl(normalizedUrl) {
 	let hostname
 	try { hostname = String(new URL(normalizedUrl).hostname || '').toLowerCase().replace(/^\[|\]$/g, '') } catch { return false }
-	if (!hostname) return false
-	if (hostname === 'localhost' || hostname === '::1' || hostname === '::' || hostname === '0.0.0.0') return false
+	if (!hostname || ['localhost', '::1', '::', '0.0.0.0'].includes(hostname)) return false
 	if (/\.(local|internal|lan|home|corp)$/.test(hostname)) return false
 	if (/^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname)) return false
-	if (/^fe[89ab][\da-f]:/i.test(hostname)) return false
-	if (/^f[cd][\da-f]:/i.test(hostname)) return false
+	if (/^fe[89ab][\da-f]:/i.test(hostname) || /^f[cd][\da-f]:/i.test(hostname)) return false
 	return true
 }
 
@@ -177,13 +175,11 @@ export async function acceptNostrAdvert(rendezvousKey, bytes, options = {}) {
 	const ingested = await ingestEncryptedAdvert(rendezvousKey, bytes)
 	if (!ingested) return null
 	const hash = ingested.verifiedNodeHash
-	const skipHash = isHex64(options.skipNodeHash)
-	if (skipHash && hash === skipHash) return hash
-	const { roomSecret } = options
+	if (isHex64(options.skipNodeHash) === hash) return hash
 	let firstSeen = true
-	if (roomSecret) {
-		firstSeen = !visibleByGroup.get(roomSecret)?.has(hash)
-		noteNostrGroupVisibleNode(roomSecret, hash)
+	if (options.roomSecret) {
+		firstSeen = !visibleByGroup.get(options.roomSecret)?.has(hash)
+		noteNostrGroupVisibleNode(options.roomSecret, hash)
 	}
 	else {
 		firstSeen = !visibleByHash.has(hash)
@@ -191,7 +187,7 @@ export async function acceptNostrAdvert(rendezvousKey, bytes, options = {}) {
 	}
 	if (firstSeen) {
 		noteDiscoveryPeerClue(hash)
-		nodeDebug('p2p:nostr peer visible', { peer: shortHash(hash), group: !!roomSecret })
+		nodeDebug('p2p:nostr peer visible', { peer: shortHash(hash), group: !!options.roomSecret })
 	}
 	capturePeerRelayFields(hash, ingested.listenRelays, ingested.relayPool)
 	noteAdvertPeerHints(hash, ingested.body, options.meta || {})
@@ -212,8 +208,7 @@ export function resolveNostrRelayUrls() {
 	const relay = getSignalingRuntimeConfig().channels?.nostr?.relay
 	if (Array.isArray(relay) && relay.length) return dedupeRelayUrls(relay)
 	const configRelay = getNodeTransportSettings().relayUrls
-	if (configRelay.length) return dedupeRelayUrls(configRelay)
-	return getListenRelays().map(entry => entry.url)
+	return configRelay.length ? dedupeRelayUrls(configRelay) : getListenRelays().map(entry => entry.url)
 }
 
 /**
@@ -226,10 +221,8 @@ export function resolveNostrRelayUrls() {
 async function signNostrEvent(kind, tags, content, secretKey) {
 	const pubkey = bytesToHex(schnorr.getPublicKey(secretKey))
 	const created_at = Math.floor(Date.now() / 1000)
-	const serialized = JSON.stringify([0, pubkey, created_at, kind, tags, content])
-	const id = sha256Hex(serialized)
-	const sig = bytesToHex(await schnorr.sign(hexToBytes(id), secretKey))
-	return { id, pubkey, created_at, kind, tags, content, sig }
+	const id = sha256Hex(JSON.stringify([0, pubkey, created_at, kind, tags, content]))
+	return { id, pubkey, created_at, kind, tags, content, sig: bytesToHex(await schnorr.sign(hexToBytes(id), secretKey)) }
 }
 
 /**
@@ -262,17 +255,10 @@ async function publishEvent(relayUrls, event, signal) {
  */
 export function createNostrDiscoveryProvider(options = {}) {
 	const hasExplicitRelay = options.relayUrls != null || !!options.getRelayUrls
-	/**
-	 * @returns {string[]} 去重后的中继 URL 列表
-	 */
+	/** @returns {string[]} 去重后的中继 URL 列表 */
 	const resolveRelayUrls = () => {
-		if (options.getRelayUrls) {
-			const urls = options.getRelayUrls()
-			return dedupeRelayUrls(urls == null ? DEFAULT_RELAY_URLS : urls)
-		}
-		if (options.relayUrls == null)
-			return resolveNostrRelayUrls()
-		return dedupeRelayUrls(options.relayUrls)
+		if (options.getRelayUrls) return dedupeRelayUrls(options.getRelayUrls() ?? DEFAULT_RELAY_URLS)
+		return options.relayUrls == null ? resolveNostrRelayUrls() : dedupeRelayUrls(options.relayUrls)
 	}
 	const secretKey = randomBytes(32)
 	/** @type {string | null} */
@@ -474,12 +460,10 @@ export function createNostrDiscoveryProvider(options = {}) {
 				const beacon = await getBeacon?.()
 				if (!beacon?.nodeHash) return
 				noteSelfNodeHash(beacon.nodeHash)
-				const advertBody = beacon.advertBody || beacon.body || beacon
-				const bytes = encryptSignalPacket(rendezvousKey, { type: 'advert', body: advertBody })
 				const event = await signNostrEvent(
 					NOSTR_ADVERT_KIND,
 					[NOSTR_TOPIC_TAG, ['t', rendezvousKey], ['x', 'advert'], ['d', rendezvousKey]],
-					bytesToBase64(bytes),
+					bytesToBase64(encryptSignalPacket(rendezvousKey, { type: 'advert', body: beacon.advertBody || beacon.body || beacon })),
 					secretKey,
 				)
 				await publishEvent(resolveRelayUrls(), event, abortController.signal)
@@ -498,6 +482,12 @@ export function createNostrDiscoveryProvider(options = {}) {
 			const census = createNostrCensus({
 				resolveRelayUrls,
 				publishEvent,
+				/**
+				 * @param {number} kind 事件 kind
+				 * @param {string[][]} tags 事件标签
+				 * @param {string} content 事件内容
+				 * @returns {Promise<object>} 已签名事件
+				 */
 				signEvent: (kind, tags, content) => signNostrEvent(kind, tags, content, secretKey),
 				subscribeNostrKind,
 			})
@@ -582,12 +572,10 @@ export function createNostrDiscoveryProvider(options = {}) {
 				const beacon = await getBeacon?.()
 				if (!beacon?.nodeHash) return
 				noteSelfNodeHash(beacon.nodeHash)
-				const advertBody = beacon.advertBody || beacon.body || beacon
-				const bytes = encryptSignalPacket(rendezvousKey, { type: 'advert', body: advertBody })
 				const event = await signNostrEvent(
 					NOSTR_ADVERT_KIND,
 					[NOSTR_TOPIC_TAG, ['t', rendezvousKey], ['x', 'advert'], ['d', rendezvousKey]],
-					bytesToBase64(bytes),
+					bytesToBase64(encryptSignalPacket(rendezvousKey, { type: 'advert', body: beacon.advertBody || beacon.body || beacon })),
 					secretKey,
 				)
 				await publishEvent(resolveRelayUrls(), event, abortController.signal)
@@ -602,7 +590,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 		},
 		/**
 		 * @param {string} roomSecret 房间密钥
-		 * @param {(bytes: Uint8Array, meta: object) => void} onAdvert 回调
+		 * @param {(bytes: Uint8Array, meta: object) => void} onAdvert advert 回调
 		 * @returns {Promise<() => void>} 取消群 advert 监听
 		 */
 		async watchGroupAdverts(roomSecret, onAdvert) {
@@ -618,10 +606,7 @@ export function createNostrDiscoveryProvider(options = {}) {
 			if (options.roomSecret) noteNostrGroupVisibleNode(options.roomSecret, nodeHash)
 			else noteNostrVisibleNode(nodeHash)
 		},
-		/**
-		 * 停止全部内部订阅（reload / unregister 时调用）。
-		 * @returns {void}
-		 */
+		/** @returns {void} 停止全部内部订阅 */
 		dispose() {
 			for (const entry of advertSubs.values())
 				try { entry.stop() } catch { /* ignore */ }
@@ -629,9 +614,8 @@ export function createNostrDiscoveryProvider(options = {}) {
 			for (const stop of nodeSignalSubs.values())
 				try { stop() } catch { /* ignore */ }
 			nodeSignalSubs.clear()
-			for (const stop of extraSubs) 
+			for (const stop of extraSubs)
 				try { stop() } catch { /* ignore */ }
-			
 			extraSubs.length = 0
 		},
 	}

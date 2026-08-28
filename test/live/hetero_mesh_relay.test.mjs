@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 
-import { clearLanPeerHints, noteLanPeerHint } from '../../discovery/lan_peer_hints.mjs'
 import { clearDiscoveryProviders, decryptNodeSignalPacket, registerDiscoveryProvider } from '../../discovery/index.mjs'
+import { clearLanPeerHints, noteLanPeerHint } from '../../discovery/lan_peer_hints.mjs'
 import { createNostrDiscoveryProvider } from '../../discovery/nostr/index.mjs'
 import { clearLinkProviders } from '../../link/providers/index.mjs'
 import { createLanTcpLinkProvider } from '../../link/providers/lan_tcp.mjs'
@@ -111,10 +111,17 @@ test({
 			const bobLan = createLanTcpLinkProvider()
 			stopAliceLan = await aliceLan.ensureListening({
 				localIdentity: alice,
+				/**
+				 *
+				 */
 				onInbound() { },
 			})
 			stopBobLan = await bobLan.ensureListening({
 				localIdentity: bob,
+				/**
+				 *
+				 * @param link
+				 */
 				onInbound(link) { bLinkA = link },
 			})
 			noteLanPeerHint(bob.nodeHash, { host: '127.0.0.1', port: bobLan.localEndpoint().port })
@@ -124,8 +131,18 @@ test({
 			await bLinkA.ready
 
 			// b↔c：单个假 nostr relay 的真实 link。
-			const bLinkC = createNostrLinkProvider({ getRelayUrls: () => [relayUrl] })
-			const cLinkB = createNostrLinkProvider({ getRelayUrls: () => [relayUrl] })
+			const bLinkC = createNostrLinkProvider({
+				/**
+				 *
+				 */
+				getRelayUrls: () => [relayUrl]
+			})
+			const cLinkB = createNostrLinkProvider({
+				/**
+				 *
+				 */
+				getRelayUrls: () => [relayUrl]
+			})
 			stopBSignal = await discovery.listenNodeSignals(bob.nodeHash, bytes => {
 				const packet = decryptNodeSignalPacket(bob.nodeHash, bytes)
 				if (packet?.type === 'link') void bLinkC.deliverPacket(packet)
@@ -136,10 +153,17 @@ test({
 			})
 			stopListenC = cLinkB.ensureListening({
 				localIdentity: carol,
+				/**
+				 *
+				 * @param link
+				 */
 				onInbound(link) { cLinkBInbound = link },
 			})
 			stopListenB = bLinkC.ensureListening({
 				localIdentity: bob,
+				/**
+				 *
+				 */
 				onInbound() { },
 			})
 			const bDialedC = await bLinkC.dial({ nodeHash: carol.nodeHash, localIdentity: bob })

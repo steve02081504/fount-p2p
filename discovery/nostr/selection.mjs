@@ -38,10 +38,7 @@ export function backoffDelay(attempt) {
  */
 function compositeScore(url, route) {
 	const ownPool = getPoolByUrl().get(url)
-	const ownScore = ownPool ? computeRelayHealth(ownPool) : DEFAULT_RTT_MS
-	const peerPool = route?.peerPool?.find(item => item.url === url)
-	const peerRtt = peerPool?.rttMs ?? DEFAULT_RTT_MS
-	return ownScore + peerRtt
+	return (ownPool ? computeRelayHealth(ownPool) : DEFAULT_RTT_MS) + (route?.peerPool?.find(item => item.url === url)?.rttMs ?? DEFAULT_RTT_MS)
 }
 
 /**
@@ -65,10 +62,12 @@ export function getReachPeerRelays(nodeHash) {
  * @returns {string[]} 采样 URL
  */
 export function weightedRandomSample(entries, k) {
+	/**
+	 * @param {import('./relays.mjs').RelayPoolEntry} entry 候选条目
+	 * @returns {number} 权重
+	 */
 	const weightOf = entry => Math.max(Number.EPSILON, 1 / computeRelayHealth(entry))
-	const weights = entries.map(weightOf)
-	let total = weights.reduce((a, b) => a + b, 0)
-	/** @type {string[]} */
+	let total = entries.map(weightOf).reduce((a, b) => a + b, 0)
 	const picked = []
 	const remaining = [...entries]
 	while (picked.length < k && remaining.length) {
@@ -94,28 +93,21 @@ export function weightedRandomSample(entries, k) {
  * @returns {string[]} 去重扩展结果
  */
 export function expandFromHistory(nodeHash, base, limit) {
-	const route = getPeerRoute(nodeHash)
-	const reach = getReachPeerRelays(nodeHash)
-	/** @type {Set<string>} */
 	const seen = new Set()
-	/** @type {string[]} */
 	const out = []
 	for (const url of base) {
-		if (!seen.has(url)) { seen.add(url); out.push(url) }
-		if (out.length >= limit) break
-	}
-	for (const { url } of reach) {
 		if (seen.has(url)) continue
-		seen.add(url)
-		out.push(url)
+		seen.add(url); out.push(url)
 		if (out.length >= limit) break
 	}
-	// 用工作集补齐（历史不足时）
-	const working = getWorkingRelays()
-	for (const entry of working) {
+	for (const { url } of getReachPeerRelays(nodeHash)) {
+		if (seen.has(url)) continue
+		seen.add(url); out.push(url)
+		if (out.length >= limit) break
+	}
+	for (const entry of getWorkingRelays()) {
 		if (seen.has(entry.url)) continue
-		seen.add(entry.url)
-		out.push(entry.url)
+		seen.add(entry.url); out.push(entry.url)
 		if (out.length >= limit) break
 	}
 	return out.slice(0, limit)
@@ -131,22 +123,10 @@ export function expandFromHistory(nodeHash, base, limit) {
  */
 export function handshakeTargets(nodeHash, attempt) {
 	const seen = new Set()
-	/** @type {string[]} */
 	const targets = []
-
-	/**
-	 * 添加尚未出现的 relay URL。
-	 * @param {string} url relay URL
-	 * @returns {void}
-	 */
-	const push = url => {
-		if (!seen.has(url)) { seen.add(url); targets.push(url) }
-	}
-
-	/**
-	 * Round 0：对端声称前 ROUND0_TARGET_COUNT（无则本机工作集，再空则 pinned）。
-	 * @returns {void}
-	 */
+	/** @param {string} url relay URL @returns {void} */
+	const push = url => { if (!seen.has(url)) { seen.add(url); targets.push(url) } }
+	/** @returns {void} Round 0 目标 */
 	const round0 = () => {
 		const reach = getReachPeerRelays(nodeHash)
 		if (reach.length) {
@@ -158,33 +138,21 @@ export function handshakeTargets(nodeHash, attempt) {
 			for (const entry of working.slice(0, ROUND0_TARGET_COUNT)) push(entry.url)
 			return
 		}
-		const pinned = getPinnedRelays()
-		for (const url of pinned.slice(0, ROUND0_TARGET_COUNT)) push(url)
+		for (const url of getPinnedRelays().slice(0, ROUND0_TARGET_COUNT)) push(url)
 	}
-
 	if (attempt <= 0) {
 		round0()
 		return { urls: targets.slice(0, MAX_ROUTING_FANOUT), backoffDelay: 0 }
 	}
-
-	// Round ≥1
 	const route = getPeerRoute(nodeHash)
-	if (route?.lastGoodNostrRelays?.length) {
-		const base = route.lastGoodNostrRelays
-		for (const url of expandFromHistory(nodeHash, base, LAST_GOOD_RELAYS_MAX)) push(url)
-	}
-	else {
-		const working = getWorkingRelays()
-		for (const url of weightedRandomSample(working, LAST_GOOD_RELAYS_MAX)) push(url)
-	}
-	// 公共核心始终尝试
-	const core = []
-	{
-		const reach = getReachPeerRelays(nodeHash)
-		if (reach.length) for (const { url } of reach.slice(0, ROUND0_TARGET_COUNT)) core.push(url)
-		else for (const entry of getWorkingRelays().slice(0, ROUND0_TARGET_COUNT)) core.push(entry.url)
-	}
-	for (const url of core) push(url)
+	if (route?.lastGoodNostrRelays?.length)
+		for (const url of expandFromHistory(nodeHash, route.lastGoodNostrRelays, LAST_GOOD_RELAYS_MAX)) push(url)
+	else
+		for (const url of weightedRandomSample(getWorkingRelays(), LAST_GOOD_RELAYS_MAX)) push(url)
+
+	const reach = getReachPeerRelays(nodeHash)
+	if (reach.length) for (const { url } of reach.slice(0, ROUND0_TARGET_COUNT)) push(url)
+	else for (const entry of getWorkingRelays().slice(0, ROUND0_TARGET_COUNT)) push(entry.url)
 
 	return { urls: targets.slice(0, MAX_ROUTING_FANOUT), backoffDelay: backoffDelay(attempt) }
 }
@@ -196,10 +164,7 @@ export function handshakeTargets(nodeHash, attempt) {
  * @returns {void}
  */
 function recordPeerRouteLastGood(nodeHash, okRelays) {
-	const route = getPeerRoute(nodeHash)
-	const merged = [...route?.lastGoodNostrRelays || [], ...okRelays]
-	const unique = [...new Set(merged)].slice(0, LAST_GOOD_RELAYS_MAX)
-	setPeerRoute(nodeHash, { lastGoodNostrRelays: unique })
+	setPeerRoute(nodeHash, { lastGoodNostrRelays: [...new Set([...getPeerRoute(nodeHash)?.lastGoodNostrRelays || [], ...okRelays])].slice(0, LAST_GOOD_RELAYS_MAX) })
 }
 
 /**

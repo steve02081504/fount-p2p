@@ -1,8 +1,8 @@
 import { Buffer } from 'node:buffer'
 import { test } from 'node:test'
 
-import { buildSignedAdvert, verifySignedAdvert, sanitizeAdvertRelayFields, canonicalAdvertRelayBlob } from '../../link/handshake.mjs'
 import { MAX_ADVERT_RELAY_POOL, MAX_ADVERT_LISTEN_RELAYS, MAX_RTT_MS } from '../../discovery/nostr/constants.mjs'
+import { buildSignedAdvert, verifySignedAdvert, sanitizeAdvertRelayFields, canonicalAdvertRelayBlob } from '../../link/handshake.mjs'
 import { setNodeLogger } from '../../node/instance.mjs'
 import { setConnectivityDebug } from '../../node/log.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
