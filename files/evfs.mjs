@@ -68,6 +68,20 @@ export async function saveFileManifest(manifest) {
 }
 
 /**
+ * 删除本机已写盘 manifest；其引用的 chunk 孤儿化后由 `cleanChunkGarbage` 回收。
+ * @param {string} ownerEntityHash 所有者
+ * @param {string} logicalPath 路径
+ * @returns {Promise<void>} 删除成功或不存在
+ */
+export async function deleteFileManifest(ownerEntityHash, logicalPath) {
+	const entityStore = getEntityStore()
+	if (entityStore.deleteManifest)
+		await entityStore.deleteManifest(ownerEntityHash, logicalPath)
+	else
+		throw new Error('entityStore lacks deleteManifest')
+}
+
+/**
  * @param {import('./manifest/normalize.mjs').FileManifest} manifest 清单
  * @param {Array<Buffer | Uint8Array>} partBytes 密文块
  * @returns {Promise<void>}
@@ -218,7 +232,7 @@ export async function putFileManifestFromStream(parameters) {
  * @param {string} replicaUsername 副本用户名
  * @param {string} entityHash owner entityHash
  * @param {string} logicalPath EVFS 逻辑路径
- * @param {{ username?: string, fetchChunk?: Function }} [options] miss 拉取
+ * @param {{ username?: string, fetchChunk?: Function, revalidate?: boolean }} [options] miss 拉取；`revalidate` 强制阻塞等待 fanout 择新
  * @returns {Promise<Buffer | null>} 明文或 null
  */
 export async function readPublicFile(replicaUsername, entityHash, logicalPath, options = {}) {
@@ -228,6 +242,7 @@ export async function readPublicFile(replicaUsername, entityHash, logicalPath, o
 		ownerEntityHash: entityHash,
 		logicalPath,
 		cache: true,
+		revalidate: options.revalidate === true,
 	})
 	if (!manifest) return null
 	return readManifestPlaintext(replicaUsername, manifest, options)

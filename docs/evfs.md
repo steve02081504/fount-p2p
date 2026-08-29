@@ -9,6 +9,17 @@ Day-to-day package rules: [AGENTS.md](../AGENTS.md). Implementation: `files/` (`
 | Ciphertext chunks (CAS) | `{nodeDir}/chunks/` |
 | Manifests | `{EntityStoreRoot}/{entityHash}/files/{path}.manifest.json` |
 
+## Chunk garbage collection
+
+Chunk store is content-addressed and **write-only**: overwriting or deleting a file only rewrites/removes the manifest, old blocks stay behind forever. Reclamation is explicit, via `files/gc.mjs`:
+
+- `mapChunkGarbage()` — read-only scan. Root set = the `parts[].hash` of **every** on-disk manifest (local writes, public cache, targeted non-public cache). Returns `{ manifests, brokenManifests, referenced, candidates: [{hash,size}], freedBytes }` plus zeroed delete counters. No side effects.
+- `cleanChunkGarbage({ targets? })` — with `targets` (hashes or `{hash}`) it removes only that set without scanning and without touching manifests; without `targets` it scans, deletes every orphan chunk, and auto-removes manifests that fail `normalizeFileManifest` (reported as `brokenDeleted`).
+- `deleteFileManifest(ownerEntityHash, logicalPath)` — explicit manifest delete (orphans its chunks for the next GC); requires the entity store to implement `deleteManifest`.
+- `deleteChunk(hash)` — standalone primitive (deleting a chunk that is still referenced by a manifest breaks the file).
+
+Concurrency: `putChunk` / `putChunkFromStream` / `deleteChunk` / the GC delete phase share one in-process mutex (`withChunkStoreLock`), so a GC never unlinks a block mid-write. Unlink is best-effort on ENOENT and skips EBUSY/EPERM (Windows open-handle = block is being streamed; retried next GC). Lock is process-local — do not run GC in a second process against the same `nodeDir`.
+
 ## Public publish / verify
 
 - `publishPublicFile` signs with the recovery key.
@@ -22,6 +33,7 @@ Day-to-day package rules: [AGENTS.md](../AGENTS.md). Implementation: `files/` (`
 | --- | --- |
 | Default options | Node-scope fanout; **only** signed public manifests accepted; no cache write |
 | Local public hit with `publicSig` | Return immediately; fanout revalidates in the background. With `cache: true`, write only when remote `publishedAt` is newer |
+| `revalidate: true` on local public hit | Block until the fanout settles; prefer the newer `publishedAt` (write back when `cache: true`), else fall back to the local copy (offline-safe) |
 | Local non-public hit | Return immediately (**targeted mode only**); no revalidation (no publish order to compare); public mode refuses non-public local |
 | `fanoutTargets` given | Fanout **only** to that node set; accepts signed public **or** normalized non-public manifests; non-public hit is cached locally by default |
 | Same key in flight | Deduped via `utils/inflight_table` (key includes `public`/`targeted` mode) |

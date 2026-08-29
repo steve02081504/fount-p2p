@@ -17,6 +17,7 @@ import { readJsonFile, writeJsonFile } from '../utils/json_io.mjs'
  * @property {(entityHash: string, logicalPath: string) => Promise<object | null>} readManifest
  * @property {(entityHash: string, logicalPath: string, data: object) => Promise<void>} writeManifest
  * @property {(entityHash: string, logicalPath: string) => Promise<boolean>} statManifest
+ * @property {(entityHash: string, logicalPath: string) => Promise<void>} [deleteManifest]
  * @property {() => Promise<string[]>} listEntityHashes
  */
 
@@ -208,6 +209,20 @@ export function createFsEntityStore(baseDir) {
 			}
 			catch {
 				return false
+			}
+		},
+
+		/**
+		 * @param {string} entityHash 128 位十六进制
+		 * @param {string} logicalPath EVFS 逻辑路径
+		 * @returns {Promise<void>} 删除 manifest（不存在视为成功）
+		 */
+		async deleteManifest(entityHash, logicalPath) {
+			try {
+				await fsp.unlink(manifestPath(entityHash, logicalPath))
+			}
+			catch (error) {
+				if (/** @type {NodeJS.ErrnoException} */ error.code !== 'ENOENT') throw error
 			}
 		},
 	}

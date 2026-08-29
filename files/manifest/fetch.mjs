@@ -30,9 +30,10 @@ const manifestInflight = createInflightTable({
  * 拉取 manifest。默认走 node-scope public 语义（仅接受验签公开 manifest）；
  * 传入 `fanoutTargets` 时只向目标集 fanout，并接受无签名的非 public manifest（信任边界 = 目标集 + 服务端 servicer）。
  * 非 public 命中默认写盘；public 按 `cache: true` 择新写盘。
- * 本地已验签公开缓存立即返回（`cache: true` 时后台 fanout 刷新）；非 public / 未验签 public 本地命中仅 targeted 模式返回，
- * public 模式拒绝。同 key（含规范化目标集）in-flight 去重；调用方外层超时不 abort，后台继续填缓存。
- * @param {{ username: string, ownerEntityHash: string, logicalPath: string, fanoutTargets?: string[], cache?: boolean, timeoutMs?: number }} context - 拉取上下文
+ * 本地已验签公开缓存默认立即返回（`cache: true` 时后台 fanout 刷新）；`revalidate: true` 时改为阻塞等待本次 fanout 择新，
+ * 无新则回退本地。非 public / 未验签 public 本地命中仅 targeted 模式返回，public 模式拒绝。
+ * 同 key（含规范化目标集）in-flight 去重；调用方外层超时不 abort，后台继续填缓存。
+ * @param {{ username: string, ownerEntityHash: string, logicalPath: string, fanoutTargets?: string[], cache?: boolean, revalidate?: boolean, timeoutMs?: number }} context - 拉取上下文
  * @returns {Promise<import('./normalize.mjs').FileManifest | null>} 校验后的 manifest，失败为 null
  */
 export async function fetchManifest(context) {
@@ -40,6 +41,7 @@ export async function fetchManifest(context) {
 	const logicalPath = context.logicalPath.replace(/^\/+/, '')
 	if (!ownerEntityHash || !logicalPath || !username) return null
 
+	const revalidate = context.revalidate === true
 	const timeoutMs = Number(context.timeoutMs) > 0
 		? Number(context.timeoutMs)
 		: DEFAULT_MANIFEST_FETCH_TIMEOUT_MS
@@ -78,10 +80,18 @@ export async function fetchManifest(context) {
 	})
 	const local = await localPromise
 
-	// 本地已验签公开命中：立即返回；cache: true 时后台 fanout 择新刷新。
+	// 本地已验签公开命中：默认立即返回，cache: true 时后台 fanout 择新刷新；
+	// revalidate: true 时阻塞等待本次 fanout，取新择旧并写回，fanout 无新（含超时）则回退本地。
 	const isLocalPublic = local?.transferKeyDescriptor?.type === 'public' && !!local?.meta?.publicSig
 	if (isLocalPublic) {
-		if (wantCache && shared) void shared.then(async result => {
+		if (shared && revalidate) {
+			const result = await shared
+			if (result && shouldPreferIncomingPublicManifest(local, result)) {
+				if (wantCache) await cachePublicManifest(ownerEntityHash, logicalPath, result)
+				return result
+			}
+		}
+		else if (wantCache && shared) void shared.then(async result => {
 			if (result && shouldPreferIncomingPublicManifest(local, result))
 				await cachePublicManifest(ownerEntityHash, logicalPath, result)
 		})

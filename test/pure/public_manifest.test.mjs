@@ -5,7 +5,7 @@ import { entityHashFromRecoveryPubKeyHex } from '../../core/entity_id.mjs'
 import { logicalEntityHash } from '../../core/logical_entity.mjs'
 import { keyPairFromSeed } from '../../crypto/crypto.mjs'
 import { encryptPlaintextToParts, buildFileManifestFromEnc } from '../../files/assemble.mjs'
-import { loadFileManifest } from '../../files/evfs.mjs'
+import { loadFileManifest, readPublicFile, storeManifestParts } from '../../files/evfs.mjs'
 import { cachePublicManifest, fetchManifest } from '../../files/manifest/fetch.mjs'
 import { publicTransferKeyDescriptor } from '../../files/manifest/normalize.mjs'
 import {
@@ -447,6 +447,106 @@ test('fetchManifest keeps local when incoming publishedAt is not newer', async (
 	assertEquals(await resolvePendingManifestFetch({ requestId, manifest: older }), true)
 	await new Promise(resolve => setTimeout(resolve, 30))
 	assertEquals((await loadFileManifest(owner, 'profile.json'))?.meta?.publicSig?.publishedAt, 2000)
+	settleAllPendingManifestFetches()
+})
+
+test('fetchManifest revalidate:true blocks and returns newer manifest from fanout', async () => {
+	settleAllPendingManifestFetches()
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-pub-revalidate-block-') })
+	const keys = testRecoveryKeys(31)
+	const owner = entityHashFromRecoveryPubKeyHex('f0'.repeat(32), keys.pubKeyHex)
+	const older = await buildSignedManifest(owner, 'profile.json', 'v1', keys, 1000)
+	const newer = await buildSignedManifest(owner, 'profile.json', 'v2', keys, 2000)
+	await cachePublicManifest(owner, 'profile.json', older)
+
+	/** @type {boolean} */
+	let settled = false
+	const fetchPromise = fetchManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'profile.json',
+		cache: true,
+		revalidate: true,
+	}).then(result => {
+		settled = true
+		return result
+	})
+
+	const requestId = await waitForPendingManifestRequestId()
+	assertEquals(Boolean(requestId), true)
+	// 阻塞等待 fanout：结算前不得返回本地旧清单
+	assertEquals(settled, false)
+	assertEquals(await resolvePendingManifestFetch({ requestId, manifest: newer }), true)
+	assertEquals((await fetchPromise)?.meta?.publicSig?.publishedAt, 2000)
+	// 择新已写回本地缓存
+	assertEquals((await loadFileManifest(owner, 'profile.json'))?.meta?.publicSig?.publishedAt, 2000)
+	settleAllPendingManifestFetches()
+})
+
+test('fetchManifest revalidate:true keeps local when fanout yields nothing newer', async () => {
+	settleAllPendingManifestFetches()
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-pub-revalidate-older-') })
+	const keys = testRecoveryKeys(32)
+	const owner = entityHashFromRecoveryPubKeyHex('f1'.repeat(32), keys.pubKeyHex)
+	const newer = await buildSignedManifest(owner, 'profile.json', 'v2', keys, 2000)
+	const older = await buildSignedManifest(owner, 'profile.json', 'v1', keys, 1000)
+	await cachePublicManifest(owner, 'profile.json', newer)
+
+	const fetchPromise = fetchManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'profile.json',
+		cache: true,
+		revalidate: true,
+	})
+	const requestId = await waitForPendingManifestRequestId()
+	assertEquals(Boolean(requestId), true)
+	assertEquals(await resolvePendingManifestFetch({ requestId, manifest: older }), true)
+	assertEquals((await fetchPromise)?.meta?.publicSig?.publishedAt, 2000)
+	assertEquals((await loadFileManifest(owner, 'profile.json'))?.meta?.publicSig?.publishedAt, 2000)
+	settleAllPendingManifestFetches()
+})
+
+test('fetchManifest revalidate:true falls back to local when fanout times out', async () => {
+	settleAllPendingManifestFetches()
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-pub-revalidate-timeout-') })
+	const keys = testRecoveryKeys(33)
+	const owner = entityHashFromRecoveryPubKeyHex('f2'.repeat(32), keys.pubKeyHex)
+	const local = await buildSignedManifest(owner, 'profile.json', 'cached', keys, 1000)
+	await cachePublicManifest(owner, 'profile.json', local)
+
+	const started = Date.now()
+	const result = await fetchManifest({
+		username: 'u',
+		ownerEntityHash: owner,
+		logicalPath: 'profile.json',
+		cache: true,
+		revalidate: true,
+		timeoutMs: 200,
+	})
+	assertEquals(result?.meta?.publicSig?.publishedAt, 1000)
+	// 确曾阻塞等待 fanout 超时（而非立即返回本地）
+	assertEquals(Date.now() - started >= 150, true)
+	settleAllPendingManifestFetches()
+})
+
+test('readPublicFile revalidate:true returns republished plaintext on one read', async () => {
+	settleAllPendingManifestFetches()
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-read-pub-revalidate-') })
+	const keys = testRecoveryKeys(34)
+	const owner = entityHashFromRecoveryPubKeyHex('f3'.repeat(32), keys.pubKeyHex)
+	const older = await buildSignedManifest(owner, 'profile.json', 'cached', keys, 1000)
+	const newer = await buildSignedManifest(owner, 'profile.json', 'new', keys, 2000)
+	// 新旧两版明文块均预存，chunk miss 不依赖网络
+	await storeManifestParts(older, encryptPlaintextToParts(Buffer.from('cached'), 'convergent').parts.map(part => part.raw))
+	await storeManifestParts(newer, encryptPlaintextToParts(Buffer.from('new'), 'convergent').parts.map(part => part.raw))
+	await cachePublicManifest(owner, 'profile.json', older)
+
+	const readPromise = readPublicFile('u', owner, 'profile.json', { revalidate: true })
+	const requestId = await waitForPendingManifestRequestId()
+	assertEquals(Boolean(requestId), true)
+	assertEquals(await resolvePendingManifestFetch({ requestId, manifest: newer }), true)
+	assertEquals((await readPromise).toString('utf8'), 'new')
 	settleAllPendingManifestFetches()
 })
 
