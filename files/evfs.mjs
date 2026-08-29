@@ -32,7 +32,7 @@ function transferKeyDependenciesForReplica(replicaUsername, manifest) {
 /**
  * @param {string} username 拉取身份
  * @param {import('./manifest/normalize.mjs').FileManifest} manifest 清单
- * @param {{ fetchChunk?: Function }} [options] miss 拉取
+ * @param {{ fetchChunk?: Function, fanoutTargets?: string[] }} [options] miss 拉取
  * @returns {Promise<boolean>} 全部 part 是否已就位
  */
 async function ensureManifestPartsLocal(username, manifest, options = {}) {
@@ -43,6 +43,7 @@ async function ensureManifestPartsLocal(username, manifest, options = {}) {
 			ciphertextHash: part.hash,
 			ownerEntityHash: manifest.ownerEntityHash,
 			groupId: manifest.transferKeyDescriptor.groupId,
+			fanoutTargets: options.fanoutTargets,
 		})
 		if (!fetchedChunk) return false
 		await putChunk(part.hash, fetchedChunk)
@@ -94,7 +95,7 @@ export async function storeManifestParts(manifest, partBytes) {
 /**
  * @param {string} replicaUsername 副本用户名
  * @param {import('./manifest/normalize.mjs').FileManifest} manifest 清单
- * @param {{ username?: string, fetchChunk?: Function }} [options] miss 拉取
+ * @param {{ username?: string, fetchChunk?: Function, fanoutTargets?: string[] }} [options] miss 拉取
  * @returns {Promise<Buffer | null>} 明文内容
  */
 export async function readManifestPlaintext(replicaUsername, manifest, options = {}) {
@@ -118,7 +119,7 @@ export async function readManifestPlaintext(replicaUsername, manifest, options =
 /**
  * @param {string} replicaUsername 副本用户名
  * @param {import('./manifest/normalize.mjs').FileManifest} manifest 清单
- * @param {{ username?: string, fetchChunk?: Function }} [options] miss 拉取
+ * @param {{ username?: string, fetchChunk?: Function, fanoutTargets?: string[] }} [options] miss 拉取
  * @returns {Promise<import('node:stream').Readable | null>} 明文流
  */
 export async function readManifestPlaintextStream(replicaUsername, manifest, options = {}) {
@@ -229,10 +230,11 @@ export async function putFileManifestFromStream(parameters) {
 
 /**
  * 读取实体公开文件：本地 miss 时经网络取回签名 manifest，chunk miss 走既有 fetchChunk。
+ * 传入 `fanoutTargets` 时 manifest 与 chunk 拉取均定向到目标集（public 文件跨节点直取 owner 节点，避免 node-scope 大扇出）。
  * @param {string} replicaUsername 副本用户名
  * @param {string} entityHash owner entityHash
  * @param {string} logicalPath EVFS 逻辑路径
- * @param {{ username?: string, fetchChunk?: Function, revalidate?: boolean }} [options] miss 拉取；`revalidate` 强制阻塞等待 fanout 择新
+ * @param {{ username?: string, fetchChunk?: Function, revalidate?: boolean, fanoutTargets?: string[] }} [options] miss 拉取；`revalidate` 强制阻塞等待 fanout 择新
  * @returns {Promise<Buffer | null>} 明文或 null
  */
 export async function readPublicFile(replicaUsername, entityHash, logicalPath, options = {}) {
@@ -243,6 +245,7 @@ export async function readPublicFile(replicaUsername, entityHash, logicalPath, o
 		logicalPath,
 		cache: true,
 		revalidate: options.revalidate === true,
+		fanoutTargets: options.fanoutTargets,
 	})
 	if (!manifest) return null
 	return readManifestPlaintext(replicaUsername, manifest, options)

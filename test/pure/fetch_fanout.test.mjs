@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 
 import { fanoutFedFetch } from '../../files/fetch_fanout.mjs'
+import { saveNetwork } from '../../node/network.mjs'
 import {
 	DEFAULT_TRUST_GRAPH_OWNER,
 	registerTrustGraphProvider,
@@ -101,6 +102,32 @@ test('fanoutFedFetch with invalid-only targets sends nothing, no node-scope fano
 		await fanoutFedFetch('u', 'fed_manifest_get', payload, ['not-hex', '', '0x' + 'a'.repeat(64)])
 		assertEquals(mock.sent.length, 0)
 		assertEquals(mock.fanouts.length, 0)
+	}
+	finally {
+		await teardownTestNodeDir(nodeDirectory)
+	}
+})
+
+test('fanoutFedFetch without targets sends to known peers immediately, node-scope fanout not gated behind dialing', async () => {
+	const nodeDirectory = await mkTestNodeDir('fount-fetch-fanout-known-')
+	initTestP2pNode({ nodeDir: nodeDirectory })
+	const mock = createMockTrustGraph()
+	registerTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER, mock.provider)
+	try {
+		// 注入已知 peer 池：非定向 fanout 应向其 sendToNode，且不因拨号（此处 mock 全部可达）阻塞 node-scope fanout。
+		const knownPeerA = 'a1'.repeat(32)
+		const knownPeerB = 'b1'.repeat(32)
+		saveNetwork({ trustedPeers: [knownPeerA, knownPeerB], explorePeers: [] })
+
+		const payload = { requestId: 'r4', nodeHash: 'self' }
+		await fanoutFedFetch('u', 'fed_chunk_get', payload)
+		// 已知 peers 均已投递（mock sendToNode 返回 true → 视为群房间/直连可达，无需拨号）
+		assertEquals(mock.sent.length, 2)
+		assertEquals(mock.sent[0].nodeHash, knownPeerA)
+		assertEquals(mock.sent[1].nodeHash, knownPeerB)
+		// node-scope top-K fanout 照常执行（不受已知 peer 投递影响）
+		assertEquals(mock.fanouts.length, 1)
+		assertEquals(mock.fanouts[0].action, 'fed_chunk_get')
 	}
 	finally {
 		await teardownTestNodeDir(nodeDirectory)

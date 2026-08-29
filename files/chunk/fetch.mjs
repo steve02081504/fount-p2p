@@ -26,10 +26,14 @@ const chunkInflight = createInflightTable({
  *   ciphertextHash: string,
  *   ownerEntityHash?: string,
  *   groupId?: string,
+ *   fanoutTargets?: string[],
  * }} FetchChunkContext
  */
 
 /**
+ * 拉取密文块。默认走 node-scope public 语义；
+ * 传入 `fanoutTargets` 时只向目标集 fanout（public 文件定向拉取，如 profile/avatar 直接向 owner 节点取块）。
+ * 同 username+hash+模式（含规范化目标集）in-flight 去重；本地已缓存块直接返回。
  * @param {FetchChunkContext} context 上下文
  * @returns {Promise<Uint8Array | null>} 密文块
  */
@@ -50,7 +54,7 @@ export async function fetchChunk(context) {
 
 	const shared = beginFedFanoutFetch({
 		inflight: chunkInflight,
-		inflightKey: `${username}\0${hash}`,
+		inflightKeyBase: `${username}\0${hash}`,
 		username,
 		action: 'fed_chunk_get',
 		/**
@@ -69,6 +73,7 @@ export async function fetchChunk(context) {
 			chunkHash: hash,
 			ownerEntityHash: context.ownerEntityHash,
 		}),
+		fanoutTargets: context.fanoutTargets,
 	})
 	if (!shared) return null
 

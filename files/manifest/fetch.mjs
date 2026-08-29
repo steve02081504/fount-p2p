@@ -54,7 +54,7 @@ export async function fetchManifest(context) {
 	const localPromise = loadFileManifest(ownerEntityHash, logicalPath)
 	const shared = beginFedFanoutFetch({
 		inflight: manifestInflight,
-		inflightKey: `${username}\0${expectedKey}\0${targeted ? 'targeted' : 'public'}` + (fanoutTargets?.length ? `\0${fanoutTargets.join('\0')}` : ''),
+		inflightKeyBase: `${username}\0${expectedKey}`,
 		username,
 		action: 'fed_manifest_get',
 		/**

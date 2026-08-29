@@ -40,6 +40,12 @@ Concurrency: `putChunk` / `putChunkFromStream` / `deleteChunk` / the GC delete p
 
 Outer caller timeouts must **not** abort the in-flight work — background fill continues after the caller gives up.
 
+## `fetchChunk` / public-file chunk reads
+
+- `fetchChunk` accepts the same `fanoutTargets` as `fetchManifest`. With targets it fanouts `fed_chunk_get` **only** to that node set; without targets it falls back to node-scope fanout. Same `username`+chunk hash+mode (`targeted`/`public`) is deduped in-flight.
+- `readPublicFile` / `readManifestPlaintext` forward `options.fanoutTargets` to both the manifest fetch and the chunk fetch, so a cross-node public read can pull profile/avatar content straight from the owner node instead of depending on the node-scope fanout.
+- The public (non-targeted) fanout does **not** block the request window on dialing the whole peer pool: already-linked / group-room-reachable peers are sent immediately, and unreachable peers are dialed in the background and re-sent once linked. (`ensureLinkToNode` no longer gates the send.)
+
 ## Non-public (ACL-gated) manifests
 
 - `file-master-key-wrap` / `vault-wrap` / `identity-wrap` manifests carry no author signature, so the remote-acquisition trust boundary is **not** a signature — it is the **fanout target set** plus the **serving node's authorization**.

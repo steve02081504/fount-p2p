@@ -39,7 +39,7 @@ Deno / native / BT: [runtime.md](docs/runtime.md).
 
 ## Tests / tools
 
-- `npm test` — pure + integration (Node; `--test-force-exit`)
+- `npm test` — pure + integration + frontend (Node; `--test-force-exit`)
 - `npm run test:live` — live link / LAN smoke
 - `npm run test:fount` — cross-repo Deno bridge (`test/fount/`); see [runtime.md](docs/runtime.md)
 - `npm run test:sim` — tunables co-evolution (dev-only; [sim/AGENTS.md](sim/AGENTS.md))
@@ -73,7 +73,7 @@ Deno / native / BT: [runtime.md](docs/runtime.md).
 
 | File | Directory |
 |---|---|
-| `tunables.json` | `reputation/`, `trust_graph/`, `mailbox/`, `governance/`, `dag/` |
+| `tunables.json` | `transport/`, `infra/`, `reputation/`, `trust_graph/`, `mailbox/`, `governance/`, `dag/` |
 | `part_query.tunables.json` | `schemas/` |
 
 Sim harness: `sim/tunables_bundle.mjs` (dev-only). See [sim/AGENTS.md](sim/AGENTS.md).

@@ -550,6 +550,39 @@ test('readPublicFile revalidate:true returns republished plaintext on one read',
 	settleAllPendingManifestFetches()
 })
 
+test('readPublicFile forwards fanoutTargets to manifest and chunk fetch', async () => {
+	settleAllPendingManifestFetches()
+	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-read-pub-targeted-') })
+	const keys = testRecoveryKeys(35)
+	const owner = entityHashFromRecoveryPubKeyHex('f4'.repeat(32), keys.pubKeyHex)
+	const signed = await buildSignedManifest(owner, 'profile.json', 'targeted', keys, 2500)
+	const targetNodeHash = 'f5'.repeat(32)
+
+	/** @type {string[] | undefined} */
+	let chunkFanoutTargets
+	const readPromise = readPublicFile('u', owner, 'profile.json', {
+		fanoutTargets: [targetNodeHash],
+		/**
+		 * @param {object} context - chunk 拉取上下文
+		 * @returns {Promise<null>} 测试桩始终返回 null
+		 */
+		fetchChunk: async context => {
+			chunkFanoutTargets = context.fanoutTargets
+			// 返回 null 让 chunk miss 继续走 fanout；此处只验证转发
+			return null
+		},
+	})
+	const requestId = await waitForPendingManifestRequestId()
+	assertEquals(Boolean(requestId), true)
+	// 定向 manifest fetch 接受目标集外 sender 的 public 响应（验签仍通过）
+	assertEquals(await resolvePendingManifestFetch({ requestId, manifest: signed }), true)
+	// mock fetchChunk 返回 null → 明文读取失败，readPromise 结算为 null
+	assertEquals(await readPromise, null)
+	// chunk 拉取收到同一目标集（fanoutTargets 已从 options 转发到 fetchChunk）
+	assertEquals(chunkFanoutTargets, [targetNodeHash])
+	settleAllPendingManifestFetches()
+})
+
 test('fetchManifest cold miss still awaits fanout', async () => {
 	settleAllPendingManifestFetches()
 	initTestP2pNode({ nodeDir: await mkTestNodeDir('fount-fetch-pub-cold-') })
