@@ -1,6 +1,6 @@
 {
 	"name": "@steve02081504/fount-p2p",
-	"version": "0.0.41",
+	"version": "0.0.42",
 	"description": "fount federation P2P layer — link, trust graph, mailbox, DAG, EVFS.",
 	"keywords": [
 		"network",
@@ -84,7 +84,7 @@
 	"optionalDependencies": {
 		"@stoprocent/bleno": "latest",
 		"@stoprocent/noble": "latest",
-		"node-datachannel": "0.33.0"
+		"node-datachannel": "latest"
 	},
 	"allowScripts": {
 		"node-datachannel": true

@@ -5,8 +5,9 @@ import { WebSocketServer } from 'ws'
 /**
  * 启动一个内存假 Nostr 中继：记录连接/REQ 数，对 EVENT 回 OK。
  * `options.broadcast` 为 true 时向全部已连接 socket 扇出 EVENT（模拟真实中继）。
+ * `options.store` 为 true 时存储已接受事件并在新 REQ 上回放匹配事件 + EOSE（模拟 store-and-forward 中继）。
  * @param {(eventId: string) => boolean} [accept] 是否接受 EVENT
- * @param {{ broadcast?: boolean }} [options] 中继选项
+ * @param {{ broadcast?: boolean, store?: boolean }} [options] 中继选项
  * @returns {Promise<{
  *   port: number,
  *   connectionCount: () => number,
@@ -21,7 +22,7 @@ import { WebSocketServer } from 'ws'
  * }>} fake relay
  */
 export async function startFakeRelay(accept = () => true, options = {}) {
-	const { broadcast = false } = options
+	const { broadcast = false, store = false } = options
 	const server = createServer((request, response) => {
 		// NIP-11 relay info：响应 JSON，避免 HTTP 探测等待超时；Connection: close 规避 Windows undici keep-alive 退出断言。
 		if (request.method === 'GET') {
@@ -35,6 +36,8 @@ export async function startFakeRelay(accept = () => true, options = {}) {
 	const webSocketServer = new WebSocketServer({ server })
 	/** @type {Array<object>} */
 	const publishedEvents = []
+	/** @type {Array<object>} */
+	const storedEvents = []
 	let connectionCount = 0
 	let reqCount = 0
 	/** @type {Array<() => void>} */
@@ -88,7 +91,15 @@ export async function startFakeRelay(accept = () => true, options = {}) {
 			try { parsed = JSON.parse(String(rawMessage)) } catch { return }
 			if (parsed?.[0] === 'REQ') {
 				reqCount++
-				subsBySocket.get(socket)?.set(String(parsed[1] || ''), parsed[2] || {})
+				const subscriptionId = String(parsed[1] || '')
+				const filter = parsed[2] || {}
+				subsBySocket.get(socket)?.set(subscriptionId, filter)
+				if (store)
+					for (const event of storedEvents)
+						if (filterMatchesEvent(filter, event))
+							try { socket.send(JSON.stringify(['EVENT', subscriptionId, event])) } catch { /* ignore */ }
+				if (store)
+					try { socket.send(JSON.stringify(['EOSE', subscriptionId])) } catch { /* ignore */ }
 				flushReqWaiters()
 				return
 			}
@@ -99,6 +110,7 @@ export async function startFakeRelay(accept = () => true, options = {}) {
 			socket.send(JSON.stringify(['OK', eventId, ok, ok ? '' : 'blocked: test']))
 			if (!ok) return
 			publishedEvents.push(event)
+			if (store) storedEvents.push(event)
 			if (broadcast)
 				for (const [subscriber, subs] of subsBySocket)
 					for (const [subscriptionId, filter] of subs)

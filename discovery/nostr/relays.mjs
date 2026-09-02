@@ -15,6 +15,7 @@ import {
 } from '../../node/storage.mjs'
 
 import {
+	DEFAULT_RELAY_URLS,
 	DEFAULT_RTT_MS,
 	FAILURE_WEIGHT,
 	LAST_GOOD_RELAYS_MAX,
@@ -28,13 +29,6 @@ import {
 	WORKING_RELAYS_COUNT,
 } from './constants.mjs'
 import { connectRelay, dedupeRelayUrls, pinnedLookup } from './session.mjs'
-
-/** 默认公共中继（source='public'，永不淘汰）。 */
-export const DEFAULT_RELAY_URLS = [
-	'wss://relay.damus.io',
-	'wss://nos.lol',
-	'wss://relay.primal.net',
-]
 
 /** 持久化写盘节流延迟。 */
 const FLUSH_DELAY_MS = 2_000

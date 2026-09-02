@@ -18,9 +18,9 @@ import {
 } from '../internal/signal_crypto.mjs'
 import { noteDiscoveryPeerClue } from '../peer_clue.mjs'
 
+import { DEFAULT_RELAY_URLS } from './constants.mjs'
 import { createNostrCensus } from './census.mjs'
 import {
-	DEFAULT_RELAY_URLS,
 	getListenRelays,
 	getPeerRoute,
 	getPoolByUrl,

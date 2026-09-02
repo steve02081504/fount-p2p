@@ -24,6 +24,8 @@ Detail docs: [transports](docs/transports.md) · [mesh](docs/mesh.md) · [signal
 | `crypto/crypto.mjs` | Node + browser | `@noble/hashes` + `@noble/curves` only — never `node:crypto` |
 | `crypto/key.mjs` / `crypto/channel.mjs`, disk I/O, LAN/BT, `ws`, CLI / `startNode` | Node (+ Deno bridge) | Do not load the whole package via esm.sh in the browser |
 
+**Browser pages reusing package code:** pages import browser-safe package modules (`core/*`, `crypto/crypto.mjs`, `discovery/nostr/constants|_math|_verify|_monitor`) from esm.sh; their bare `@noble/*` deps resolve via an injected importmap. The frontend static test server (`test/frontend/census_page.test.mjs`) serves the whole package root (offline), injects an importmap into served HTML (`https://esm.sh/@steve02081504/fount-p2p/` → local package root, `@noble/` → `https://esm.sh/@noble/`), and runs the page live against a fake relay (`test/helpers/fake_relay.mjs` with `store`), injecting its `ws://` URL via `?relay=` — no demo mode. Page code stays a thin shell — pass display fn + optional relays; logic lives in the package (`discovery/nostr/census_monitor.mjs`).
+
 Deno / native / BT: [runtime.md](docs/runtime.md).
 
 ## Conventions

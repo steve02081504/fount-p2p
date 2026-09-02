@@ -7,9 +7,9 @@ import { WebSocket } from 'ws'
 import {
 	buildCensusPacketFromSeed,
 	getNodePopulationEstimate,
-	NOSTR_CENSUS_KIND,
 	resetCensusEvents,
 } from '../../discovery/nostr/census.mjs'
+import { NOSTR_CENSUS_KIND } from '../../discovery/nostr/constants.mjs'
 import { ensureNodeSeed, getNodeHash } from '../../node/identity.mjs'
 import { setP2PFeatures } from '../../node/instance.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
@@ -280,7 +280,7 @@ test('census publishes a signed event carrying its inclusion probability', async
 				const censusEvent = relay.publishedEvents.find(event => event.kind === NOSTR_CENSUS_KIND)
 				assertEquals(censusEvent.tags.some(tag => tag[0] === 't' && tag[1] === 'fount'), true)
 				assertEquals(censusEvent.tags.some(tag => tag[0] === 'x' && tag[1] === 'census'), true)
-				const { verifyCensusBytes } = await import('../../discovery/nostr/census.mjs')
+				const { verifyCensusBytes } = await import('../../discovery/nostr/census_verify.mjs')
 				const verified = await verifyCensusBytes(
 					Buffer.from(censusEvent.content, 'base64'),
 					Date.now(),

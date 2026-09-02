@@ -1,5 +1,3 @@
-
-
 import { mkdir } from 'node:fs/promises'
 import { test } from 'node:test'
 

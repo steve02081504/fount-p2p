@@ -15,44 +15,32 @@
  */
 import { Buffer } from 'node:buffer'
 
-import { isHex64, isSignatureHex128 } from '../../core/hexIds.mjs'
-import { keyPairFromSeed, pubKeyHash, sign, verify } from '../../crypto/crypto.mjs'
+import { isHex64 } from '../../core/hexIds.mjs'
+import { keyPairFromSeed, pubKeyHash, sign } from '../../crypto/crypto.mjs'
 import { ensureNodeSeed, getNodeHash } from '../../node/identity.mjs'
 import { getP2PFeatures, isNodeInitialized } from '../../node/instance.mjs'
 import { nodeDebug } from '../../node/log.mjs'
 
 import {
-	CENSUS_MIN_P,
+	CENSUS_TAG_FOUNT,
+	CENSUS_TAG_X,
+	NOSTR_CENSUS_KIND,
+} from './constants.mjs'
+import {
 	CENSUS_TARGET_EVENTS,
 	estimatePopulation,
 	nextInclusionProbability,
 } from './census_math.mjs'
+import { CENSUS_TTL_MS, buildCensusMessage, verifyCensusBytes } from './census_verify.mjs'
 import { resolveRelayConnectTarget } from './relays.mjs'
 
-/** Nostr census 事件 kind（每节点每窗口至多一条，按 nodeHash 去重）。 */
-export const NOSTR_CENSUS_KIND = 30789
-
-/** census 订阅/发布标签：`t=fount` + `x=census`（subscribeNostrKind 以 rendezvousKey/tagX 匹配）。 */
-const CENSUS_TAG_FOUNT = 'fount'
-const CENSUS_TAG_X = 'census'
+/** census 订阅标签数组（发布用）。 */
 const CENSUS_TAGS = [['t', CENSUS_TAG_FOUNT], ['x', CENSUS_TAG_X]]
 
-/** 事件/窗口存活时间（与 advert TTL 一致）。 */
-const CENSUS_TTL_MS = 10 * 60_000
 /** 发布/统计周期。 */
 const CENSUS_INTERVAL_MS = 10 * 60_000
 /** 冷启动初始包含概率。 */
 const CENSUS_INITIAL_P = 0.5
-
-/**
- * @param {number} ts 时间戳（毫秒）
- * @param {string} nodeHash 64 hex 节点 hash
- * @param {number} p 包含概率
- * @returns {Buffer} 待签名消息
- */
-function buildCensusMessage(ts, nodeHash, p) {
-	return Buffer.from(`fount-census\0${ts}\0${nodeHash}\0${p}`, 'utf8')
-}
 
 /**
  * 用指定 seed 身份构建签名 census 包（nodeHash 由 seed 派生）。
@@ -72,47 +60,6 @@ export async function buildCensusPacketFromSeed(seedHex, { p, ts = Date.now() })
 		ts,
 		p,
 		sig: Buffer.from(await sign(buildCensusMessage(ts, nodeHash, p), secretKey)).toString('hex'),
-	}
-}
-
-/**
- * 校验 census 包（Untrusted ingress）：canonicalize + 验签 + 时间窗 + p 范围。
- * @param {unknown} packet 原始 census 包
- * @param {number} [now=Date.now()] 当前时间（毫秒）
- * @param {number} [ttlMs=CENSUS_TTL_MS] 允许的时间窗
- * @returns {Promise<{ nodeHash: string, p: number, ts: number } | null>} 校验通过返回 nodeHash/p/ts，否则 null
- */
-export async function verifyCensusPacket(packet, now = Date.now(), ttlMs = CENSUS_TTL_MS) {
-	const nodeHash = isHex64(packet?.nodeHash)
-	const nodePubKey = isHex64(packet?.nodePubKey)
-	const sig = isSignatureHex128(packet?.sig)
-	const ts = Number(packet?.ts)
-	const p = Number(packet?.p)
-	if (!nodeHash || !nodePubKey || !sig || !Number.isFinite(ts)) return null
-	if (Math.abs(now - ts) > ttlMs) return null
-	if (!Number.isFinite(p) || p < CENSUS_MIN_P || p > 1) return null
-	try {
-		if (pubKeyHash(Buffer.from(nodePubKey, 'hex')) !== nodeHash) return null
-	}
-	catch {
-		return null
-	}
-	return await verify(Buffer.from(sig, 'hex'), buildCensusMessage(ts, nodeHash, p), Buffer.from(nodePubKey, 'hex')) ? { nodeHash, p, ts } : null
-}
-
-/**
- * 解 base64 content 字节并校验 census 包。
- * @param {Uint8Array} bytes content 解码字节
- * @param {number} [now=Date.now()] 当前时间（毫秒）
- * @param {number} [ttlMs=CENSUS_TTL_MS] 允许的时间窗
- * @returns {Promise<{ nodeHash: string, p: number, ts: number } | null>} 校验通过结果或 null
- */
-export async function verifyCensusBytes(bytes, now = Date.now(), ttlMs = CENSUS_TTL_MS) {
-	try {
-		return await verifyCensusPacket(JSON.parse(Buffer.from(bytes).toString('utf8')), now, ttlMs)
-	}
-	catch {
-		return null
 	}
 }
 

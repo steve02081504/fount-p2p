@@ -1,11 +1,10 @@
 import { afterEach, test } from 'node:test'
 
-import { DEFAULT_RTT_MS, PROBE_STALE_MS } from '../../discovery/nostr/constants.mjs'
-import { DEFAULT_RELAY_URLS } from '../../discovery/nostr/relays.mjs'
+import { DEFAULT_RTT_MS, DEFAULT_RELAY_URLS, PROBE_STALE_MS } from '../../discovery/nostr/constants.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
 import { setupRelayTests } from '../helpers/relay_test_setup.mjs'
 
-const DEFAULT_RELAY = 'wss://relay.damus.io'
+const DEFAULT_RELAY = 'wss://nos.lol'
 const MANUAL_RELAY = 'wss://manual.example.com'
 
 test('normalizeNostrRelayUrl accepts wss and loopback ws, rejects others', async () => {
@@ -34,7 +33,7 @@ test('upsertRelay dedupes and merges by url, keeps higher source priority', asyn
 	const { upsertRelay, getPoolByUrl, loadRelayPool } = await import('../../discovery/nostr/relays.mjs')
 	await setupRelayTests()
 	loadRelayPool()
-	upsertRelay({ url: 'wss://relay.damus.io', rttMs: 50, source: 'peer', successCount: 2, monitorCount: 1 })
+	upsertRelay({ url: DEFAULT_RELAY, rttMs: 50, source: 'peer', successCount: 2, monitorCount: 1 })
 	const entry = getPoolByUrl().get(DEFAULT_RELAY)
 	assertEquals(entry.source, 'public', 'public outranks peer')
 	assertEquals(entry.successCount, 2, 'stats merged')

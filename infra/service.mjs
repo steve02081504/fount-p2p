@@ -1,4 +1,3 @@
-
 import { isNodeInitialized } from '../node/instance.mjs'
 import { setOverlayRateGate, clearOverlayRateGate } from '../overlay/index.mjs'
 import { getLinkRegistry } from '../transport/link_registry.mjs'

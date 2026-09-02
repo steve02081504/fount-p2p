@@ -1,5 +1,3 @@
-
-
 /**
  * trust_graph sendToNode / user_room 定向投递单元测试。
  */

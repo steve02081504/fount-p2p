@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import { clearDiscoveryProviders } from '../../discovery/index.mjs'
 import { createNostrDiscoveryProvider } from '../../discovery/nostr/index.mjs'
-import { DEFAULT_RELAY_URLS } from '../../discovery/nostr/relays.mjs'
+import { DEFAULT_RELAY_URLS } from '../../discovery/nostr/constants.mjs'
 import { NOSTR_CONNECT_TIMEOUT_MS } from '../../discovery/nostr/session.mjs'
 import { clearLinkProviders } from '../../link/providers/index.mjs'
 import { createLinkRegistry } from '../../transport/link_registry.mjs'

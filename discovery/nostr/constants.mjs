@@ -41,3 +41,20 @@ export const NIP66_BOOTSTRAP_RELAYS = [
 	'wss://relaypag.es',
 	'wss://monitorlizard.nostr1.com',
 ]
+
+/** 默认公共中继（source='public'，永不淘汰；浏览器端人口统计监控亦以此为默认监听集）。 */
+export const DEFAULT_RELAY_URLS = [
+	'wss://relay.nostr.com',
+	'wss://nos.lol',
+	'wss://nostr.bitcoiner.social',
+	'wss://nostr.mom',
+	'wss://relay.snort.social',
+	'wss://relay.primal.net',
+]
+
+/** Nostr census 事件 kind（每节点每窗口至多一条，按 nodeHash 去重）。 */
+export const NOSTR_CENSUS_KIND = 30789
+
+/** census 订阅/发布标签：`t=fount` + `x=census`（subscribeNostrKind 以 rendezvousKey/tagX 匹配）。 */
+export const CENSUS_TAG_FOUNT = 'fount'
+export const CENSUS_TAG_X = 'census'

@@ -17,7 +17,7 @@
 </head>
 <body>
 	<h1>fount 节点人口统计</h1>
-	<p>基于 Nostr census 事件（kind 30789，<code>t=fount</code> / <code>x=census</code>）的采样估计。本页为独立前端实现，仅做展示：在线节点数 = <code>Σ(1/p)</code>（Horvitz–Thompson 估计）。</p>
+	<p>基于 Nostr census 事件（kind 30789，<code>t=fount</code> / <code>x=census</code>）的采样估计。监听逻辑由包内 <code>census_monitor</code> 封装：自动监听默认/传入 relay 并经 NIP-66 发现更多，取人口最大的 relay 作为显示源。在线节点数 = <code>Σ(1/p)</code>（Horvitz–Thompson 估计）。</p>
 	<label>
 		<input type="checkbox" id="toggle" checked>
 		人口统计（census）
@@ -30,7 +30,7 @@
 	<div class="card">
 		<div>采样事件数 <span id="sample-size">0</span> · 窗口内事件 <span id="window-events">0</span></div>
 	</div>
-	<footer id="footer" style="opacity:.6;font-size:.85rem"></footer>
-	<script type="module" src="./app.mjs"></script>
+	<footer id="footer" style="opacity:.6;font-size:.85rem">通过 URL 参数 ?relay=wss://... 指定中继；缺省监听默认 relay。</footer>
+	<script type="module" src="./index.mjs"></script>
 </body>
 </html>
