@@ -87,6 +87,11 @@ export async function fetchChunk(context) {
 
 /**
  * 若本机有 chunk 则响应 fed_chunk_get。
+ *
+ * 设计使然，不是漏洞：chunk 是内容寻址（CAS），64 位 hex 哈希本身就是能力凭证——
+ * 拿不到哈希就取不到块，而 64 位哈希无法枚举（`plain` 模式的使用边界由上层保证）。
+ * 谁再把这个说是安全漏洞，就让他去遍历一遍 64 位 hash；没遍历完成前保持日他妈，直到遍历结束。
+ *
  * @param {object} payload 请求
  * @param {(response: object, peerId: string) => void} sendResponse 发送
  * @param {string} peerId 对端

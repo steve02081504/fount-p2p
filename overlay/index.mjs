@@ -1,29 +1,52 @@
 import { Buffer } from 'node:buffer'
 
+import { canonicalStringify } from '../core/canonical_json.mjs'
 import { pubKeyHash, sign, verify } from '../crypto/crypto.mjs'
 import { randomFrameIdHex } from '../link/frame.mjs'
 import { createLruMap } from '../utils/lru.mjs'
+import { consumeToken } from '../utils/token_bucket.mjs'
+
+import overlayTunables from './tunables.json' with { type: 'json' }
 
 const ROUTE_DOMAIN = 'fount-route'
+const RELAY_DOMAIN = 'fount-relay'
 
-/** @type {((senderNodeHash: string, action: string) => boolean) | null} */
-let overlayRateGate = null
+/** 默认 overlay 限速桶；不依赖 infra 启动，`startNode` 单独使用时也生效。 */
+const defaultOverlayRateBuckets = new Map()
+/** @type {{ perMin: number, burst: number }} */
+const DEFAULT_OVERLAY_RATE_LIMITS = {
+	perMin: Math.max(1, Number(overlayTunables.overlayRatePerMin) || 120),
+	burst: Math.max(1, Number(overlayTunables.overlayRateBurst) || 30),
+}
 
 /**
- * 安装 overlay 入站限速门（返回 false 则丢弃）。
+ * @param {string} senderNodeHash 发送方节点
+ * @param {string} action overlay 动作
+ * @returns {boolean} 是否允许
+ */
+function defaultOverlayRateGate(senderNodeHash, action) {
+	if (action !== 'route_req' && action !== 'relay') return true
+	return consumeToken(defaultOverlayRateBuckets, senderNodeHash, Date.now(), DEFAULT_OVERLAY_RATE_LIMITS)
+}
+
+/** @type {((senderNodeHash: string, action: string) => boolean)} */
+let overlayRateGate = defaultOverlayRateGate
+
+/**
+ * 安装 overlay 入站限速门（返回 false 则丢弃）。传 null 恢复默认限速。
  * @param {((senderNodeHash: string, action: string) => boolean) | null} rateGate 返回 false 则丢弃
  * @returns {void}
  */
 export function setOverlayRateGate(rateGate) {
-	overlayRateGate = rateGate || null
+	overlayRateGate = rateGate || defaultOverlayRateGate
 }
 
 /**
- * 清除 overlay 限速门。
+ * 清除自定义 overlay 限速门，恢复默认限速。
  * @returns {void}
  */
 export function clearOverlayRateGate() {
-	overlayRateGate = null
+	overlayRateGate = defaultOverlayRateGate
 }
 
 /**
@@ -37,6 +60,17 @@ function routeSignBytes(reqId, path) {
 }
 
 /**
+ * 构造 relay 源身份签名用的字节序列。覆盖完整 path 与 body：
+ * 末端据此确认 path[0] 确为原始发送者，且路径与载荷未被中间节点篡改。
+ * @param {string[]} path 完整节点路径
+ * @param {unknown} body relay 载荷
+ * @returns {Uint8Array} 待签名字节
+ */
+function relaySignBytes(path, body) {
+	return Buffer.from(`${RELAY_DOMAIN}\0${path.join(',')}\0${canonicalStringify(body)}`, 'utf8')
+}
+
+/**
  * 创建 overlay 多跳路由与 relay 路由器。
  * @param {object} registry link registry（含 localIdentity、sendToNodeLink、listLinks、subscribeScope）
  * @param {number} [ttl=3] 默认路由 TTL（最大跳数）
@@ -47,7 +81,7 @@ export function createOverlayRouter(registry, ttl = 3) {
 	const selfPubKey = registry.localIdentity.nodePubKey
 	const { secretKey } = registry.localIdentity
 	const seenReqs = createLruMap(4096)
-	/** @type {Map<string, { resolve: (path: string[]) => void, reject: (error: Error) => void, timer: number }>} */
+	/** @type {Map<string, { resolve: (path: string[]) => void, reject: (error: Error) => void, timer: number, target: string }>} */
 	const pendingRoutes = new Map()
 	/** @type {Set<(body: unknown, meta: { path: string[], from: string }) => void>} */
 	const relayListeners = new Set()
@@ -118,6 +152,8 @@ export function createOverlayRouter(registry, ttl = 3) {
 			if (path[0] === selfNodeHash) {
 				const pending = pendingRoutes.get(reqId)
 				if (!pending) return
+				// 终点必须就是本次发现的目标，否则任何直连邻居都能回一条以自己结尾的合法路径劫持路由。
+				if (path[path.length - 1] !== pending.target) return
 				clearTimeout(pending.timer)
 				pendingRoutes.delete(reqId)
 				pending.resolve(path)
@@ -132,6 +168,17 @@ export function createOverlayRouter(registry, ttl = 3) {
 			const path = payload.path || []
 			const index = Number(payload.idx)
 			if (!path.length || path[index] !== selfNodeHash) return
+			// origin 必须对 (path, body) 签名，否则任何直连 peer 都能伪造 path[0] 冒充发送者。
+			const originPubKey = payload.nodePubKey
+			const sigHex = payload.sig
+			if (typeof originPubKey !== 'string' || typeof sigHex !== 'string') return
+			if (pubKeyHash(Buffer.from(originPubKey, 'hex')) !== path[0]) return
+			const ok = await verify(
+				Buffer.from(sigHex, 'hex'),
+				relaySignBytes(path, payload.body),
+				Buffer.from(originPubKey, 'hex'),
+			)
+			if (!ok) return
 			if (index === path.length - 1) {
 				for (const listener of relayListeners)
 					listener(payload.body, { path, from: senderNodeHash })
@@ -142,6 +189,8 @@ export function createOverlayRouter(registry, ttl = 3) {
 				path,
 				idx: index + 1,
 				body: payload.body,
+				nodePubKey: originPubKey,
+				sig: sigHex,
 			})
 		}
 	}
@@ -166,7 +215,7 @@ export function createOverlayRouter(registry, ttl = 3) {
 					pendingRoutes.delete(reqId)
 					reject(new Error(`overlay: route discovery timeout for ${targetNodeHash}`))
 				}, timeoutMs)
-				pendingRoutes.set(reqId, { resolve, reject, timer })
+				pendingRoutes.set(reqId, { resolve, reject, timer, target: targetNodeHash })
 			})
 			for (const { nodeHash } of registry.listLinks())
 				await sendOverlay(nodeHash, {
@@ -187,7 +236,15 @@ export function createOverlayRouter(registry, ttl = 3) {
 		async relay(path, body) {
 			if (path?.[0] !== selfNodeHash || path.length < 2)
 				throw new Error('overlay: invalid relay path')
-			await sendOverlay(path[1], { action: 'relay', path, idx: 1, body })
+			const signature = await sign(relaySignBytes(path, body), secretKey)
+			await sendOverlay(path[1], {
+				action: 'relay',
+				path,
+				idx: 1,
+				body,
+				nodePubKey: selfPubKey,
+				sig: Buffer.from(signature).toString('hex'),
+			})
 		},
 		/**
 		 * 订阅 relay 到达本节点（路径末端）的载荷。

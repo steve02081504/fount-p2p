@@ -6,6 +6,10 @@ Mesh keep-alive / discovery: [mesh.md](mesh.md). WebRTC glare / handshake: [sign
 
 Do **not** introduce version fields, constants, or suffixes (`v`, `version`, `FRAME_VERSION`, `:v1`, …). Changing a shape means changing it; no dual-read / backward-compat paths. Exception: npm `package.json` `version` is for package publish only.
 
+## Overlay relay authenticity
+
+`overlay/index.mjs` multi-hop relay carries an origin signature: `relay()` signs `(path, body)` with the origin key, intermediate hops forward `nodePubKey`/`sig` untouched, and the terminal node verifies `pubKeyHash(nodePubKey) === path[0]` before treating the body as sent by that node. Unsigned or forged relays are dropped. `route_resp` is only accepted when the signed path's last hop equals the discovery target. Overlay `route_req`/`relay` are token-bucket limited by default (`overlay/tunables.json`, 120/min burst 30); `startInfra` may override the gate.
+
 ## Public contract (shell / L4)
 
 This package exposes a **fount network**: talk to `nodeHash` peers with envelopes.

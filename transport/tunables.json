@@ -7,5 +7,6 @@
 	"meshNLow": 4,
 	"meshKMaxLow": 2,
 	"groupMemberScanIntervalMs": 30000,
-	"groupMemberScanLimit": 64
+	"groupMemberScanLimit": 64,
+	"maxSignalSessions": 256
 }

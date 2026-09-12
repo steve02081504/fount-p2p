@@ -4,7 +4,7 @@ import partQueryTunables from '../../schemas/part_query.tunables.json' with { ty
 import { createLruMap } from '../../utils/lru.mjs'
 
 /**
- * @typedef {{ rows: unknown[], storedAt: number }} PartQueryCacheEntry
+ * @typedef {{ rows: unknown[], storedAt: number, sources: Map<string, Set<string>> }} PartQueryCacheEntry
  */
 
 /**
@@ -24,7 +24,8 @@ export function partQueryCacheKey(partpath, kind, query) {
  * @param {{ maxKeys?: number, ttlMs?: number, maxHits?: number }} [options] 容量 / TTL / 单键 rows 上限
  * @returns {{
  *   get: (partpath: string, kind: string, query: unknown, now?: number) => unknown[] | null
- *   set: (partpath: string, kind: string, query: unknown, rows: unknown[], now?: number) => void
+ *   getWithSources: (partpath: string, kind: string, query: unknown, now?: number) => { rows: unknown[], sources: Map<string, Set<string>> } | null
+ *   set: (partpath: string, kind: string, query: unknown, rows: unknown[], now?: number, sources?: Map<string, Set<string>>) => void
  *   clear: () => void
  *   readonly size: number
  * }} 缓存 API
@@ -54,6 +55,18 @@ export function createPartQueryCache(options = {}) {
 		 * @returns {unknown[] | null} 未过期 rows
 		 */
 		get(partpath, kind, query, now = Date.now()) {
+			const entry = this.getWithSources(partpath, kind, query, now)
+			return entry ? entry.rows : null
+		},
+
+		/**
+		 * @param {string} partpath part 路径
+		 * @param {string} kind 查询标签
+		 * @param {unknown} query 查询体
+		 * @param {number} [now=Date.now()] 当前时间
+		 * @returns {{ rows: unknown[], sources: Map<string, Set<string>> } | null} 未过期 rows 与来源
+		 */
+		getWithSources(partpath, kind, query, now = Date.now()) {
 			const key = partQueryCacheKey(partpath, kind, query)
 			if (!key) return null
 			const entry = map.get(key)
@@ -63,7 +76,7 @@ export function createPartQueryCache(options = {}) {
 				return null
 			}
 			map.touch(key, entry)
-			return entry.rows.slice()
+			return { rows: entry.rows.slice(), sources: entry.sources }
 		},
 
 		/**
@@ -72,9 +85,10 @@ export function createPartQueryCache(options = {}) {
 		 * @param {unknown} query 查询体
 		 * @param {unknown[]} rows 聚合 rows（空数组不入库）
 		 * @param {number} [now=Date.now()] 当前时间
+		 * @param {Map<string, Set<string>>} [sources] rowKey→来源集合
 		 * @returns {void}
 		 */
-		set(partpath, kind, query, rows, now = Date.now()) {
+		set(partpath, kind, query, rows, now = Date.now(), sources = null) {
 			const key = partQueryCacheKey(partpath, kind, query)
 			// 空 miss 不缓存：mesh 晚就绪 / 超时早查询不应被长 TTL 负缓存粘住
 			if (!key || !Array.isArray(rows) || rows.length === 0) return
@@ -82,6 +96,7 @@ export function createPartQueryCache(options = {}) {
 			map.touch(key, {
 				rows: rows.slice(0, maxHits),
 				storedAt: now,
+				sources: sources || new Map(),
 			})
 		},
 

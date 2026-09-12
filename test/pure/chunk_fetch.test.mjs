@@ -124,6 +124,17 @@ test('resolvePendingChunkFetch ignores hash mismatch until valid response', asyn
 	assertEquals(pendingChunkFetches.has(requestId), false)
 })
 
+test('resolvePendingChunkFetch ignores empty response without data', async () => {
+	const requestId = 'req-empty-neg'
+	const waiter = installChunkFetchWaiter(requestId)
+	// 无 dataBase64 不得视为“未找到”而提前结算。
+	assertEquals(resolvePendingChunkFetch({ requestId }), false)
+	assertEquals(waiter.resolved(), undefined)
+	assertEquals(pendingChunkFetches.has(requestId), true)
+	resolvePendingChunkFetch({ requestId, dataBase64: bytesToBase64(GOOD_BYTES) })
+	assertEquals((await waiter.done)?.byteLength, GOOD_BYTES.byteLength)
+})
+
 test('resolvePendingChunkFetch accepts matching hash', async () => {
 	const requestId = 'req-match'
 	const waiter = installChunkFetchWaiter(requestId)

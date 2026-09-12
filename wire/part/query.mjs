@@ -61,7 +61,7 @@ export function attachPartQueryWire(wireContext, wire, dependencies = {}) {
 		part_query_res(data, peerId) {
 			const response = parsePartQueryRes(data)
 			if (!response) return
-			handleIncomingPartQueryResponse(response, peerId, deps)
+			void handleIncomingPartQueryResponse(response, peerId, deps)
 		},
 	})
 }

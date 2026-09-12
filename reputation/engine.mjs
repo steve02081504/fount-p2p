@@ -57,7 +57,7 @@ export function computeRecidivismMultiplier(streak, tunables = reputationTunable
  * @returns {NonNullable<ReputationFile['byNodeHash'][string]>} 节点行（可变引用）
  */
 function ensureRow(data, nodeId) {
-	if (!data.byNodeHash[nodeId]) data.byNodeHash[nodeId] = { score: 0 }
+	if (!Object.hasOwn(data.byNodeHash, nodeId)) data.byNodeHash[nodeId] = { score: 0 }
 	return data.byNodeHash[nodeId]
 }
 
@@ -147,7 +147,8 @@ export function incrementBadInviteeCount(data, nodeId, badDelta = 1) {
  * @returns {ReputationFile} 补齐字段后的同一对象
  */
 export function ensureReputationShape(data) {
-	data.byNodeHash ??= {}
+	// 无原型字典：键来自不可信 nodeHash，普通 `{}` 会让 `__proto__` 命中 Object.prototype（原型污染）。
+	data.byNodeHash = Object.assign(Object.create(null), data.byNodeHash ?? {})
 	data.wantUnknownHits ??= []
 	data.relayBumpSeen ??= []
 	return data

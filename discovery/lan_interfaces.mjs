@@ -3,12 +3,29 @@ import os from 'node:os'
 /** advert / 组播 beacon 携带的 LAN IPv4 上限 */
 export const MAX_LAN_HOSTS = 4
 
-const IPV4_RE = /^(?:\d{1,3}\.){3}\d{1,3}$/
+/**
+ * 私网 / 链路本地 IPv4（RFC1918 + 169.254/16）。
+ * advert 自报地址只允许这些：否则攻击者可借受害者的拨号对内网/公网发起 TCP 探测（SSRF）。
+ * @param {string} host 候选 IPv4
+ * @returns {boolean} 是否允许作为可拨号 LAN hint
+ */
+function isPrivateLanIpv4(host) {
+	const parts = host.split('.')
+	if (parts.length !== 4) return false
+	const octets = parts.map(part => Number(part))
+	if (octets.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return false
+	const [a, b] = octets
+	if (a === 10) return true
+	if (a === 172 && b >= 16 && b <= 31) return true
+	if (a === 192 && b === 168) return true
+	if (a === 169 && b === 254) return true
+	return false
+}
 
 /**
  * untrusted ingress：清洗 advert body 中的 LAN IPv4 列表。
  * @param {unknown} input 原始 lanHosts
- * @returns {string[]} 去重后的 IPv4 列表
+ * @returns {string[]} 去重后的私网/链路本地 IPv4 列表
  */
 export function normalizeLanHosts(input) {
 	if (!input) return []
@@ -18,7 +35,7 @@ export function normalizeLanHosts(input) {
 	const out = []
 	for (const item of arr) {
 		const host = String(item || '')
-		if (!host || !IPV4_RE.test(host) || seen.has(host)) continue
+		if (!host || !isPrivateLanIpv4(host) || seen.has(host)) continue
 		seen.add(host)
 		out.push(host)
 		if (out.length >= MAX_LAN_HOSTS) break

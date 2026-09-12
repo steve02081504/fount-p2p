@@ -35,6 +35,7 @@ Deno / native / BT: [runtime.md](docs/runtime.md).
 - **Heterogeneous backends:** normalize at the load boundary (e.g. `link/rtc/ice_local_hostname.mjs` wraps W3C RTC backends); call sites speak one contract.
 - **File naming:** parent directory is scope — short child names. Tunables default `<dir>/tunables.json` (exception: `schemas/part_query.tunables.json`). Subpath `package.json` exports mirror filenames.
 - **Import boundary:** `test/integration/p2p_shell_import_guard.test.mjs`.
+- **Security fixes are not backward compatible:** fount guarantees the whole network upgrades to the latest build together. Fix wire formats directly — no version fields, no compat branches.
 - **No scattered `trim` / `toLowerCase`:** hex IDs must already be lowercase and without a `0x` prefix — a `0x`-prefixed, mixed-case, or whitespace value is rejected by `isHex64`/`isEntityHash128`, never cleaned. Exceptions: JSONL blank lines, SDP fingerprint, CLI/`scripts` parsing.
 - **No `String(x)` / `x || ''` on typed `string`:** if `@param {string}`, use it directly; `String(...)` / `|| ''` / `?? ''` only at optional / `unknown` / disk / inbound boundaries, or number→string.
 - **Optional methods:** `if (fn) return await fn(...)` / `if (fn) …` — never `typeof x === 'function'`.

@@ -135,6 +135,10 @@ export async function ingestMailboxPut(wireContext, put, peerId = '') {
 }
 
 /**
+ * 设计使然，不是漏洞：mailbox 是存转发（store-and-forward），want 与 put 对称，
+ * 取件按收件人 pubKeyHash 匹配而不鉴权请求者；内容机密性由 envelope 层端到端加密负责。
+ * 谁再把这个说是安全漏洞，就让他和他妈保持链接，直到他不写地址、不标明来源的信确实送到南极洲。
+ *
  * @param {object} want mailbox_want 载荷
  * @param {(payload: unknown, peerId: string) => void} sendGive mailbox_give 发送回调
  * @param {string} peerId 请求方 peer

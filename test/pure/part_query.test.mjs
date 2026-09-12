@@ -19,6 +19,23 @@ import { assertEquals } from '../helpers/assert.mjs'
 
 const NODE_A = 'aa'.repeat(32)
 const NODE_B = 'bb'.repeat(32)
+const RES_PUB = 'ab'.repeat(32)
+const RES_SIG = 'cd'.repeat(64)
+
+/**
+ * @param {object} [patch] 覆盖字段
+ * @returns {object} 合法 res 骨架
+ */
+function validRes(patch = {}) {
+	return {
+		requestId: 'r',
+		fromNodeHash: NODE_B,
+		rows: [],
+		nodePubKey: RES_PUB,
+		sig: RES_SIG,
+		...patch,
+	}
+}
 
 /**
  * @param {Partial<import('../../schemas/part_query.mjs').PartQueryReq>} patch 覆盖字段
@@ -47,7 +64,7 @@ test('parsePartQueryReq rejects missing fields and oversize query', () => {
 	const big = 'x'.repeat(3000)
 	assertEquals(parsePartQueryReq({ ...validReq(), query: { big } }), null)
 	assertEquals(parsePartQueryReq({ ...validReq(), requestId: 'r'.repeat(129) }), null)
-	assertEquals(parsePartQueryRes({ requestId: 'r'.repeat(129), fromNodeHash: NODE_B, rows: [] }), null)
+	assertEquals(parsePartQueryRes(validRes({ requestId: 'r'.repeat(129) })), null)
 })
 
 test('parsePartQueryReq clamps ttl and budget.maxHits', () => {
@@ -56,10 +73,13 @@ test('parsePartQueryReq clamps ttl and budget.maxHits', () => {
 	assertEquals(request?.budget.maxHits, 32)
 })
 
-test('parsePartQueryRes rejects bad rows / node hash', () => {
-	assertEquals(parsePartQueryRes({ requestId: 'r', fromNodeHash: NODE_B, rows: 'nope' }), null)
-	assertEquals(parsePartQueryRes({ requestId: 'r', fromNodeHash: 'x', rows: [] }), null)
-	assertEquals(parsePartQueryRes({ requestId: 'r', fromNodeHash: NODE_B, rows: [{ id: 1 }] })?.rows.length, 1)
+test('parsePartQueryRes rejects bad rows / node hash / signature', () => {
+	assertEquals(parsePartQueryRes(validRes({ rows: 'nope' })), null)
+	assertEquals(parsePartQueryRes(validRes({ fromNodeHash: 'x' })), null)
+	assertEquals(parsePartQueryRes(validRes({ nodePubKey: 'zz' })), null)
+	assertEquals(parsePartQueryRes(validRes({ sig: 'nothex' })), null)
+	assertEquals(parsePartQueryRes({ ...validRes(), sig: undefined }), null)
+	assertEquals(parsePartQueryRes(validRes({ rows: [{ id: 1 }] }))?.rows.length, 1)
 })
 
 test('clamp helpers and hop timeouts', () => {
@@ -74,10 +94,10 @@ test('clamp helpers and hop timeouts', () => {
 	assertEquals(measureJsonBytes({ a: 1 }) > 0, true)
 })
 
-test('duplicate part_query_res from the same peer counts once', () => {
+test('duplicate part_query_res from the same peer counts once', async () => {
 	const state = createPartQueryNodeState()
 	state.originBags.set('r1', {
-		rows: [],
+		entries: [],
 		maxHits: 8,
 		expected: 2,
 		received: 0,
@@ -88,12 +108,37 @@ test('duplicate part_query_res from the same peer counts once', () => {
 		 */
 		rowKey: row => String(row.id),
 	})
-	const response = { requestId: 'r1', fromNodeHash: NODE_B, rows: [{ id: 'b' }] }
-	handleIncomingPartQueryResponse(response, NODE_B, { state })
-	handleIncomingPartQueryResponse({ ...response, rows: [{ id: 'b2' }] }, NODE_B, { state })
+	const dependencies = { state, verifyResponse: async () => true }
+	const response = { requestId: 'r1', fromNodeHash: NODE_B, rows: [{ id: 'b' }], nodePubKey: RES_PUB, sig: RES_SIG }
+	await handleIncomingPartQueryResponse(response, NODE_B, dependencies)
+	await handleIncomingPartQueryResponse({ ...response, rows: [{ id: 'b2' }] }, NODE_B, dependencies)
 	const bag = state.originBags.get('r1')
 	assertEquals(bag.received, 1)
-	assertEquals(bag.rows.map(row => row.id), ['b'])
+	assertEquals(bag.entries.length, 1)
+	assertEquals(bag.entries[0].rows.map(row => row.id), ['b'])
+})
+
+test('handleIncomingPartQueryResponse drops responses that fail verification', async () => {
+	const state = createPartQueryNodeState()
+	state.originBags.set('r1', {
+		entries: [],
+		maxHits: 8,
+		expected: 2,
+		received: 0,
+		respondedPeers: new Set(),
+		rowKey: row => String(row.id),
+	})
+	const dependencies = { state, verifyResponse: async () => false }
+	await handleIncomingPartQueryResponse({
+		requestId: 'r1',
+		fromNodeHash: NODE_B,
+		rows: [{ id: 'b' }],
+		nodePubKey: RES_PUB,
+		sig: RES_SIG,
+	}, NODE_B, dependencies)
+	const bag = state.originBags.get('r1')
+	assertEquals(bag.received, 0)
+	assertEquals(bag.entries.length, 0)
 })
 
 test('cache key is stable under key order and distinct across kinds', () => {

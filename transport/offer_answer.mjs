@@ -5,8 +5,29 @@ import { decryptNodeSignalPacket, sendNodeSignalPacket } from '../discovery/inde
 import { listLinkProviders } from '../link/providers/index.mjs'
 import { nodeDebug, shortHash } from '../node/log.mjs'
 
+import { loadTransportTunables } from './tunables.mjs'
+
 /** accept/dial 挂起期间 ICE 信令 backlog 上限 */
 const SIGNAL_BACKLOG_MAX = 64
+
+/** 并发信令会话上限（按插入序淘汰最旧）。 */
+const MAX_SIGNAL_SESSIONS = Math.max(1, Math.floor(Number(loadTransportTunables().maxSignalSessions) || 256))
+
+/**
+ * 入站 offer 可被攻击者用任意 connId 无上限创建会话；建新会话前淘汰到低于上限。
+ * @param {Map<string, { clear: () => void }>} sessions 信令会话表
+ * @param {number} maxSize 上限
+ * @returns {void}
+ */
+export function ensureSignalSessionBudget(sessions, maxSize) {
+	const cap = Math.max(1, Math.floor(Number(maxSize) || 1))
+	while (sessions.size >= cap) {
+		const oldest = sessions.keys().next().value
+		if (oldest === undefined) return
+		sessions.get(oldest)?.clear?.()
+		sessions.delete(oldest)
+	}
+}
 
 /**
  * @param {(message: unknown) => Promise<void>} sendRemote 远端发送回调
@@ -114,7 +135,8 @@ export function createOfferAnswerDial(deps) {
 	 */
 	async function buildConnLink({ provider, remoteNodeHash, connId, session, initiator }) {
 		try {
-			if (initiator) await trimToBudget()
+			// 被动 accept 同样受活跃链路预算约束，否则攻击者可无上限占用连接。
+			await trimToBudget()
 			const link = await (initiator ? provider.dial : provider.accept)({
 				nodeHash: remoteNodeHash,
 				signal: session,
@@ -165,6 +187,7 @@ export function createOfferAnswerDial(deps) {
 				peer: shortHash(remoteNodeHash),
 				provider: provider.id,
 			})
+			ensureSignalSessionBudget(signalSessions, MAX_SIGNAL_SESSIONS)
 			session = createConnSession(remoteNodeHash, connId)
 			signalSessions.set(connId, session)
 			void buildConnLink({ provider, remoteNodeHash, connId, session, initiator: false })
@@ -195,6 +218,7 @@ export function createOfferAnswerDial(deps) {
 	async function dialOfferAnswer(provider, remoteNodeHash) {
 		const connId = randomBytes(16).toString('hex')
 		const session = createConnSession(remoteNodeHash, connId)
+		ensureSignalSessionBudget(signalSessions, MAX_SIGNAL_SESSIONS)
 		signalSessions.set(connId, session)
 		return await buildConnLink({ provider, remoteNodeHash, connId, session, initiator: true })
 	}

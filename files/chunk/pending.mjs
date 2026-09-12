@@ -48,12 +48,12 @@ export function resolvePendingChunkFetch(payload) {
 	if (!requestId) return false
 	const entry = table.peek(requestId)
 	if (!entry) return false
-	if (typeof payload?.dataBase64 === 'string') {
-		try {
-			return resolveChunkFetchWait(requestId, entry.expectedKey, base64ToBytes(payload.dataBase64))
-		}
-		catch { /* keep waiting */ }
-		return false
+	// 没有 dataBase64 不是“未找到”：不存在可信的负响应，任何收到 requestId 的 peer 都能拿空包提前判负。
+	// 交给正常超时，让其它诚实响应者仍有机会提供块。
+	if (typeof payload?.dataBase64 !== 'string') return false
+	try {
+		return resolveChunkFetchWait(requestId, entry.expectedKey, base64ToBytes(payload.dataBase64))
 	}
-	return table.settle(requestId, null)
+	catch { /* keep waiting */ }
+	return false
 }

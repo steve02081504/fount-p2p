@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 
 import { canonicalStringify } from '../core/canonical_json.mjs'
-import { isHex64 } from '../core/hexIds.mjs'
+import { isHex64, isSignatureHex128 } from '../core/hexIds.mjs'
 import { isPlainObject } from '../core/object.mjs'
 import { parsePartpath } from '../core/partpath.mjs'
 
@@ -24,6 +24,8 @@ import partQueryTunables from './part_query.tunables.json' with { type: 'json' }
  *   requestId: string
  *   fromNodeHash: string
  *   rows: unknown[]
+ *   nodePubKey: string
+ *   sig: string
  * }} PartQueryRes
  */
 
@@ -132,9 +134,14 @@ export function parsePartQueryRes(value, tunables = partQueryTunables) {
 	if (!requestId) return null
 	const fromNodeHash = isHex64(value.fromNodeHash)
 	if (!fromNodeHash) return null
+	// 响应必须自证来源：nodePubKey 的哈希即 fromNodeHash，sig 覆盖 (requestId, fromNodeHash, rows)。
+	const nodePubKey = isHex64(value.nodePubKey)
+	if (!nodePubKey) return null
+	const sig = isSignatureHex128(value.sig)
+	if (!sig) return null
 	const rows = clampPartQueryRows(value.rows, tunables.maxHits, tunables.maxRowsBytes)
 	if (!rows) return null
-	return { requestId, fromNodeHash, rows }
+	return { requestId, fromNodeHash, rows, nodePubKey, sig }
 }
 
 /**

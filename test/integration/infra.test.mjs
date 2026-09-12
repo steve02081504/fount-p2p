@@ -17,7 +17,6 @@ import { publicTransferKeyDescriptor } from '../../files/manifest/normalize.mjs'
 import { attachPublicManifestSig } from '../../files/manifest/public.mjs'
 import { defaultNodeDir, resolveNodeDir } from '../../infra/default_node_dir.mjs'
 import {
-	consumeOverlayRateToken,
 	getInfraPriority,
 	isInfraRunning,
 	setInfraPriority,
@@ -29,11 +28,11 @@ import { closeNode, initNode } from '../../node/instance.mjs'
 import { loadNetwork, replaceNetworkPeerPools } from '../../node/network.mjs'
 import { loadReputation } from '../../node/reputation_store.mjs'
 import {
+	attachReputationSyncWire,
 	pullReputationFromNode,
 	resetReputationSyncForTests,
 	setReputationTable,
 	setTrustSyncDonors,
-	attachReputationSyncWire,
 } from '../../node/reputation_sync.mjs'
 import { getRoutingProfile, setRoutingProfile } from '../../node/routing_profile.mjs'
 import {
@@ -52,6 +51,7 @@ import {
 	dispatchNodeScopeAction,
 	hasNodeScopeAction,
 } from '../../transport/node_scope/wire.mjs'
+import { consumeToken } from '../../utils/token_bucket.mjs'
 import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 const HASH_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -91,9 +91,9 @@ test('overlay rate token bucket bursts then refills at perMin', () => {
 	const sender = HASH_A
 	const t0 = 1_000_000
 	for (let i = 0; i < 5; i++)
-		assert.equal(consumeOverlayRateToken(buckets, sender, t0 + i, limits), true)
-	assert.equal(consumeOverlayRateToken(buckets, sender, t0 + 5, limits), false)
-	assert.equal(consumeOverlayRateToken(buckets, sender, t0 + 1005, limits), true)
+		assert.equal(consumeToken(buckets, sender, t0 + i, limits), true)
+	assert.equal(consumeToken(buckets, sender, t0 + 5, limits), false)
+	assert.equal(consumeToken(buckets, sender, t0 + 1005, limits), true)
 })
 
 test('stopNodeScopeRuntime disposes rep_sync handlers', async () => {
@@ -203,10 +203,10 @@ test('pull success returns JSON without writing local table', async () => {
 			return true
 		}
 		setTrustSyncDonors([HASH_A])
-		const before = structuredClone(loadReputation())
+		const before = JSON.parse(JSON.stringify(loadReputation()))
 		const pulled = await pullReputationFromNode(HASH_A)
 		assert.equal(pulled.byNodeHash[HASH_B].score, 0.55)
-		assert.deepEqual(loadReputation(), before)
+		assert.deepEqual(JSON.parse(JSON.stringify(loadReputation())), before)
 		registry.sendToNodeLink = originalSend
 	}
 	finally {

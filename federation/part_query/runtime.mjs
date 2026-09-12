@@ -1,7 +1,10 @@
+import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 
+import { canonicalStringify } from '../../core/canonical_json.mjs'
 import { compositeKey } from '../../core/composite_key.mjs'
-import { getNodeHash } from '../../node/identity.mjs'
+import { keyPairFromSeed, pubKeyHash, sign, verify } from '../../crypto/crypto.mjs'
+import { ensureNodeSeed, getNodeHash } from '../../node/identity.mjs'
 import { loadReputation } from '../../node/reputation_store.mjs'
 import { isQuarantinedPure } from '../../reputation/engine.mjs'
 import {
@@ -23,6 +26,55 @@ import { createPartQueryCache, partQueryCache } from './cache.mjs'
 
 /** @typedef {import('../../wire/adapter.mjs').WireAdapter} PartQueryWire */
 
+const PART_QUERY_DOMAIN = 'fount-part-query'
+
+/**
+ * 构造 part_query_res 签名材料：仅覆盖 (requestId, fromNodeHash, rows)。
+ * 来源节点借此自证，中间节点无法篡改结果或来源。
+ * @param {{ requestId: string, fromNodeHash: string, rows: unknown[] }} base 响应基体
+ * @returns {Uint8Array} 待签名字节
+ */
+function partQuerySignBytes(base) {
+	return Buffer.from(`${PART_QUERY_DOMAIN}\0${base.requestId}\0${base.fromNodeHash}\0${canonicalStringify(base.rows)}`, 'utf8')
+}
+
+/**
+ * 默认响应签名：用本机节点身份签响应基体。
+ * @param {{ requestId: string, fromNodeHash: string, rows: unknown[] }} base 响应基体
+ * @returns {Promise<{ nodePubKey: string, sig: string }>} 公钥与签名
+ */
+async function defaultSignResponse(base) {
+	const { publicKey, secretKey } = keyPairFromSeed(Buffer.from(ensureNodeSeed(), 'hex'))
+	const signature = await sign(partQuerySignBytes(base), secretKey)
+	return { nodePubKey: Buffer.from(publicKey).toString('hex'), sig: Buffer.from(signature).toString('hex') }
+}
+
+/**
+ * 默认响应验签：nodePubKey 哈希须等于 fromNodeHash，且签名覆盖响应基体。
+ * @param {{ requestId: string, fromNodeHash: string, rows: unknown[], nodePubKey: string, sig: string }} response 响应
+ * @returns {Promise<boolean>} 是否可信
+ */
+async function defaultVerifyResponse(response) {
+	if (pubKeyHash(Buffer.from(response.nodePubKey, 'hex')) !== response.fromNodeHash) return false
+	return await verify(Buffer.from(response.sig, 'hex'), partQuerySignBytes(response), Buffer.from(response.nodePubKey, 'hex'))
+}
+
+/**
+ * @param {PartQueryDependencies} dependencies 依赖
+ * @returns {(base: { requestId: string, fromNodeHash: string, rows: unknown[] }) => Promise<{ nodePubKey: string, sig: string }>} 签名函数
+ */
+function responseSigner(dependencies) {
+	return dependencies.signResponse || defaultSignResponse
+}
+
+/**
+ * @param {PartQueryDependencies} dependencies 依赖
+ * @returns {(response: { requestId: string, fromNodeHash: string, rows: unknown[], nodePubKey: string, sig: string }) => Promise<boolean>} 验签函数
+ */
+function responseVerifier(dependencies) {
+	return dependencies.verifyResponse || defaultVerifyResponse
+}
+
 /**
  * @typedef {{
  *   replicaUsername?: string
@@ -40,10 +92,14 @@ import { createPartQueryCache, partQueryCache } from './cache.mjs'
  *   takeDedupe: (key: string) => boolean
  *   relayPending: Map<string, RelayPending>
  *   originWaits: Map<string, Map<string, import('../../wire/wait.mjs').WireWaiter[]>>
- *   originBags: Map<string, { rows: unknown[], maxHits: number, expected: number, received: number, respondedPeers: Set<string>, rowKey?: (row: unknown) => string }>
+ *   originBags: Map<string, { entries: Array<{ rows: unknown[], sourceNodeHash?: string }>, maxHits: number, expected: number, received: number, respondedPeers: Set<string>, rowKey?: (row: unknown) => string }>
  *   cache: ReturnType<typeof createPartQueryCache>
  *   handlers: Map<string, QueryInboundHandler>
  * }} PartQueryNodeState
+ */
+
+/**
+ * @typedef {{ rows: unknown[], sourceNodeHash?: string }} QueryRowEntry
  */
 
 /**
@@ -52,6 +108,8 @@ import { createPartQueryCache, partQueryCache } from './cache.mjs'
  *   deliver?: (nodeHash: string, action: string, payload: unknown) => Promise<boolean> | boolean
  *   getNodeHash?: () => string
  *   now?: () => number
+ *   signResponse?: (base: { requestId: string, fromNodeHash: string, rows: unknown[] }) => Promise<{ nodePubKey: string, sig: string }>
+ *   verifyResponse?: (response: { requestId: string, fromNodeHash: string, rows: unknown[], nodePubKey: string, sig: string }) => Promise<boolean>
  *   state?: PartQueryNodeState
  * }} PartQueryDependencies
  */
@@ -62,7 +120,7 @@ import { createPartQueryCache, partQueryCache } from './cache.mjs'
  *   wire: PartQueryWire
  *   request: PartQueryReq
  *   localRows: unknown[]
- *   remoteRows: unknown[]
+ *   remoteEntries: QueryRowEntry[]
  *   expected: number
  *   received: number
  *   respondedPeers: Set<string>
@@ -153,6 +211,40 @@ export function mergeQueryRows(lists, maxHits, rowKey) {
 }
 
 /**
+ * 合并带来源的 rows，并记录每个去重行键的来源节点集合。
+ * 本地行 `sourceNodeHash` 省略（不可被屏蔽）。
+ * @param {QueryRowEntry[]} entries 多路 rows（含来源）
+ * @param {number} maxHits 上限
+ * @param {(row: unknown) => string} [rowKey] 去重键
+ * @returns {{ rows: unknown[], sources: Map<string, Set<string>> }} 合并结果与 rowKey→来源集合
+ */
+function mergeRowsWithSources(entries, maxHits, rowKey) {
+	const rows = []
+	const seen = new Set()
+	/** @type {Map<string, Set<string>>} */
+	const sources = new Map()
+	const keyOf = rowKey || (row => {
+		try { return JSON.stringify(row) }
+		catch { return `\0${rows.length}` }
+	})
+	for (const entry of entries) {
+		for (const row of entry.rows || []) {
+			const key = keyOf(row)
+			if (!seen.has(key)) {
+				seen.add(key)
+				rows.push(row)
+				sources.set(key, new Set())
+				if (entry.sourceNodeHash) sources.get(key).add(entry.sourceNodeHash)
+				if (rows.length >= maxHits) return { rows, sources }
+				continue
+			}
+			if (entry.sourceNodeHash) sources.get(key).add(entry.sourceNodeHash)
+		}
+	}
+	return { rows, sources }
+}
+
+/**
  * @param {PartQueryNodeState} state 节点状态
  * @param {QueryInboundContext} queryContext 入站上下文
  * @param {string} partpath part 路径
@@ -206,20 +298,59 @@ async function deliverQuery(nodeHash, action, payload, dependencies) {
  * @param {() => string} nodeHashOf 本机 hash
  * @returns {PartQueryRes} 响应载荷
  */
-function buildResponse(request, rows, nodeHashOf) {
+/**
+ * @param {PartQueryReq} request 请求
+ * @param {unknown[]} rows 行
+ * @param {() => string} nodeHashOf 本机 hash
+ * @param {PartQueryDependencies} dependencies 依赖
+ * @returns {Promise<PartQueryRes>} 已签名的响应
+ */
+async function buildResponse(request, rows, nodeHashOf, dependencies) {
 	const capped = clampPartQueryRows(rows, request.budget.maxHits) || []
-	return {
-		requestId: request.requestId,
-		fromNodeHash: nodeHashOf(),
-		rows: capped,
-	}
+	const base = { requestId: request.requestId, fromNodeHash: nodeHashOf(), rows: capped }
+	const { nodePubKey, sig } = await responseSigner(dependencies)(base)
+	return { ...base, nodePubKey, sig }
+}
+
+/**
+ * 按来源屏蔽表过滤 rows：来源集合非空且全部被屏蔽时剔除该行。
+ * @param {unknown[]} rows 行
+ * @param {Map<string, Set<string>>} sources rowKey→来源集合
+ * @param {(row: unknown) => string} [rowKey] 去重键
+ * @param {((nodeHash: string) => boolean) | undefined} isSourceBlocked 来源屏蔽谓词
+ * @returns {unknown[]} 过滤后的 rows
+ */
+function filterRowsBySource(rows, sources, rowKey, isSourceBlocked) {
+	if (typeof isSourceBlocked !== 'function') return rows
+	return rows.filter(row => {
+		let key
+		if (rowKey) key = rowKey(row)
+		else {
+			try { key = JSON.stringify(row) }
+			catch { return true }
+		}
+		const set = sources.get(key)
+		if (!set || set.size === 0) return true
+		for (const source of set) if (!isSourceBlocked(source)) return true
+		return false
+	})
+}
+
+/**
+ * @param {Map<string, Set<string>>} sources rowKey→来源集合
+ * @returns {Map<string, string[]>} rowKey→来源数组
+ */
+function sourcesToArrays(sources) {
+	const out = new Map()
+	for (const [key, set] of sources) out.set(key, [...set])
+	return out
 }
 
 /**
  * @param {RelayPending} pending 中继槽
- * @returns {void}
+ * @returns {Promise<void>}
  */
-function flushRelayPending(pending) {
+async function flushRelayPending(pending) {
 	if (pending.flushed) return
 	pending.flushed = true
 	if (pending.timer) {
@@ -227,12 +358,15 @@ function flushRelayPending(pending) {
 		pending.timer = null
 	}
 	pending.state.relayPending.delete(pending.request.requestId)
-	const merged = mergeQueryRows([pending.localRows, pending.remoteRows], pending.request.budget.maxHits)
+	const merged = mergeRowsWithSources(
+		[{ rows: pending.localRows }, ...pending.remoteEntries],
+		pending.request.budget.maxHits,
+	)
 	const now = pending.dependencies.now || Date.now
-	pending.state.cache.set(pending.request.partpath, pending.request.kind, pending.request.query, merged, now())
+	pending.state.cache.set(pending.request.partpath, pending.request.kind, pending.request.query, merged.rows, now(), merged.sources)
 	const nodeHashOf = pending.dependencies.getNodeHash || getNodeHash
 	try {
-		pending.wire.send('part_query_res', buildResponse(pending.request, merged, nodeHashOf), pending.upstreamPeerId)
+		pending.wire.send('part_query_res', await buildResponse(pending.request, merged.rows, nodeHashOf, pending.dependencies), pending.upstreamPeerId)
 	}
 	catch { /* disconnected */ }
 }
@@ -251,9 +385,9 @@ export async function processIncomingPartQueryRequest(wireContext, wire, request
 	const now = dependencies.now || Date.now
 	const username = wireContext.replicaUsername || ''
 
-	const cached = state.cache.get(request.partpath, request.kind, request.query, now())
+	const cached = state.cache.getWithSources(request.partpath, request.kind, request.query, now())
 	if (cached) {
-		try { wire.send('part_query_res', buildResponse(request, cached, nodeHashOf), peerId) }
+		try { wire.send('part_query_res', await buildResponse(request, cached.rows, nodeHashOf, dependencies), peerId) }
 		catch { /* disconnected */ }
 		return
 	}
@@ -266,8 +400,8 @@ export async function processIncomingPartQueryRequest(wireContext, wire, request
 
 	const nextTtl = request.ttl - 1
 	if (nextTtl <= 0) {
-		state.cache.set(request.partpath, request.kind, request.query, localRows, now())
-		try { wire.send('part_query_res', buildResponse(request, localRows, nodeHashOf), peerId) }
+		state.cache.set(request.partpath, request.kind, request.query, localRows, now(), new Map())
+		try { wire.send('part_query_res', await buildResponse(request, localRows, nodeHashOf, dependencies), peerId) }
 		catch { /* disconnected */ }
 		return
 	}
@@ -282,7 +416,7 @@ export async function processIncomingPartQueryRequest(wireContext, wire, request
 		wire,
 		request,
 		localRows,
-		remoteRows: [],
+		remoteEntries: [],
 		expected: 0,
 		received: 0,
 		respondedPeers: new Set(),
@@ -293,7 +427,7 @@ export async function processIncomingPartQueryRequest(wireContext, wire, request
 	}
 	state.relayPending.set(request.requestId, pending)
 	// 先挂 hop 超时：勿等 select/deliver settle，否则 stuck send 永不 flush upstream（#13 同类）
-	pending.timer = setTimeout(() => flushRelayPending(pending), resolvePartQueryHopTimeoutMs(request.ttl))
+	pending.timer = setTimeout(() => { void flushRelayPending(pending) }, resolvePartQueryHopTimeoutMs(request.ttl))
 
 	void (async () => {
 		try {
@@ -305,10 +439,10 @@ export async function processIncomingPartQueryRequest(wireContext, wire, request
 			if (pending.flushed) return
 			pending.expected = sent
 			if (sent === 0 || pending.received >= pending.expected)
-				flushRelayPending(pending)
+				void flushRelayPending(pending)
 		}
 		catch {
-			if (!pending.flushed) flushRelayPending(pending)
+			if (!pending.flushed) void flushRelayPending(pending)
 		}
 	})()
 }
@@ -319,28 +453,26 @@ export async function processIncomingPartQueryRequest(wireContext, wire, request
  * @param {PartQueryDependencies} [dependencies] 依赖
  * @returns {void}
  */
-export function handleIncomingPartQueryResponse(response, peerId = '', dependencies = {}) {
+export async function handleIncomingPartQueryResponse(response, peerId = '', dependencies = {}) {
 	const state = resolvePartQueryState(dependencies)
-	const responderKey = peerId || response.fromNodeHash
+	// 响应必须自证来源；验签失败直接丢弃，避免任意邻居伪造/投毒结果与缓存。
+	if (!await responseVerifier(dependencies)(response)) return
+	const responderKey = response.fromNodeHash
 	const relay = state.relayPending.get(response.requestId)
 	if (relay) {
-		if (responderKey) {
-			if (relay.respondedPeers.has(responderKey)) return
-			relay.respondedPeers.add(responderKey)
-		}
-		relay.remoteRows.push(...response.rows)
+		if (relay.respondedPeers.has(responderKey)) return
+		relay.respondedPeers.add(responderKey)
+		relay.remoteEntries.push({ rows: response.rows, sourceNodeHash: responderKey })
 		relay.received += 1
-		if (relay.expected > 0 && relay.received >= relay.expected) flushRelayPending(relay)
+		if (relay.expected > 0 && relay.received >= relay.expected) void flushRelayPending(relay)
 		return
 	}
 
 	const bag = state.originBags.get(response.requestId)
 	if (!bag) return
-	if (responderKey) {
-		if (bag.respondedPeers.has(responderKey)) return
-		bag.respondedPeers.add(responderKey)
-	}
-	bag.rows = mergeQueryRows([bag.rows, response.rows], bag.maxHits, bag.rowKey)
+	if (bag.respondedPeers.has(responderKey)) return
+	bag.respondedPeers.add(responderKey)
+	bag.entries.push({ rows: response.rows, sourceNodeHash: responderKey })
 	bag.received += 1
 	if (bag.expected > 0 && bag.received >= bag.expected)
 		finishMultiWireWaiters(state.originWaits, response.requestId, '')
@@ -358,17 +490,22 @@ export function handleIncomingPartQueryResponse(response, peerId = '', dependenc
  *   timeoutMs?: number
  *   maxHits?: number
  *   rowKey?: (row: unknown) => string
+ *   isSourceBlocked?: (nodeHash: string) => boolean
  *   budget?: { maxHits?: number }
  * } & PartQueryDependencies} [options] 选项
- * @returns {Promise<unknown[]>} 合并后的 rows
+ * @returns {Promise<{ rows: unknown[], sources: Map<string, string[]> }>} 合并 rows 与每行来源节点
  */
 export async function queryNetwork(username, partpath, kind, query, options = {}) {
 	const state = resolvePartQueryState(options)
 	const now = options.now || Date.now
 	const nodeHashOf = options.getNodeHash || getNodeHash
 
-	const cached = state.cache.get(partpath, kind, query, now())
-	if (cached) return cached
+	const cached = state.cache.getWithSources(partpath, kind, query, now())
+	if (cached)
+		return {
+			rows: filterRowsBySource(cached.rows, cached.sources, options.rowKey, options.isSourceBlocked),
+			sources: sourcesToArrays(cached.sources),
+		}
 
 	const ttl = Math.min(
 		Math.max(1, Math.floor(Number(options.ttl) || partQueryTunables.maxTtl)),
@@ -399,12 +536,15 @@ export async function queryNetwork(username, partpath, kind, query, options = {}
 		budget: { maxHits },
 	}
 	const parsed = parsePartQueryReq(request)
-	if (!parsed) return mergeQueryRows([localRows], maxHits, options.rowKey)
+	if (!parsed) {
+		const localOnly = mergeRowsWithSources([{ rows: localRows }], maxHits, options.rowKey)
+		return { rows: localOnly.rows, sources: sourcesToArrays(localOnly.sources) }
+	}
 
 	state.takeDedupe(parsed.requestId)
 
 	const bag = {
-		rows: [],
+		entries: [],
 		maxHits,
 		expected: 0,
 		received: 0,
@@ -433,9 +573,12 @@ export async function queryNetwork(username, partpath, kind, query, options = {}
 	await waitPromise
 	state.originBags.delete(parsed.requestId)
 
-	const merged = mergeQueryRows([localRows, bag.rows], maxHits, options.rowKey)
-	state.cache.set(parsed.partpath, parsed.kind, parsed.query, merged, now())
-	return merged
+	const merged = mergeRowsWithSources([{ rows: localRows }, ...bag.entries], maxHits, options.rowKey)
+	state.cache.set(parsed.partpath, parsed.kind, parsed.query, merged.rows, now(), merged.sources)
+	return {
+		rows: filterRowsBySource(merged.rows, merged.sources, options.rowKey, options.isSourceBlocked),
+		sources: sourcesToArrays(merged.sources),
+	}
 }
 
 /** @returns {void} 测试用重置默认状态 */

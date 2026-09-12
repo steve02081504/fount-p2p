@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { test } from 'node:test'
 
-import { keyPairFromSeed, pubKeyHash } from '../../crypto/crypto.mjs'
+import { keyPairFromSeed, pubKeyHash, sign } from '../../crypto/crypto.mjs'
 import { createOverlayRouter } from '../../overlay/index.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
 
@@ -86,6 +86,77 @@ function createFakeNetwork(edges) {
 	return { makeRegistry }
 }
 
+test('overlay router drops relay without a valid origin signature', async () => {
+	const ids = [31, 32, 33].map(identity)
+	const edges = new Map([
+		[ids[2].nodeHash, [ids[1].nodeHash]],
+		[ids[1].nodeHash, [ids[2].nodeHash]],
+	])
+	const network = createFakeNetwork(edges)
+	const attackerRegistry = network.makeRegistry(ids[2])
+	const targetRegistry = network.makeRegistry(ids[1])
+	const attacker = createOverlayRouter(attackerRegistry)
+	const target = createOverlayRouter(targetRegistry)
+	const received = []
+	const stop = target.onRelay((body, meta) => received.push({ body, meta }))
+	try {
+		// 冒充第三方 origin，无签名：必须被丢弃。
+		await attackerRegistry.sendToNodeLink(ids[1].nodeHash, {
+			scope: 'overlay',
+			action: 'relay',
+			payload: { action: 'relay', path: [ids[0].nodeHash, ids[1].nodeHash], idx: 1, body: { forged: true } },
+		})
+		await new Promise(resolve => setTimeout(resolve, 20))
+		assertEquals(received.length, 0)
+		// 用自己的身份走合法 relay API：应送达并以自己为来源。
+		await attacker.relay([ids[2].nodeHash, ids[1].nodeHash], { legit: true })
+		await new Promise(resolve => setTimeout(resolve, 20))
+		assertEquals(received.length, 1)
+		assertEquals(received[0].meta.path[0], ids[2].nodeHash)
+	}
+	finally {
+		stop()
+		attacker.close()
+		target.close()
+	}
+})
+
+test('overlay router rate-limits route_req by default without infra', async () => {
+	const ids = [21, 22, 23].map(identity)
+	const edges = new Map([
+		[ids[0].nodeHash, [ids[1].nodeHash, ids[2].nodeHash]],
+		[ids[1].nodeHash, [ids[0].nodeHash]],
+		[ids[2].nodeHash, [ids[0].nodeHash]],
+	])
+	const network = createFakeNetwork(edges)
+	const localRegistry = network.makeRegistry(ids[0])
+	network.makeRegistry(ids[1])
+	const attackerRegistry = network.makeRegistry(ids[2])
+	const local = createOverlayRouter(localRegistry)
+	const origSend = localRegistry.sendToNodeLink.bind(localRegistry)
+	let forwarded = 0
+	localRegistry.sendToNodeLink = async (target, envelope) => {
+		forwarded++
+		return await origSend(target, envelope)
+	}
+	try {
+		const target = 'f'.repeat(64)
+		for (let i = 0; i < 40; i++)
+			await attackerRegistry.sendToNodeLink(ids[0].nodeHash, {
+				scope: 'overlay',
+				action: 'route_req',
+				payload: { action: 'route_req', reqId: `flood-${i}`, target, ttl: 3, path: [ids[2].nodeHash] },
+			})
+		await new Promise(resolve => setTimeout(resolve, 50))
+		// 默认桶 burst=30：第 31 条起被丢弃，不再向其它链路转发。
+		assert.ok(forwarded >= 30, `expected >=30 forwarded, got ${forwarded}`)
+		assert.ok(forwarded < 40, `expected <40 forwarded, got ${forwarded}`)
+	}
+	finally {
+		local.close()
+	}
+})
+
 test('overlay router relays payload across a chain', async () => {
 	const ids = [1, 2, 3, 4, 5].map(identity)
 	const edges = new Map([
@@ -109,6 +180,50 @@ test('overlay router relays payload across a chain', async () => {
 	finally {
 		stop()
 		for (const router of routers) router.close()
+	}
+})
+
+test('overlay router ignores route response whose path does not end at the target', async () => {
+	const ids = [11, 12, 13].map(identity)
+	const edges = new Map([
+		[ids[0].nodeHash, [ids[1].nodeHash]],
+		[ids[1].nodeHash, [ids[0].nodeHash]],
+	])
+	const network = createFakeNetwork(edges)
+	const leftRegistry = network.makeRegistry(ids[0])
+	const evilRegistry = network.makeRegistry(ids[1])
+	const left = createOverlayRouter(leftRegistry)
+	const origSend = leftRegistry.sendToNodeLink.bind(leftRegistry)
+	let capturedReqId = ''
+	leftRegistry.sendToNodeLink = async (target, envelope) => {
+		if (envelope?.action === 'route_req') capturedReqId = envelope.payload?.reqId || ''
+		return await origSend(target, envelope)
+	}
+	try {
+		const routePromise = left.discoverRoute(ids[2].nodeHash, { timeoutMs: 80 })
+		await new Promise(resolve => setTimeout(resolve, 10))
+		assertEquals(capturedReqId.length > 0, true)
+		const fakePath = [ids[0].nodeHash, ids[1].nodeHash]
+		const sig = await sign(
+			Buffer.from(`fount-route\0${capturedReqId}\0${fakePath.join(',')}`, 'utf8'),
+			ids[1].secretKey,
+		)
+		await evilRegistry.sendToNodeLink(ids[0].nodeHash, {
+			scope: 'overlay',
+			action: 'route_resp',
+			payload: {
+				action: 'route_resp',
+				reqId: capturedReqId,
+				path: fakePath,
+				nodePubKey: ids[1].nodePubKey,
+				sig: Buffer.from(sig).toString('hex'),
+			},
+		})
+		// 伪造路径终点不是目标：必须被忽略，最终超时拒绝。
+		await assert.rejects(async () => await routePromise)
+	}
+	finally {
+		left.close()
 	}
 })
 

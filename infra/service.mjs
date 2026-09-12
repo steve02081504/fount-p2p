@@ -2,6 +2,7 @@ import { isNodeInitialized } from '../node/instance.mjs'
 import { setOverlayRateGate, clearOverlayRateGate } from '../overlay/index.mjs'
 import { getLinkRegistry } from '../transport/link_registry.mjs'
 import { attachNodeScopeMailbox } from '../transport/node_scope/features.mjs'
+import { consumeToken } from '../utils/token_bucket.mjs'
 
 import { attachInfraDebugLog, detachInfraDebugLog } from './debug_log.mjs'
 import {
@@ -15,32 +16,6 @@ import infraTunables from './tunables.json' with { type: 'json' }
 /** @type {Map<string, { tokens: number, updatedAt: number }>} */
 const overlayRateBuckets = new Map()
 
-/**
- * Token bucket：桶容量 = burst，补充速率 = perMin/min。
- * @param {Map<string, { tokens: number, updatedAt: number }>} buckets - 每 sender 桶状态
- * @param {string} sender - 发送方 nodeHash
- * @param {number} now - 当前时间戳（ms）
- * @param {{ perMin: number, burst: number }} limits - 限速参数
- * @returns {boolean} 是否允许本次 overlay 动作
- */
-export function consumeOverlayRateToken(buckets, sender, now, limits) {
-	const perMin = Math.max(1, limits.perMin)
-	const burst = Math.max(1, limits.burst)
-	const refillPerMs = perMin / 60_000
-	let bucket = buckets.get(sender)
-	if (!bucket) bucket = { tokens: burst, updatedAt: now }
-	const elapsed = Math.max(0, now - bucket.updatedAt)
-	bucket.tokens = Math.min(burst, bucket.tokens + elapsed * refillPerMs)
-	bucket.updatedAt = now
-	if (bucket.tokens < 1) {
-		buckets.set(sender, bucket)
-		return false
-	}
-	bucket.tokens -= 1
-	buckets.set(sender, bucket)
-	return true
-}
-
 /** 安装 overlay 速率门 */
 function installOverlayRateLimit() {
 	const limits = {
@@ -49,7 +24,7 @@ function installOverlayRateLimit() {
 	}
 	setOverlayRateGate((sender, action) => {
 		if (action !== 'route_req' && action !== 'relay') return true
-		return consumeOverlayRateToken(overlayRateBuckets, sender, Date.now(), limits)
+		return consumeToken(overlayRateBuckets, sender, Date.now(), limits)
 	})
 }
 

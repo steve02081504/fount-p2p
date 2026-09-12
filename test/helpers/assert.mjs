@@ -8,7 +8,8 @@ import { strict as assert } from 'node:assert'
  * @returns {void}
  */
 export function assertEquals(actual, expected, message) {
-	assert.deepEqual(actual, expected, message)
+	if (message === undefined) assert.deepEqual(actual, expected)
+	else assert.deepEqual(actual, expected, message)
 }
 
 /**

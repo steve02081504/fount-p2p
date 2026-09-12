@@ -45,6 +45,7 @@ Outer caller timeouts must **not** abort the in-flight work — background fill 
 - `fetchChunk` accepts the same `fanoutTargets` as `fetchManifest`. With targets it fanouts `fed_chunk_get` **only** to that node set; without targets it falls back to node-scope fanout. Same `username`+chunk hash+mode (`targeted`/`public`) is deduped in-flight.
 - `readPublicFile` / `readManifestPlaintext` forward `options.fanoutTargets` to both the manifest fetch and the chunk fetch, so a cross-node public read can pull profile/avatar content straight from the owner node instead of depending on the node-scope fanout.
 - The public (non-targeted) fanout does **not** block the request window on dialing the whole peer pool: already-linked / group-room-reachable peers are sent immediately, and unreachable peers are dialed in the background and re-sent once linked. (`ensureLinkToNode` no longer gates the send.)
+- **Chunk serving is by-design unauthenticated CAS:** `fed_chunk_get` returns a chunk iff the requester already knows its 64-hex content hash (which is infeasible to enumerate), and `verifiedChunkBytes` re-checks that hash on receipt. There is no per-requester ACL. Confidentiality therefore rests on the manifest being ACL-gated and on encryption: `convergent` / `random` chunks are ciphertext, while `plain` chunks are plaintext — non-public files must not use `plain`.
 
 ## Non-public (ACL-gated) manifests
 

@@ -13,6 +13,23 @@ import { assert, assertEquals } from '../helpers/assert.mjs'
 const NODE_A = 'aa'.repeat(32)
 const NODE_B = 'bb'.repeat(32)
 const NODE_C = 'cc'.repeat(32)
+const RES_PUB = 'ab'.repeat(32)
+const RES_SIG = 'cd'.repeat(64)
+
+/**
+ * 测试用签名桩：形状合法即可，验签桩恒真。
+ * @returns {Promise<{ nodePubKey: string, sig: string }>} 签名
+ */
+async function fakeSignResponse() {
+	return { nodePubKey: RES_PUB, sig: RES_SIG }
+}
+
+/**
+ * @returns {Promise<boolean>} 恒真
+ */
+async function fakeVerifyResponse() {
+	return true
+}
 
 /**
  * 内存多节点假 link：deliver 按拓扑投递 part_query_*。
@@ -61,6 +78,8 @@ function createFakeQueryNet(topology, localRowsFor) {
 		}
 		const dependencies = {
 			state,
+			signResponse: fakeSignResponse,
+			verifyResponse: fakeVerifyResponse,
 			/**
 			 * @returns {string} 本节点 hash
 			 */
@@ -96,7 +115,7 @@ function createFakeQueryNet(topology, localRowsFor) {
 		/**
 		 * @param {string} origin 发起节点
 		 * @param {object} [options] queryNetwork 选项
-		 * @returns {Promise<unknown[]>} rows
+		 * @returns {Promise<{ rows: unknown[], sources: Map<string, string[]> }>} rows 与来源
 		 */
 		queryFrom(origin, options = {}) {
 			const node = nodes.get(origin)
@@ -126,7 +145,7 @@ test('one-hop answer aggregates local + neighbor rows', async () => {
 		if (hash === NODE_B) return [{ id: 'b-hit' }]
 		return []
 	})
-	const rows = await net.queryFrom(NODE_A, { ttl: 1 })
+	const { rows } = await net.queryFrom(NODE_A, { ttl: 1 })
 	assertEquals(rows.map(r => r.id).sort(), ['a-local', 'b-hit'])
 })
 
@@ -142,7 +161,7 @@ test('two-hop forward aggregates reverse-path rows', async () => {
 		if (hash === NODE_C) return [{ id: 'c' }]
 		return []
 	})
-	const rows = await net.queryFrom(NODE_A, { ttl: 2, timeoutMs: 500 })
+	const { rows } = await net.queryFrom(NODE_A, { ttl: 2, timeoutMs: 500 })
 	assertEquals(rows.map(r => r.id).sort(), ['a', 'b', 'c'])
 	assertEquals((net.forwardCounts.get(NODE_A) || 0) >= 1, true)
 	assertEquals((net.forwardCounts.get(NODE_B) || 0) >= 1, true)
@@ -201,6 +220,8 @@ test('cache hit skips forward; expiry resumes forward', async () => {
 		const handlers = new Map()
 		const dependencies = {
 			state,
+			signResponse: fakeSignResponse,
+			verifyResponse: fakeVerifyResponse,
 			/**
 			 * @returns {number} 可控时钟（毫秒）
 			 */
@@ -258,32 +279,32 @@ test('cache hit skips forward; expiry resumes forward', async () => {
 	 */
 	const rowKey = row => row.id
 	const origin = nodes.get(NODE_A)
-	const first = await queryNetwork('alice', 'shells/social', 'entity_search', { q: 'hot' }, {
+	const first = (await queryNetwork('alice', 'shells/social', 'entity_search', { q: 'hot' }, {
 		...origin.dependencies,
 		ttl: 1,
 		timeoutMs: 200,
 		rowKey,
-	})
+	})).rows
 	assertEquals(first.map(r => r.id).sort(), ['a', 'b'])
 	const forwardsAfterFirst = forwardCounts.get(NODE_A) || 0
 	assertEquals(forwardsAfterFirst >= 1, true)
 
-	const second = await queryNetwork('alice', 'shells/social', 'entity_search', { q: 'hot' }, {
+	const second = (await queryNetwork('alice', 'shells/social', 'entity_search', { q: 'hot' }, {
 		...origin.dependencies,
 		ttl: 1,
 		timeoutMs: 200,
 		rowKey,
-	})
+	})).rows
 	assertEquals(second.map(r => r.id).sort(), ['a', 'b'])
 	assertEquals(forwardCounts.get(NODE_A) || 0, forwardsAfterFirst)
 
 	now += 1001
-	const third = await queryNetwork('alice', 'shells/social', 'entity_search', { q: 'hot' }, {
+	const third = (await queryNetwork('alice', 'shells/social', 'entity_search', { q: 'hot' }, {
 		...origin.dependencies,
 		ttl: 1,
 		timeoutMs: 200,
 		rowKey,
-	})
+	})).rows
 	assertEquals(third.map(r => r.id).sort(), ['a', 'b'])
 	assertEquals((forwardCounts.get(NODE_A) || 0) > forwardsAfterFirst, true)
 })
@@ -314,7 +335,7 @@ test('origin cache hit does not broadcast; relay cache hit does not forward furt
 	net.nodes.get(NODE_A).state.cache.clear()
 	net.forwardCounts.set(NODE_A, 0)
 	net.forwardCounts.set(NODE_B, 0)
-	const rows = await net.queryFrom(NODE_A, { ttl: 2, timeoutMs: 500 })
+	const { rows } = await net.queryFrom(NODE_A, { ttl: 2, timeoutMs: 500 })
 	assertEquals(rows.map(r => r.id).sort(), ['a', 'b', 'c'])
 	assertEquals(net.forwardCounts.get(NODE_A) || 0, 1)
 	assertEquals(net.forwardCounts.get(NODE_B) || 0, 0)
@@ -342,6 +363,8 @@ test('empty queryNetwork miss is not sticky when neighbors appear later', async 
 		const handlers = new Map()
 		const dependencies = {
 			state,
+			signResponse: fakeSignResponse,
+			verifyResponse: fakeVerifyResponse,
 			/**
 			 * @returns {string} 本节点 hash
 			 */
@@ -397,28 +420,52 @@ test('empty queryNetwork miss is not sticky when neighbors appear later', async 
 	const rowKey = row => row.id
 	const origin = nodes.get(NODE_A)
 
-	const miss = await queryNetwork('alice', 'shells/social', 'entity_search', { q: 'late' }, {
+	const miss = (await queryNetwork('alice', 'shells/social', 'entity_search', { q: 'late' }, {
 		...origin.dependencies,
 		ttl: 1,
 		timeoutMs: 200,
 		rowKey,
-	})
+	})).rows
 	assertEquals(miss, [])
 	assertEquals(forwardCounts.get(NODE_A) || 0, 0)
 
 	neighborsOfA = [NODE_B]
-	const hit = await queryNetwork('alice', 'shells/social', 'entity_search', { q: 'late' }, {
+	const hit = (await queryNetwork('alice', 'shells/social', 'entity_search', { q: 'late' }, {
 		...origin.dependencies,
 		ttl: 1,
 		timeoutMs: 200,
 		rowKey,
-	})
+	})).rows
 	assertEquals(hit.map(r => r.id), ['b-late'])
 	assertEquals((forwardCounts.get(NODE_A) || 0) >= 1, true)
 })
 
-test('queryNetwork respects timeoutMs even when deliver hangs', async () => {
+test('part_query responses are verified and attributed to their source', async () => {
 	resetPartQueryStateForTests()
+	const net = createFakeQueryNet({
+		[NODE_A]: [NODE_B],
+		[NODE_B]: [NODE_A],
+	}, hash => hash === NODE_B ? [{ id: 'b-hit' }] : [{ id: 'a-local' }])
+	const result = await net.queryFrom(NODE_A, { ttl: 1 })
+	assertEquals(result.rows.map(r => r.id).sort(), ['a-local', 'b-hit'])
+	assertEquals(result.sources.get('b-hit'), [NODE_B])
+	assertEquals(result.sources.get('a-local'), [])
+})
+
+test('queryNetwork filters rows whose only source is blocked', async () => {
+	resetPartQueryStateForTests()
+	const net = createFakeQueryNet({
+		[NODE_A]: [NODE_B],
+		[NODE_B]: [NODE_A],
+	}, hash => hash === NODE_B ? [{ id: 'b-hit' }] : [{ id: 'a-local' }])
+	const result = await net.queryFrom(NODE_A, {
+		ttl: 1,
+		isSourceBlocked: nodeHash => nodeHash === NODE_B,
+	})
+	assertEquals(result.rows.map(r => r.id), ['a-local'])
+})
+
+test('queryNetwork respects timeoutMs even when deliver hangs', async () => {	resetPartQueryStateForTests()
 	const state = createPartQueryNodeState({ cache: createPartQueryCache({ ttlMs: 60_000 }) })
 	registerQueryInboundHandler('shells/social', 'entity_search', () => [{ id: 'a-local' }], state)
 
@@ -449,7 +496,7 @@ test('queryNetwork respects timeoutMs even when deliver hangs', async () => {
 	})
 
 	const outcome = await Promise.race([
-		queryPromise.then(rows => ({ kind: 'settled', rows })),
+		queryPromise.then(result => ({ kind: 'settled', rows: result.rows })),
 		new Promise(resolve => setTimeout(() => resolve({ kind: 'hung' }), 500)),
 	])
 	assertEquals(outcome.kind, 'settled')
