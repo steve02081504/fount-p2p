@@ -15,7 +15,7 @@
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/steve02081504/fount-p2p.git",
-		"directory": "."
+		"directory": "js"
 	},
 	"engines": {
 		"node": ">=20"
