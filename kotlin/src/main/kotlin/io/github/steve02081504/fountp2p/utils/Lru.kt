@@ -26,6 +26,11 @@ class LruMap<K, V>(private val max: Int) {
 		evict()
 	}
 
+	/** 删除键（等价 JS `Map.delete`）。 */
+	fun remove(key: K) {
+		map.remove(key)
+	}
+
 	fun clear() = map.clear()
 
 	fun keys(): List<K> = map.keys.toList()
