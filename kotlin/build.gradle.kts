@@ -9,6 +9,9 @@ plugins {
 group = "io.github.steve02081504"
 version = jsPackageVersion()
 
+// 允许并行构建使用独立输出目录（`-PbuildDirName=build-agent1`），避免多进程争用同一 build/。
+layout.buildDirectory.set(file(providers.gradleProperty("buildDirName").getOrElse("build")))
+
 description = "fount federation P2P layer for Android/JVM — Kotlin port of @steve02081504/fount-p2p"
 
 repositories {
