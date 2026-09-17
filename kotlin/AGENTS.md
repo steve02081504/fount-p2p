@@ -61,17 +61,28 @@ Kotlin 包根为 `io.github.steve02081504.fountp2p`，与 JS 目录一一对应�
 4. `.\gradlew.bat test --offline` 跑通。
 5. 记录行为差异（若不得不偏离 JS，写在文件头 KDoc 里）。
 
-## 已完成的层
+## 平台抽象约定（网络层）
 
-- L0 `core/`、`utils/`（除 fetch_wait 已实现）、`crypto/`、`schemas/`；`dag/Dag.kt`
-  （merkleRoot / eventBodyForSign / computeEventId / topologicalCanonicalOrder 等）。
+Android/JVM 侧没有 `ws` / WebRTC / `node:dgram` 等运行时，平台相关能力一律通过
+**注入式接口** 提供（放在 `.../fountp2p/transport/` 或各 provider 包内）：
+
+- `WebSocketProvider`（nostr relay）、`TcpDialer` / `UdpSocket`（LAN）、`RtcProvider`（WebRTC）、
+  `BluetoothProvider`（BLE）、`LanInterfaceProvider`（本地网卡枚举）。
+- 库内只实现协议/状态机/纯逻辑；接口默认实现可抛 `UnsupportedOperationException`，
+  测试用 fake，Android app 注入真实实现（OkHttp / 系统 API / WebRTC 原生库）。
+- 每个接口都应有对应 JVM 参考实现（OkHttp 4.12 已缓存：WebSocket + TCP；UDP 用 `DatagramChannel`）。
+
+## 已完成
+
+- L0：`core/`、`utils/`、`crypto/`、`schemas/`
+- `dag/`（含 canonicalize_row、strip_extensions、storage、event_query）、`registries/`
+- `wire/`、`trust_graph/`（pure）、`reputation/`、`permissions/`、`federation/`（pure）
+- `governance/`、`mailbox/`（除 deliver_or_store）、`node/`（除 reputation_sync）
+- `timeline/`、`files/`（EVFS；除 fetch_fanout 的传输拨号部分）
+- 测试 ~304 个，全绿。
 
 ## 待移植
 
-`wire/`、`node/`、`discovery/`、`link/`、`transport/`、`trust_graph/`、`mailbox/`、
-`dag/`（canonicalize_row / strip_extensions / storage 等）、`federation/`、`files/`、
-`governance/`、`reputation/`、`permissions/`、`registries/`、`overlay/`、`timeline/`、
-`infra/`，以及 `index.mjs` 门面。
-
-**平台相关模块**（`discovery/bt`、LAN/WiFi、WebRTC、`ws` relay）：Android 端以接口/`expect-actual`
-抽象，JVM 侧用 OkHttp（已缓存）等实现；先保证纯逻辑与协议层可测。
+- `link/`、`discovery/`、`transport/`、`overlay/`、`infra/`、`index.mjs` 门面。
+- 延后（依赖 transport）：`mailbox/deliver_or_store`、`files/fetch_fanout` 传输部分、
+  `node/reputation_sync`、`files/chunk/responder` 的真实 room 绑定、`trust_graph/{build,cache,send}`。

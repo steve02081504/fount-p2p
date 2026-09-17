@@ -3,11 +3,8 @@ package io.github.steve02081504.fountp2p.trust_graph
 /**
  * 用户级 P2P trust graph provider 注册表。
  *
- * 等价 `trust_graph/registry.mjs`。
- *
- * 注意：JS 的 `createDefaultTrustGraphProvider()` 组合的是 `build.mjs` / `send.mjs`，
- * 这两个模块依赖尚未移植的 `node/` / `transport/`，故此处一并延后；本文件只保留
- * provider 注册/查询语义（已被 `trust_graph_registry.test.mjs` 覆盖）。
+ * 等价 `trust_graph/registry.mjs`。默认实现组合 `build.mjs` / `send.mjs`
+ * （[createDefaultTrustGraphProvider]）。
  */
 
 /** 信任图实现（等价 JS `TrustGraphProvider`）。 */
@@ -86,3 +83,27 @@ fun requireTrustGraphProvider(ownerId: String = DEFAULT_TRUST_GRAPH_OWNER): Trus
 		?: throw IllegalStateException(
 			"p2p: registerTrustGraphProvider('$ownerId') must run before trust graph fanout",
 		)
+
+/** @return 默认信任图实现（组合 `build.mjs` / `send.mjs`） */
+fun createDefaultTrustGraphProvider(): TrustGraphProvider = object : TrustGraphProvider {
+	override suspend fun buildMergedGraph(username: String): Map<String, TrustNode> =
+		defaultTrustGraphBuild(username)
+
+	override suspend fun pickTopNodes(username: String, limit: Int): List<TrustNode> =
+		defaultTrustGraphPickTop(username, limit)
+
+	override suspend fun sendToNode(
+		username: String,
+		targetNodeHash: String,
+		actionName: String,
+		payload: Any?,
+		graph: Map<String, TrustNode>?,
+	): Boolean = defaultTrustGraphSend(username, targetNodeHash, actionName, payload, graph)
+
+	override suspend fun fanoutToTopNodes(
+		username: String,
+		actionName: String,
+		payload: Any?,
+		limit: Int?,
+	): Int = defaultTrustGraphFanout(username, actionName, payload, limit)
+}
