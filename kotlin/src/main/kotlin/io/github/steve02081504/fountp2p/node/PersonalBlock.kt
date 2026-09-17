@@ -1,12 +1,7 @@
 package io.github.steve02081504.fountp2p.node
 
-import io.github.steve02081504.fountp2p.core.bytesToHex
-import io.github.steve02081504.fountp2p.core.hexToBytes
 import io.github.steve02081504.fountp2p.core.isHex64
 import io.github.steve02081504.fountp2p.core.parseEntityHash
-import io.github.steve02081504.fountp2p.crypto.keyPairFromSeed
-import io.github.steve02081504.fountp2p.crypto.pubKeyHash
-import io.github.steve02081504.fountp2p.crypto.randomBytes
 import io.github.steve02081504.fountp2p.federation.jsString
 import io.github.steve02081504.fountp2p.federation.jsTruthy
 
@@ -16,8 +11,7 @@ import io.github.steve02081504.fountp2p.federation.jsTruthy
  * **hide**：纯本地隐藏（personal_hide.json，永不联邦）；
  * **mute**：本地静音（personal_mute.json）。
  *
- * JS 的 `isWritableLocalEntity` 来自 `node/identity.mjs`；该模块因未移植的 `mailbox/`
- * 被延后，故此处内联其等价实现（读取/补齐 `node.json` 的 nodeSeed）。
+ * `isWritableLocalEntity` 来自已移植的 `node/Identity.kt`（等价 `node/identity.mjs`）。
  */
 
 /** 个人列表条目。 */
@@ -251,36 +245,4 @@ fun isAuthorFilteredByPersonalSets(filterSets: PersonalFilterSets, authorEntityH
 		filterSets.mutedSubjects.contains(parsed.subjectHash)
 	) return true
 	return false
-}
-
-// ── identity.mjs 的最小等价子集（延后移植 mailbox/，见文件头说明） ──
-
-/** @return 本节点 64 hex nodeHash */
-private fun localNodeHash(): String = nodeHashFromSeed(ensureNodeSeed())
-
-/** @param seedHex 32 字节 hex @return 节点哈希 */
-private fun nodeHashFromSeed(seedHex: String): String {
-	val seed = hexToBytes(seedHex)
-	if (seed.size != 32) throw IllegalArgumentException("invalid node seed")
-	val keyPair = keyPairFromSeed(seed)
-	return pubKeyHash(keyPair.publicKey)
-}
-
-/** @return 64 位十六进制 节点种子（缺失时生成并落盘） */
-private fun ensureNodeSeed(): String {
-	val data = readNodeJsonSync("node") as? Map<*, *> ?: emptyMap<Any?, Any?>()
-	val existing = isHex64(data["nodeSeedHex"])
-	if (existing != null) return existing
-	val nodeSeedHex = bytesToHex(randomBytes(32))
-	val merged = LinkedHashMap<String, Any?>()
-	for ((key, value) in data) if (key is String) merged[key] = value
-	merged["nodeSeedHex"] = nodeSeedHex
-	writeNodeJsonSync("node", merged)
-	return nodeSeedHex
-}
-
-/** @param entityHash 目标 entityHash @return 是否为本节点可写实体 */
-private fun isWritableLocalEntity(entityHash: Any?): Boolean {
-	val parsed = parseEntityHash(entityHash) ?: return false
-	return parsed.nodeHash == localNodeHash()
 }
