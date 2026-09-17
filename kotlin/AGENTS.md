@@ -72,17 +72,30 @@ Android/JVM 侧没有 `ws` / WebRTC / `node:dgram` 等运行时，平台相关�
   测试用 fake，Android app 注入真实实现（OkHttp / 系统 API / WebRTC 原生库）。
 - 每个接口都应有对应 JVM 参考实现（OkHttp 4.12 已缓存：WebSocket + TCP；UDP 用 `DatagramChannel`）。
 
-## 已完成
+## 已完成（全部 JS 模块已 1:1 移植）
 
 - L0：`core/`、`utils/`、`crypto/`、`schemas/`
-- `dag/`（含 canonicalize_row、strip_extensions、storage、event_query）、`registries/`
-- `wire/`、`trust_graph/`（pure）、`reputation/`、`permissions/`、`federation/`（pure）
-- `governance/`、`mailbox/`（除 deliver_or_store）、`node/`（除 reputation_sync）
-- `timeline/`、`files/`（EVFS；除 fetch_fanout 的传输拨号部分）
-- 测试 ~304 个，全绿。
+- `dag/`、`registries/`、`wire/`、`trust_graph/`（含 build/cache/send）、`reputation/`、
+  `permissions/`、`federation/`、`governance/`、`mailbox/`（含 deliver_or_store）、
+  `node/`（含 identity、reputation_sync）、`timeline/`、`files/`（EVFS）、
+  `link/`、`discovery/`、`transport/`（含 link_registry、rooms、node_scope）、
+  `overlay/`、`infra/`
+- 门面：`FountP2p.kt`（`startNode` + `FountP2p` 聚合入口）
+- 测试 464 个，全绿（`.\gradlew.bat test --offline`）。
 
-## 待移植
+## 平台相关（Android 端需注入）
 
-- `link/`、`discovery/`、`transport/`、`overlay/`、`infra/`、`index.mjs` 门面。
-- 延后（依赖 transport）：`mailbox/deliver_or_store`、`files/fetch_fanout` 传输部分、
-  `node/reputation_sync`、`files/chunk/responder` 的真实 room 绑定、`trust_graph/{build,cache,send}`。
+以下能力以接口抽象、库内只有协议/状态机；JVM 侧提供 `LanInterfaceProvider`（`java.net`）、
+DNS、NIP-11 HTTP 参考实现，其余需宿主注入：
+
+- `discovery.nostr.WebSocketProvider`（relay WS）、`link.providers.TcpDialer`（LAN TCP）、
+  `discovery.UdpSocketProvider`（LAN 组播）、`link.rtc.RtcProvider`（WebRTC）、
+  `discovery.bt.BluetoothProvider`（BLE）。
+- nostr 事件的 Schnorr 签名（`NostrLinkProvider.sendNodeSignal`）尚未实现（抛 `UnsupportedOperationException`）。
+
+## 仍延后 / 未覆盖
+
+- `js/sim/`（dev-only tunables 协同演化 harness）未移植。
+- `js/test/live/**`（真实网络/双机）与 `js/test/fount/**`（Deno 跨仓桥）未移植；
+  其等价断言尽量以 fake provider 覆盖在 pure 测试中。
+- 少量依赖真实介质/冷启预算的 JS 用例（`startup_budget` 等）未移植。
