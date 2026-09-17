@@ -3,21 +3,41 @@ package io.github.steve02081504.fountp2p.files
 import io.github.steve02081504.fountp2p.core.FEDERATION_CHUNK_FETCH_FANOUT_K
 import io.github.steve02081504.fountp2p.core.isHex64
 import io.github.steve02081504.fountp2p.node.loadNetwork
+import io.github.steve02081504.fountp2p.transport.ensureLinkToNode
+import io.github.steve02081504.fountp2p.transport.listLinks
 import io.github.steve02081504.fountp2p.trust_graph.DEFAULT_TRUST_GRAPH_OWNER
 import io.github.steve02081504.fountp2p.trust_graph.requireTrustGraphProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 
 /**
- * 联邦 miss 扇出（等价 `files/fetch_fanout.mjs` 的非传输子集）。
+ * 全量 miss 优先扇出（等价 `js/files/fetch_fanout.mjs`）。
  *
- * **移植说明（偏差）**：JS 原文还依赖尚未移植的 `transport/link_registry.mjs`
- * （`listLinks` / `ensureLinkToNode`），用于「先向已直连 peer 定向投递、未直连者后台拨号补发」。
- * Kotlin 侧 `listLinks()` 视为空（无已建立链路）、拨号不可用，故公开模式下直接向
- * `loadNetwork()` 的已知 peer 投递（不主动拨号），再执行 `fanoutToTopNodes`。
- * 定向模式与 node-scope top-K 扇出完整移植。
+ * 已知 peer 立即投递（不等待拨号），未直连 peer 后台拨号后重试；同时并行 node-scope top-K fanout。
+ * 全程不阻塞上游窗口。
  */
 
+/** 后台拨号/投递的作用域（不阻塞 fanoutFedFetch 返回，等价 JS 的 `void`）。 */
+private val fedFanoutScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
 /**
- * 规范化目标节点集：过滤非 64hex、去重（保持插入序）。fanout 与 manifest in-flight key 共用。
+ * @return 全量 miss 时应尝试投递/拨号的 nodeHash 列表
+ */
+private fun fetchPeerTargets(): List<String> {
+	val targets = LinkedHashSet<String>()
+	for (ref in listLinks()) if (ref.nodeHash.isNotEmpty()) targets.add(ref.nodeHash)
+	val net = loadNetwork()
+	for (nodeHash in net.trustedPeers) if (nodeHash.isNotEmpty()) targets.add(nodeHash)
+	for (nodeHash in net.explorePeers) if (nodeHash.isNotEmpty()) targets.add(nodeHash)
+	for (hint in net.hints) if (hint.nodeHash.isNotEmpty()) targets.add(hint.nodeHash)
+	return targets.toList()
+}
+
+/**
+ * 规范化目标节点集（过滤非 64hex、去重，保持插入序）。fanout 与 manifest in-flight key 复用。
  * @param targets 目标节点集
  * @return 规范化后的目标节点集
  */
@@ -32,24 +52,11 @@ fun canonicalizeFanoutTargets(targets: List<*>?): List<String> {
 }
 
 /**
- * @return 全局 miss 时应尝试投递的 nodeHash 列表
- */
-private fun fetchPeerTargets(): List<String> {
-	val targets = LinkedHashSet<String>()
-	// listLinks(): transport/link_registry 未移植 → 视为无已建立链路。
-	val net = loadNetwork()
-	for (nodeHash in net.trustedPeers) if (nodeHash.isNotEmpty()) targets.add(nodeHash)
-	for (nodeHash in net.explorePeers) if (nodeHash.isNotEmpty()) targets.add(nodeHash)
-	for (hint in net.hints) if (hint.nodeHash.isNotEmpty()) targets.add(hint.nodeHash)
-	return targets.toList()
-}
-
-/**
- * 全局 miss 请求扇出：先向已知 peer 定向发送，再 trust-graph top-K fanout。
+ * 全量 miss 后优先尝试所有已知 peer 扇出，兜底 trust-graph top-K fanout。
  * @param username 用户
  * @param action wire action 名
  * @param payload 请求载荷
- * @param fanoutTargets 显式目标节点集（非 public manifest 的授权边界）；提供时（含空/全非法集）只发目标集，不走 node-scope
+ * @param fanoutTargets 显式目标节点集（public manifest 调用者边界）；提供时不再做全量/全栈 fanout
  */
 suspend fun fanoutFedFetch(
 	username: String,
@@ -59,9 +66,8 @@ suspend fun fanoutFedFetch(
 ) {
 	val trustGraph = requireTrustGraphProvider(DEFAULT_TRUST_GRAPH_OWNER)
 	if (fanoutTargets != null) {
-		// 定向：只发显式目标集（非 public manifest 的授权边界）。
-		// 空/全非法集也视为定向——调用方显式提供目标集即声明授权边界，不发 node-scope。
-		// 依赖已有链路/群房间投递，不主动拨号——目标本就是已授权成员，无通道即不应服务。
+		// 只有显式目标集（public manifest 调用者边界）才走这里；
+		// 不做全栈 fanout——调用方显式提供目标集即定义边界，不用 node-scope。
 		val graph = trustGraph.buildMergedGraph(username)
 		for (nodeHash in canonicalizeFanoutTargets(fanoutTargets))
 			trustGraph.sendToNode(username, nodeHash, action, payload, graph)
@@ -69,7 +75,28 @@ suspend fun fanoutFedFetch(
 	}
 
 	val graph = trustGraph.buildMergedGraph(username)
-	for (nodeHash in fetchPeerTargets())
-		trustGraph.sendToNode(username, nodeHash, action, payload, graph)
+	val peerTargets = fetchPeerTargets()
+	// 已直连 peer 立即投递，不等拨号；其余 peer 后台拨号，先就群组房/overlay 尝试投递，同时拨号，若投递失败再重试。
+	val linked = listLinks().mapTo(HashSet()) { it.nodeHash }
+	for (nodeHash in peerTargets) {
+		if (linked.contains(nodeHash)) {
+			fedFanoutScope.launch { trustGraph.sendToNode(username, nodeHash, action, payload, graph) }
+			continue
+		}
+		val dialed = fedFanoutScope.async {
+			try {
+				ensureLinkToNode(nodeHash)
+			}
+			catch (_: Throwable) {
+				null
+			}
+		}
+		fedFanoutScope.launch {
+			val sent = trustGraph.sendToNode(username, nodeHash, action, payload, graph)
+			if (sent) return@launch
+			val link = dialed.await()
+			if (link != null) trustGraph.sendToNode(username, nodeHash, action, payload, graph)
+		}
+	}
 	trustGraph.fanoutToTopNodes(username, action, payload, FEDERATION_CHUNK_FETCH_FANOUT_K.toInt())
 }

@@ -81,7 +81,7 @@ Android/JVM 侧没有 `ws` / WebRTC / `node:dgram` 等运行时，平台相关�
   `link/`、`discovery/`、`transport/`（含 link_registry、rooms、node_scope）、
   `overlay/`、`infra/`
 - 门面：`FountP2p.kt`（`startNode` + `FountP2p` 聚合入口）
-- 测试 464 个，全绿（`.\gradlew.bat test --offline`）。
+- 测试 505 个，全绿（`.\gradlew.bat test --offline`）。
 
 ## 平台相关（Android 端需注入）
 
@@ -90,8 +90,10 @@ DNS、NIP-11 HTTP 参考实现，其余需宿主注入：
 
 - `discovery.nostr.WebSocketProvider`（relay WS）、`link.providers.TcpDialer`（LAN TCP）、
   `discovery.UdpSocketProvider`（LAN 组播）、`link.rtc.RtcProvider`（WebRTC）、
-  `discovery.bt.BluetoothProvider`（BLE）。
-- nostr 事件的 Schnorr 签名（`NostrLinkProvider.sendNodeSignal`）尚未实现（抛 `UnsupportedOperationException`）。
+  `discovery.bt.BluetoothProvider`（BLE；`BleGatt` 的 accept/`ensureListening` 路径由宿主补齐）。
+- BIP340 Schnorr 已在库内实现（`crypto/Schnorr.kt`，含 noble 生成的向量测试），
+  nostr 事件签名/发布（`discovery/nostr/Event.kt` 的 `signNostrEvent` / `publishEvent`）
+  与 provider 的 `sendNodeSignal` / `listenNodeSignals` / `startPresence` / `startGroupPresence` 均已接回。
 
 ## 仍延后 / 未覆盖
 
@@ -99,3 +101,5 @@ DNS、NIP-11 HTTP 参考实现，其余需宿主注入：
 - `js/test/live/**`（真实网络/双机）与 `js/test/fount/**`（Deno 跨仓桥）未移植；
   其等价断言尽量以 fake provider 覆盖在 pure 测试中。
 - 少量依赖真实介质/冷启预算的 JS 用例（`startup_budget` 等）未移植。
+- nostr `connectToNode` 的 adhoc 中继订阅（JS `ensurePeerRelaySubscriptions`）未接回；
+  `extraSubs` 容器已就位，`dispose` 会清理。

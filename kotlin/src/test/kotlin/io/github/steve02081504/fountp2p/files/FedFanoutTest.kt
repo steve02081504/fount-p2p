@@ -90,10 +90,10 @@ class FedFanoutTest {
 
 				val payload = mapOf("requestId" to "r4", "nodeHash" to "self")
 				fanoutFedFetch("u", "fed_chunk_get", payload)
-				// 已知 peers 均已投递（mock sendToNode 返回 true → 视为群房间/直连可达，无需拨号）
-				assertEquals(2, mock.sent.size)
-				assertEquals(knownPeerA, mock.sent[0])
-				assertEquals(knownPeerB, mock.sent[1])
+				// 已知 peers 立即投递（mock sendToNode 返回 true → 视为群组房/直连可达，无需拨号）；
+				// Kotlin 侧为 fire-and-forget（等价 JS `void`），需等待后台协程。
+				waitUntil { mock.sent.size == 2 }
+				assertEquals(setOf(knownPeerA, knownPeerB), mock.sent.toSet())
 				// node-scope top-K fanout 照常执行（不受已知 peer 投递影响）
 				assertEquals(1, mock.fanouts.size)
 				assertEquals("fed_chunk_get", mock.fanouts[0])

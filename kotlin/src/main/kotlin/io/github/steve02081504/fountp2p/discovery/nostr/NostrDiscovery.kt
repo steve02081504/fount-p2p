@@ -2,8 +2,10 @@ package io.github.steve02081504.fountp2p.discovery.nostr
 
 import io.github.steve02081504.fountp2p.core.bytesToBase64
 import io.github.steve02081504.fountp2p.core.isHex64
+import io.github.steve02081504.fountp2p.crypto.randomBytes
 import io.github.steve02081504.fountp2p.discovery.DiscoveryProvider
 import io.github.steve02081504.fountp2p.discovery.ingestEncryptedAdvert
+import io.github.steve02081504.fountp2p.discovery.internal.encryptSignalPacket
 import io.github.steve02081504.fountp2p.discovery.internal.groupRendezvousKey
 import io.github.steve02081504.fountp2p.discovery.internal.networkRendezvousKey
 import io.github.steve02081504.fountp2p.discovery.internal.nodeRendezvousKey
@@ -16,6 +18,7 @@ import io.github.steve02081504.fountp2p.node.shortHash
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Nostr network advert 事件 kind（addressable，可存储）。 */
@@ -178,16 +181,6 @@ fun resolveNostrRelayUrls(): List<String> {
 }
 
 /**
- * 签名 Nostr 事件。
- *
- * **未移植（deferred）**：BIP340 Schnorr 签名未在 Kotlin 侧实现，调用即抛
- * `UnsupportedOperationException`。可见池/验签/订阅路径不受影响。
- * @return 永不返回
- */
-private fun signNostrEvent(): Nothing =
-	throw UnsupportedOperationException("p2p: nostr schnorr signing not ported (deferred)")
-
-/**
  * 创建 Nostr discovery provider（list+connect；topic 仅内部）。
  * @param options 中继配置与本机 hash
  * @return Nostr discovery provider
@@ -214,6 +207,15 @@ fun createNostrDiscoveryProvider(options: Map<String, Any?> = emptyMap()): Disco
 	}
 
 	val advertSubs = LinkedHashMap<String, AdvertSubEntry>()
+
+	/** nodeHash → signal 订阅取消。 */
+	val nodeSignalSubs = LinkedHashMap<String, () -> Unit>()
+
+	/** 本轮 provider 生命周期内追加的中继订阅取消。 */
+	val extraSubs = ArrayList<() -> Unit>()
+
+	/** 本 provider 实例专用的 Schnorr 事件签名私钥（等价 JS `randomBytes(32)`）。 */
+	val secretKey = randomBytes(32)
 
 	fun noteSelfNodeHash(nodeHash: String?) {
 		val hash = isHex64(nodeHash) ?: return
@@ -314,9 +316,148 @@ fun createNostrDiscoveryProvider(options: Map<String, Any?> = emptyMap()): Disco
 
 		override suspend fun sendNodeSignal(toNodeHash: String, bytes: ByteArray): Boolean? {
 			val hash = isHex64(toNodeHash) ?: throw IllegalArgumentException("nostr: invalid nodeHash")
-			// 需要 Schnorr 签名（deferred）。
-			signNostrEvent()
-			return null
+			val rendezvousKey = nodeRendezvousKey(hash)
+			val event = signNostrEvent(
+				NOSTR_SIGNAL_KIND,
+				listOf(NOSTR_TOPIC_TAG, listOf("t", rendezvousKey), listOf("x", "signal"), listOf("p", hash)),
+				bytesToBase64(bytes),
+				secretKey,
+			)
+			// 有显式 relay 配置（测试/用户 pin）时直接全量发布，否则走路由。
+			if (hasExplicitRelay) {
+				publishEvent(resolveRelayUrlsLocal(), event)
+				return true
+			}
+			routePublishEvent(hash, event)
+			return true
+		}
+
+		override suspend fun listenNodeSignals(
+			localNodeHash: String,
+			onSignal: (ByteArray) -> Unit,
+		): (() -> Unit)? {
+			val hash = isHex64(localNodeHash) ?: throw IllegalArgumentException("nostr: invalid nodeHash")
+			noteSelfNodeHash(hash)
+			val rendezvousKey = nodeRendezvousKey(hash)
+			nodeSignalSubs[hash]?.invoke()
+			nodeDebug(
+				"p2p:nostr signal listen",
+				linkedMapOf("self" to shortHash(hash), "relays" to resolveRelayUrlsLocal().size.toDouble()),
+			)
+			val stop = subscribeNostrKind(
+				resolveRelayUrlsLocal(),
+				kind = NOSTR_SIGNAL_KIND,
+				rendezvousKey = rendezvousKey,
+				tagX = "signal",
+				onPayload = { bytes, _ -> onSignal(bytes) },
+				resolveConnectTarget = { url -> resolveRelayConnectTarget(url) },
+			)
+			nodeSignalSubs[hash] = stop
+			return {
+				stop()
+				nodeSignalSubs.remove(hash)
+			}
+		}
+
+		override suspend fun startPresence(getBeacon: suspend () -> Map<String, Any?>?): (() -> Unit)? {
+			val rendezvousKey = networkRendezvousKey()
+			val signal = AbortSignalLike()
+			var stopped = false
+			ensureNetworkAdvertSubscription()
+			val tags = listOf(
+				NOSTR_TOPIC_TAG,
+				listOf("t", rendezvousKey),
+				listOf("x", "advert"),
+				listOf("d", rendezvousKey),
+			)
+			suspend fun publish() {
+				if (stopped || signal.aborted) return
+				val beacon = getBeacon() ?: return
+				val nodeHash = beacon["nodeHash"]?.toString()
+				if (nodeHash.isNullOrEmpty()) return
+				noteSelfNodeHash(nodeHash)
+				val body = beacon["advertBody"] ?: beacon["body"] ?: beacon
+				val event = signNostrEvent(
+					NOSTR_ADVERT_KIND,
+					tags,
+					bytesToBase64(encryptSignalPacket(rendezvousKey, linkedMapOf("type" to "advert", "body" to body))),
+					secretKey,
+				)
+				publishEvent(resolveRelayUrlsLocal(), event, signal)
+				nodeDebug("p2p:nostr presence published", linkedMapOf("self" to shortHash(nodeHash)))
+			}
+			val job = nostrScope.launch {
+				while (true) {
+					try {
+						publish()
+					}
+					catch (error: Throwable) {
+						nodeDebug("p2p:nostr presence publish fail", linkedMapOf("err" to (error.message ?: error.toString())))
+					}
+					delay(5 * 60_000)
+				}
+			}
+			val census = createNostrCensus(
+				NostrCensusDeps(
+					resolveRelayUrls = { resolveRelayUrlsLocal() },
+					publishEvent = { urls, event, sig -> publishEvent(urls, event, sig) },
+					signEvent = { kind, tagsIn, content -> signNostrEvent(kind, tagsIn, content, secretKey) },
+				),
+			)
+			census.start()
+			return {
+				stopped = true
+				signal.abort()
+				job.cancel()
+				census.stop()
+			}
+		}
+
+		override suspend fun startGroupPresence(
+			roomSecret: String,
+			getBeacon: suspend () -> Map<String, Any?>?,
+		): (() -> Unit)? {
+			val rendezvousKey = groupRendezvousKey(roomSecret)
+			val signal = AbortSignalLike()
+			var stopped = false
+			ensureGroupSubscription(roomSecret)
+			val tags = listOf(
+				NOSTR_TOPIC_TAG,
+				listOf("t", rendezvousKey),
+				listOf("x", "advert"),
+				listOf("d", rendezvousKey),
+			)
+			suspend fun publish() {
+				if (stopped || signal.aborted) return
+				val beacon = getBeacon() ?: return
+				val nodeHash = beacon["nodeHash"]?.toString()
+				if (nodeHash.isNullOrEmpty()) return
+				noteSelfNodeHash(nodeHash)
+				val body = beacon["advertBody"] ?: beacon["body"] ?: beacon
+				val event = signNostrEvent(
+					NOSTR_ADVERT_KIND,
+					tags,
+					bytesToBase64(encryptSignalPacket(rendezvousKey, linkedMapOf("type" to "advert", "body" to body))),
+					secretKey,
+				)
+				publishEvent(resolveRelayUrlsLocal(), event, signal)
+			}
+			val job = nostrScope.launch {
+				while (true) {
+					try {
+						publish()
+					}
+					catch (_: Throwable) {
+						// ignore
+					}
+					delay(5 * 60_000)
+				}
+			}
+			return {
+				stopped = true
+				signal.abort()
+				job.cancel()
+			}
 		}
 
 		override fun noteVisibleNode(nodeHash: String, options: Map<String, Any?>) {
@@ -334,6 +475,20 @@ fun createNostrDiscoveryProvider(options: Map<String, Any?> = emptyMap()): Disco
 				// ignore
 			}
 			advertSubs.clear()
+			for (stop in nodeSignalSubs.values.toList()) try {
+				stop()
+			}
+			catch (_: Exception) {
+				// ignore
+			}
+			nodeSignalSubs.clear()
+			for (stop in extraSubs.toList()) try {
+				stop()
+			}
+			catch (_: Exception) {
+				// ignore
+			}
+			extraSubs.clear()
 		}
 	}
 }

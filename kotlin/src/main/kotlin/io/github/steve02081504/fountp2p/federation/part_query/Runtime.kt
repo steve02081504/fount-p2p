@@ -2,18 +2,29 @@ package io.github.steve02081504.fountp2p.federation.part_query
 
 import io.github.steve02081504.fountp2p.core.Json
 import io.github.steve02081504.fountp2p.core.JsonUndefined
+import io.github.steve02081504.fountp2p.core.bytesToHex
 import io.github.steve02081504.fountp2p.core.canonicalStringify
 import io.github.steve02081504.fountp2p.core.compositeKey
 import io.github.steve02081504.fountp2p.core.hexToBytes
+import io.github.steve02081504.fountp2p.crypto.keyPairFromSeed
 import io.github.steve02081504.fountp2p.crypto.pubKeyHash
+import io.github.steve02081504.fountp2p.crypto.sign
 import io.github.steve02081504.fountp2p.crypto.verify
 import io.github.steve02081504.fountp2p.federation.DedupeSlot
 import io.github.steve02081504.fountp2p.federation.createDedupeSlot
 import io.github.steve02081504.fountp2p.federation.jsNumber
 import io.github.steve02081504.fountp2p.federation.jsNumberOr
+import io.github.steve02081504.fountp2p.node.ensureNodeSeed
+import io.github.steve02081504.fountp2p.node.getNodeHash
+import io.github.steve02081504.fountp2p.node.loadReputation
+import io.github.steve02081504.fountp2p.reputation.isQuarantinedPure
 import io.github.steve02081504.fountp2p.schemas.PartQueryTunables
 import io.github.steve02081504.fountp2p.schemas.clampPartQueryRows
 import io.github.steve02081504.fountp2p.schemas.parsePartQueryReq
+import io.github.steve02081504.fountp2p.trust_graph.TrustGraphTunables
+import io.github.steve02081504.fountp2p.trust_graph.buildMergedGraph
+import io.github.steve02081504.fountp2p.trust_graph.pickTopFromGraph
+import io.github.steve02081504.fountp2p.trust_graph.resolveFederationFanoutTopK
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,10 +37,10 @@ import java.util.UUID
 /**
  * part_query 单节点运行时（缓存 / 中继 / 多跳聚合）。
  *
- * 说明：`runtime.mjs` 默认依赖 `node/identity`、`trust_graph` 与 `wire/wait`；这些模块尚未移植，
- * 因此本实现通过 [PartQueryDependencies] 注入对应依赖：
- * - `selectNeighbors` / `getNodeHash` / `signResponse` 未注入时抛异常（与 JS 默认行为不同，团队移植完成后接回）；
- * - `verifyResponse` 默认实现已按 JS `defaultVerifyResponse` 完整移植；
+ * `runtime.mjs` 的默认依赖（`node/identity` 的 `ensureNodeSeed` / `getNodeHash`、
+ * `trust_graph` 的 `buildMergedGraph` / `pickTopFromGraph`、`reputation` 的隔离表）
+ * 均已按 JS 默认实现接回；[PartQueryDependencies] 仍可注入覆盖：
+ * - `selectNeighbors` / `getNodeHash` / `signResponse` / `verifyResponse` 未注入时走 JS 等价默认实现；
  * - 多 waiter 等待表是 `wire/wait.mjs` 多 waiter 子集的本地位移，待 wire 包移植后合并。
  */
 
@@ -52,13 +63,14 @@ private fun partQuerySignBytes(base: Map<String, Any?>): ByteArray {
 
 /**
  * 默认响应签名：用本机节点身份签响应基体。
- *
- * `node/identity.mjs`（`ensureNodeSeed`）尚未移植，未注入 [PartQueryDependencies.signResponse] 时抛异常。
  * @param base 响应基体
  * @return 公钥与签名
  */
-private suspend fun defaultSignResponse(base: Map<String, Any?>): Map<String, Any?> =
-	throw UnsupportedOperationException("part_query default signResponse requires node identity (not yet ported); inject signResponse")
+private suspend fun defaultSignResponse(base: Map<String, Any?>): Map<String, Any?> {
+	val keyPair = keyPairFromSeed(hexToBytes(ensureNodeSeed()))
+	val signature = sign(partQuerySignBytes(base), keyPair.secretKey)
+	return linkedMapOf("nodePubKey" to bytesToHex(keyPair.publicKey), "sig" to bytesToHex(signature))
+}
 
 /**
  * 默认响应验签：nodePubKey 哈希须等于 fromNodeHash，且签名覆盖响应基体。
@@ -146,7 +158,26 @@ class PartQueryDependencies(
 	val signResponse: (suspend (Map<String, Any?>) -> Map<String, Any?>)? = null,
 	val verifyResponse: (suspend (Map<String, Any?>) -> Boolean)? = null,
 	val state: PartQueryNodeState? = null,
-)
+) {
+	/** @return 逐字段拷贝，仅覆盖显式传入的字段 */
+	fun copy(
+		selectNeighbors: (suspend (Set<String>) -> List<String>)? = this.selectNeighbors,
+		deliver: (suspend (String, String, Any?) -> Boolean)? = this.deliver,
+		getNodeHash: (() -> String)? = this.getNodeHash,
+		now: (() -> Long)? = this.now,
+		signResponse: (suspend (Map<String, Any?>) -> Map<String, Any?>)? = this.signResponse,
+		verifyResponse: (suspend (Map<String, Any?>) -> Boolean)? = this.verifyResponse,
+		state: PartQueryNodeState? = this.state,
+	): PartQueryDependencies = PartQueryDependencies(
+		selectNeighbors = selectNeighbors,
+		deliver = deliver,
+		getNodeHash = getNodeHash,
+		now = now,
+		signResponse = signResponse,
+		verifyResponse = verifyResponse,
+		state = state,
+	)
+}
 
 /**
  * @param cache 缓存（默认新建）
@@ -301,13 +332,23 @@ private suspend fun runLocalHandler(
  * @return 邻居 nodeHash
  */
 private suspend fun selectQueryNeighbors(
-	@Suppress("UNUSED_PARAMETER") username: String,
+	username: String,
 	exclude: Set<String>,
 	dependencies: PartQueryDependencies,
 ): List<String> {
 	dependencies.selectNeighbors?.let { return it(exclude) }
-	// trust_graph 尚未移植：JS 默认实现依赖 buildMergedGraph / pickTopFromGraph。
-	throw UnsupportedOperationException("trust_graph not yet ported; inject selectNeighbors")
+	val graph = buildMergedGraph(username)
+	val fanoutCap = maxOf(1, PartQueryTunables.fanoutCap)
+	val k = minOf(fanoutCap, resolveFederationFanoutTopK(graph.size, TrustGraphTunables.map))
+	val rep = loadReputation()
+	@Suppress("UNCHECKED_CAST")
+	val byNodeHash = rep["byNodeHash"] as? Map<String, Any?> ?: emptyMap()
+	val quarantined = byNodeHash.keys.filter { isQuarantinedPure(rep, it) }.toSet()
+	val oversample = minOf(graph.size, k + exclude.size + 2)
+	return pickTopFromGraph(graph, oversample.toDouble(), TrustGraphTunables.map, quarantined)
+		.map { it.nodeHash }
+		.filter { !exclude.contains(it) }
+		.take(k)
 }
 
 /**
@@ -467,8 +508,7 @@ private suspend fun flushRelayPending(pending: RelayPending) {
 		now(),
 		merged.sources,
 	)
-	val nodeHashOf = pending.dependencies.getNodeHash
-		?: throw UnsupportedOperationException("node/identity getNodeHash not yet ported; inject getNodeHash")
+	val nodeHashOf = pending.dependencies.getNodeHash ?: ::getNodeHash
 	try {
 		pending.wire.send("part_query_res", buildResponse(pending.request, merged.rows, nodeHashOf, pending.dependencies), pending.upstreamPeerId)
 	}
@@ -492,8 +532,7 @@ suspend fun processIncomingPartQueryRequest(
 	dependencies: PartQueryDependencies,
 ) {
 	val state = resolvePartQueryState(dependencies)
-	val nodeHashOf = dependencies.getNodeHash
-		?: throw UnsupportedOperationException("node/identity getNodeHash not yet ported; inject getNodeHash")
+	val nodeHashOf = dependencies.getNodeHash ?: ::getNodeHash
 	val now = dependencies.now ?: System::currentTimeMillis
 	val username = wireContext.replicaUsername ?: ""
 
@@ -617,7 +656,26 @@ class PartQueryQueryOptions(
 	val isSourceBlocked: ((String) -> Boolean)? = null,
 	val budget: Map<String, Any?>? = null,
 	val dependencies: PartQueryDependencies = PartQueryDependencies(),
-)
+) {
+	/** @return 逐字段拷贝，仅覆盖显式传入的字段 */
+	fun copy(
+		ttl: Any? = this.ttl,
+		timeoutMs: Any? = this.timeoutMs,
+		maxHits: Any? = this.maxHits,
+		rowKey: ((Any?) -> String)? = this.rowKey,
+		isSourceBlocked: ((String) -> Boolean)? = this.isSourceBlocked,
+		budget: Map<String, Any?>? = this.budget,
+		dependencies: PartQueryDependencies = this.dependencies,
+	): PartQueryQueryOptions = PartQueryQueryOptions(
+		ttl = ttl,
+		timeoutMs = timeoutMs,
+		maxHits = maxHits,
+		rowKey = rowKey,
+		isSourceBlocked = isSourceBlocked,
+		budget = budget,
+		dependencies = dependencies,
+	)
+}
 
 /** 多跳查询结果。 */
 class QueryNetworkResult(val rows: List<Any?>, val sources: Map<String, List<String>>)
@@ -641,8 +699,7 @@ suspend fun queryNetwork(
 	val dependencies = options.dependencies
 	val state = resolvePartQueryState(dependencies)
 	val now = dependencies.now ?: System::currentTimeMillis
-	val nodeHashOf = dependencies.getNodeHash
-		?: throw UnsupportedOperationException("node/identity getNodeHash not yet ported; inject getNodeHash")
+	val nodeHashOf = dependencies.getNodeHash ?: ::getNodeHash
 
 	val cached = state.cache.getWithSources(partpath, kind, query, now())
 	if (cached != null) {

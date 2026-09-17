@@ -8,10 +8,10 @@ import io.github.steve02081504.fountp2p.wire.subscribeWire
 /**
  * Mailbox wire 挂载。
  *
- * 等价 `js/mailbox/wire.mjs`。JS 直接调用 `deliver_or_store.mjs` 的 ingest/respond
- * 函数；但 `deliver_or_store.mjs` 依赖尚未移植的 `transport/`（已按计划延后），
- * 因此 Kotlin 侧把这三个入站动作抽象为 [MailboxWireHandlers]，由后续移植者注入实现。
- * 解析、action 注册与 `sendGive` 回调的构造与 JS 保持一致。
+ * 等价 `js/mailbox/wire.mjs`：解析入站载荷并转发给 [MailboxWireHandlers]。
+ * 生产实现在 [DefaultMailboxWireHandlers]（转调 `deliver_or_store.mjs` 的
+ * `ingestMailboxPut` / `respondMailboxWant` / `ingestMailboxGive`），
+ * `transport/node_scope` 的默认 feature 即使用它；测试可注入自定义实现。
  */
 
 /** mailbox 入站动作（由 `deliver_or_store` 移植后实现；JS 直接调用同名函数）。 */

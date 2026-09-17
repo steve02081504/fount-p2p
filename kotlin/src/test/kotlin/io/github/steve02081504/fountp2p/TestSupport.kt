@@ -28,3 +28,17 @@ fun deleteRecursively(path: Path) {
 		stream.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
 	}
 }
+
+/**
+ * 轮询等待后台任务达到条件（fire-and-forget 路径的测试用）。
+ * @param timeoutMs 等待上限
+ * @param predicate 条件
+ */
+internal suspend fun awaitCondition(timeoutMs: Long = 2_000, predicate: () -> Boolean) {
+	val deadline = System.currentTimeMillis() + timeoutMs
+	while (System.currentTimeMillis() < deadline) {
+		if (predicate()) return
+		kotlinx.coroutines.delay(5)
+	}
+	throw IllegalStateException("awaitCondition timeout")
+}

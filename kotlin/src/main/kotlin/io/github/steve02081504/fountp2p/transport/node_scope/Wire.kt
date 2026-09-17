@@ -7,9 +7,9 @@ import io.github.steve02081504.fountp2p.wire.WireHandler
 /**
  * node scope 派发与 wire（等价 `js/transport/node_scope/wire.mjs`）。
  *
- * 偏离：JS 直接 import `link_registry.mjs` 的 `subscribeScope` / `sendToNodeLink`；
- * Kotlin 侧 link/ 尚未移植，改为可注入的 [NodeScopeLinkBridge]（默认 no-op），
- * link registry 落地后由集成方 `configureNodeScopeLinkBridge` 注入真实实现。
+ * 为保持库内可测试且不硬依赖 link 层，`subscribeScope` / `sendToNodeLink` 以
+ * [NodeScopeLinkBridge] 注入（默认 no-op）；`link_registry` 落地后由
+ * `configureNodeScopeLinkBridge`（见 `transport/node_scope/LinkRegistryBridge.kt`）注入真实实现。
  */
 
 /** node scope 入站 envelope（`{ scope, action, payload }`）。 */
