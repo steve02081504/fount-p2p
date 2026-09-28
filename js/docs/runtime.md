@@ -2,6 +2,24 @@
 
 `ensureRuntime`, startup/shutdown budgets, and Bluetooth hardware probe. Day-to-day shell rules: [AGENTS.md](../AGENTS.md). Providers: [transports.md](transports.md). Mesh N/K: [mesh.md](mesh.md).
 
+## Offline local identity (storage without a running node)
+
+Three independent stages — do not couple them:
+
+1. **Storage** — `configureNodeStorage({ nodeDir })` records where `node.json` / identity seed live. No runtime, no disk I/O, no discovery.
+2. **Local identity** — `ensureNodeSeed` / `getNodeHash` / `resolveLocalEntityHashFromRecoveryPubKeyHex` (and `node/storage` JSON helpers) only need stage 1, so a local `entityHash` can be created while federation is off.
+3. **Network** — `initNode({ nodeDir, entityStore })` builds the runtime and link graph. Same `nodeDir` as stage 1 reuses the persisted seed and hashes.
+
+```javascript
+import { configureNodeStorage } from '@steve02081504/fount-p2p/node/instance'
+import { resolveLocalEntityHashFromRecoveryPubKeyHex } from '@steve02081504/fount-p2p/node/identity'
+
+configureNodeStorage({ nodeDir: '/data/p2p/node' })
+const entityHash = resolveLocalEntityHashFromRecoveryPubKeyHex(recoveryPubKeyHex) // works with P2P disabled
+```
+
+`configureNodeStorage` is idempotent for the same dir; switching dirs while a node is running is rejected (call `closeNode()` first). `closeNode()` clears the storage config, so re-configure after closing. Consumer hosts (fount, subfount) call `configureNodeStorage` unconditionally at startup and only call `initNode` when P2P is enabled.
+
 ## `ensureRuntime` contract
 
 Returns after registering lan / nostr discovery providers (subject to the signaling `channels` whitelist), registering all enabled link providers (including `ble_gatt`), and scheduling background warm — does **not** await lan_tcp listen, Nostr relays, or BT availability.

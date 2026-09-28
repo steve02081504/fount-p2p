@@ -62,6 +62,8 @@ object FountP2p {
 	suspend fun closeNode() = io.github.steve02081504.fountp2p.node.closeNode()
 	fun isNodeInitialized(): Boolean = io.github.steve02081504.fountp2p.node.isNodeInitialized()
 	fun getNodeDir(): String = io.github.steve02081504.fountp2p.node.getNodeDir()
+	fun configureNodeStorage(nodeDir: String?): String =
+		io.github.steve02081504.fountp2p.node.configureNodeStorage(nodeDir)
 	fun getNodeHash(): String = io.github.steve02081504.fountp2p.node.getNodeHash()
 	fun ensureNodeDefaults(): Map<String, Any?> = io.github.steve02081504.fountp2p.node.ensureNodeDefaults()
 	fun getP2PFeatures(): Map<String, Any?> = io.github.steve02081504.fountp2p.node.getP2PFeatures()

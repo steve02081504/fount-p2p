@@ -81,7 +81,11 @@ private fun saveNodeFile(patch: Map<String, Any?>): MutableMap<String, Any?> {
 	return data
 }
 
-/** @return 64 位十六进制 节点种子 */
+/**
+ * 确保本地节点 seed 已持久化并返回。
+ * 只依赖本地存储目录（`configureNodeStorage` 或 `initNode` 提供），不要求运行中的节点。
+ * @return 64 位十六进制 节点种子
+ */
 fun ensureNodeSeed(): String {
 	val data = loadNodeFile()
 	val existing = isHex64(data["nodeSeedHex"])
@@ -91,7 +95,11 @@ fun ensureNodeSeed(): String {
 	return nodeSeedHex
 }
 
-/** @return 本节点 64 hex nodeHash */
+/**
+ * 由本地 seed 派生本节点 nodeHash。
+ * 只依赖本地存储目录，不要求运行中的节点。
+ * @return 本节点 64 hex nodeHash
+ */
 fun getNodeHash(): String = nodeHashFromSeed(ensureNodeSeed())
 
 /**
@@ -162,6 +170,8 @@ fun entityHashFromKeys(nodeHash: Any?, recoveryPubKeyHex: Any?): String? {
 }
 
 /**
+ * 由本地 nodeHash 与 recovery 公钥派生本节点 entityHash。
+ * 只依赖本地存储目录，不要求运行中的节点（联邦未启动时也可创建本地身份）。
  * @param recoveryPubKeyHex 64 位十六进制 recovery 公钥
  * @return 本节点 entityHash
  */

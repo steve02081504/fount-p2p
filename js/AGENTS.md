@@ -66,6 +66,7 @@ Deno / native / BT: [runtime.md](docs/runtime.md).
 ### Node / network
 
 - **Node data:** `initNode({ nodeDir, entityStore? })` — `node.json`, `network.json`, `denylist.json`, `reputation.json`, `mailbox/`, `chunks/`. Default EntityStore: `{nodeDir}/entities/`. No `FOUNT_*` env knobs — subprocess IPC uses argv.
+- **Storage vs runtime:** local identity (`ensureNodeSeed` / `getNodeHash` / `resolveLocalEntityHashFromRecoveryPubKeyHex`, all `node/storage` JSON helpers) must not require `initNode`. Configure the dir with `configureNodeStorage({ nodeDir })` (idempotent; cannot switch while running — `closeNode()` first) and only call `initNode` when the network should run. Hosts configure storage unconditionally so entities have a local identity with P2P disabled. [runtime.md](docs/runtime.md)
 - **fount network:** shells use `startNode` / `ensureLinkToNode` / `sendToNodeLink` / rooms — never import `link/` internals or pick a transport. Providers: `registerLinkProvider` from `./link` or facade.
 - **Link `level` vs discovery `priority`:** descending `level` picks data transport (`nostr` = −∞ last resort); ascending `priority` orders handshake/presence media only. [transports.md](docs/transports.md)
 - **Mesh first / no versioning:** ≥N links (K acquaintances + N−K explore); discovery API is `listVisibleNodeHashes` + `connectToNode` only; no topic on the fount-network surface; no version/compat fields. [mesh.md](docs/mesh.md)

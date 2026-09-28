@@ -22,6 +22,13 @@ import { defaultSignalingRuntimeConfig, resolveSignalingRuntimeConfig } from './
 /** @type {NodeRuntime | null} */
 let runtime = null
 
+/**
+ * 本地节点数据目录。与 `runtime` 解耦：身份 seed 等纯本地持久化只依赖存储目录，
+ * 不要求 `initNode()`（联邦未启动时也要能派生本地身份）。
+ * @type {string | null}
+ */
+let nodeStorageDir = null
+
 /** @type {Set<(event: string, payload?: unknown) => void>} */
 const changeListeners = new Set()
 
@@ -36,6 +43,28 @@ export function getRtcPolyfillCacheEpoch() {
 }
 
 /**
+ * 配置本地节点数据目录（`node.json` / 身份 seed 等纯本地持久化位置），
+ * 不初始化节点运行时、不创建 disk 资源、不启动发现或连接。
+ *
+ * 配置后 `getNodeDir` / `ensureNodeSeed` / `getNodeHash` /
+ * `resolveLocalEntityHashFromRecoveryPubKeyHex` 可在无运行节点时使用；
+ * 之后以同一目录调用 `initNode` 会复用已持久化的 seed 与身份。
+ *
+ * 同目录重复配置为幂等；运行中的节点不允许切换到不同目录，须先 `closeNode()`。
+ * @param {{ nodeDir: string }} options - 本地节点数据目录
+ * @returns {string} 规范化为绝对路径后的目录
+ */
+export function configureNodeStorage(options) {
+	const rawDir = options?.nodeDir
+	if (typeof rawDir !== 'string' || !rawDir) throw new Error('p2p: configureNodeStorage requires nodeDir')
+	const nodeDir = path.resolve(rawDir)
+	if (runtime && runtime.nodeDir !== nodeDir)
+		throw new Error('p2p: running node uses another nodeDir — call closeNode() before reconfiguring storage')
+	nodeStorageDir = nodeDir
+	return nodeDir
+}
+
+/**
  * @param {{ nodeDir: string, entityStore?: import('./entity_store.mjs').EntityStore }} options - 节点目录与可选 entity store
  * @returns {NodeRuntime} 初始化后的运行时
  */
@@ -43,7 +72,7 @@ export function initNode(options) {
 	if (runtime) throw new Error('p2p: initNode already called — use setNodeLogger / setSignalingRuntimeConfig or closeNode')
 	if (options?.logger !== undefined || options?.signaling !== undefined)
 		throw new Error('p2p: initNode only accepts nodeDir/entityStore — use setNodeLogger / setSignalingRuntimeConfig')
-	const nodeDir = path.resolve(options.nodeDir)
+	const nodeDir = options?.nodeDir == null ? nodeStorageDir : configureNodeStorage({ nodeDir: options.nodeDir })
 	if (!nodeDir) throw new Error('p2p: initNode requires nodeDir')
 	const entityStore = options.entityStore ?? createFsEntityStore(path.join(nodeDir, 'entities'))
 	runtime = {
@@ -123,10 +152,12 @@ export function getP2PFeatures() {
 }
 
 /**
- * @returns {string} 节点数据目录绝对路径
+ * @returns {string} 节点数据目录绝对路径；未配置且节点未初始化时抛错
  */
 export function getNodeDir() {
-	return getNode().nodeDir
+	if (runtime) return runtime.nodeDir
+	if (nodeStorageDir) return nodeStorageDir
+	throw new Error('p2p: node storage not configured — call configureNodeStorage() or initNode() first')
 }
 
 /**
@@ -164,12 +195,13 @@ export function onNodeChange(listener) {
 }
 
 /**
- * 关闭节点：释放全部文件句柄（chunk 读/写流等）并清空运行时与监听器。
- * 之后可用 initNode 重新引导。
+ * 关闭节点：释放全部文件句柄（chunk 读/写流等）并清空运行时、存储目录配置与监听器。
+ * 之后可用 initNode / configureNodeStorage 重新引导。
  * @returns {Promise<void>}
  */
 export async function closeNode() {
 	runtime = null
+	nodeStorageDir = null
 	changeListeners.clear()
 	rtcPolyfillCacheEpoch++
 	await closeAllFileStreams()

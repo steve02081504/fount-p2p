@@ -13,6 +13,7 @@ import { registerLinkProvider } from './link/providers/index.mjs'
 import { ensureNodeDefaults, getNodeHash } from './node/identity.mjs'
 import {
 	closeNode,
+	configureNodeStorage,
 	getNodeDir,
 	getP2PFeatures,
 	initNode,
@@ -65,6 +66,7 @@ export {
 	attachNodeScopeDefaultFeatures,
 	closeNode,
 	configureLinkRegistry,
+	configureNodeStorage,
 	createGroupLinkSet,
 	createScopedLinkRoom,
 	ensureChannelAvailable,

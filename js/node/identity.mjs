@@ -42,6 +42,8 @@ function saveNodeFile(patch) {
 }
 
 /**
+ * 确保本地节点 seed 已持久化并返回。
+ * 只依赖本地存储目录（`configureNodeStorage` 或 `initNode` 提供），不要求运行中的节点。
  * @returns {string} 64 位十六进制 节点种子
  */
 export function ensureNodeSeed() {
@@ -54,6 +56,8 @@ export function ensureNodeSeed() {
 }
 
 /**
+ * 由本地 seed 派生本节点 nodeHash。
+ * 只依赖本地存储目录，不要求运行中的节点。
  * @returns {string} 本节点 64 hex nodeHash
  */
 export function getNodeHash() {
@@ -111,6 +115,8 @@ export function entityHashFromKeys(nodeHash, recoveryPubKeyHex) {
 }
 
 /**
+ * 由本地 nodeHash 与 recovery 公钥派生本节点 entityHash。
+ * 只依赖本地存储目录，不要求运行中的节点（联邦未启动时也可创建本地身份）。
  * @param {string} recoveryPubKeyHex 64 位十六进制 recovery 公钥
  * @returns {string | null} 本节点 entityHash
  */
