@@ -51,6 +51,7 @@ Kotlin 包根为 `io.github.steve02081504.fountp2p`，与 JS 目录一一对应�
   禁止 `node:crypto` 等价物的平台不兼容 API；Android 兼容性优先。
 - **错误信息**：尽量与 JS 原文一致，便于对照测试。
 - **注释/文档**：保留 JS 的 KDoc/中文说明；不要写无意义注释。
+- **JSONL 读改写**：`rewriteJsonlKeeping` / `appendJsonlSynced` / `writeJsonlSynced` 自身会取共享的 `jsonlMutexKey` 锁，**不可重入**——持有同一 key 时不要再调用它们（改用无锁的 `writeJsonl` / `writeJsonlLines`）。重写保留原始行（传给 `rewriteJsonlKeeping` / `readJsonlEntries` 的 `sanitize` 只影响交给谓词的值），无删除时跳过 rename。
 - **不要提交**：subagent 只改代码，由主流程统一提交。
 
 ## 移植流程（每个模块）

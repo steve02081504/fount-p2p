@@ -31,6 +31,7 @@ Deno / native / BT: [runtime.md](docs/runtime.md).
 ## Conventions
 
 - Prefer shared helpers under `utils/`, `core/`, `wire/subscribe`, `wire/adapter` — do not reimplement LRU/TTL/inflight/atomic-fs/shuffle.
+- **JSONL read-modify-write:** do it inside `withAsyncMutex(jsonlMutexKey(path))`. `rewriteJsonlKeeping` / `appendJsonlSynced` / `writeJsonlSynced` take that per-file mutex themselves and are **not reentrant** — never call them while already holding the same key (use lock-free `writeJsonl` / `writeJsonlLines` instead). Rewrites preserve the original raw line (a `sanitize` passed to `rewriteJsonlKeeping` / `readJsonlEntries` only affects the value handed to the predicate) and skip the rename when nothing is dropped.
 - **No pure-forward aliases:** do not add `fooText`/`fooAlias` that only `return foo(sameArgs)` when the callee already accepts those types (e.g. never wrap `sha256Hex` as `sha256TextHex`). Domain names must add logic or type narrowing, not just rename.
 - **Heterogeneous backends:** normalize at the load boundary (e.g. `link/rtc/ice_local_hostname.mjs` wraps W3C RTC backends); call sites speak one contract.
 - **File naming:** parent directory is scope — short child names. Tunables default `<dir>/tunables.json` (exception: `schemas/part_query.tunables.json`). Subpath `package.json` exports mirror filenames.
