@@ -1,8 +1,8 @@
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
 import { isHex64 } from '../core/hexIds.mjs'
-import { jsonlMutexKey, writeJsonl } from '../dag/storage.mjs'
+import { jsonlMutexKey, readJsonl, writeJsonl } from '../dag/storage.mjs'
 import { mailboxStorePath } from '../node/user_paths.mjs'
 import { withAsyncMutex } from '../utils/async_mutex.mjs'
 
@@ -103,21 +103,7 @@ export function relayHopAfterWireIngress(wireHop, existingStoredHop) {
  * @returns {Promise<MailboxRecord[]>} 全部有效记录
  */
 async function readAll() {
-	try {
-		const text = await readFile(mailboxStorePath(), 'utf8')
-		/** @type {MailboxRecord[]} */
-		const rows = []
-		for (const line of text.split('\n')) {
-			const trimmed = line.trim()
-			if (!trimmed) continue
-			try {
-				rows.push(JSON.parse(trimmed))
-			}
-			catch { /* skip corrupt line */ }
-		}
-		return rows
-	}
-	catch { return [] }
+	return /** @type {MailboxRecord[]} */ (await readJsonl(mailboxStorePath()))
 }
 
 /**
