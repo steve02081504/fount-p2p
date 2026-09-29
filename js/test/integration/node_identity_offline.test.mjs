@@ -5,6 +5,12 @@ import { test } from 'node:test'
 
 import { keyPairFromSeed } from '../../crypto/crypto.mjs'
 import {
+	ensureNodeSeed,
+	getNodeHash,
+	nodeHashFromSeed,
+	resolveLocalEntityHashFromRecoveryPubKeyHex,
+} from '../../node/identity.mjs'
+import {
 	closeNode,
 	configureNodeStorage,
 	getEntityStore,
@@ -13,12 +19,6 @@ import {
 	initNode,
 	isNodeInitialized,
 } from '../../node/instance.mjs'
-import {
-	ensureNodeSeed,
-	getNodeHash,
-	nodeHashFromSeed,
-	resolveLocalEntityHashFromRecoveryPubKeyHex,
-} from '../../node/identity.mjs'
 import { readNodeJsonSync, writeNodeJsonSync } from '../../node/storage.mjs'
 import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 

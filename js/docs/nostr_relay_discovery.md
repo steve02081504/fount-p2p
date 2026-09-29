@@ -3,6 +3,7 @@
 Nostr is the fount-network fallback transport (`link` level −∞, discovery `priority` 100). This document covers the **relay pool**, NIP-66 discovery, health scoring, advert relay-field signing, and handshake routing. Top-level surface: [signaling.md](signaling.md) · [transports.md](transports.md) · [mesh.md](mesh.md).
 
 Source layout (`discovery/nostr/`):
+
 - `index.mjs` — provider (presence / signal / advert subscriptions)
 - `relays.mjs` — pool, health, NIP-66 discovery, normalization, persistence
 - `selection.mjs` — handshake routing, backoff, fanout
@@ -72,6 +73,7 @@ Lower is better. `recordProbeSuccess` / `recordProbeFailure` / `recordPublishRes
 ## Handshake routing (`selection.mjs`)
 
 `handshakeTargets(nodeHash, attempt)`:
+
 - **Round 0**: peer-claimed `listenRelays` top 4 by composite score (own health + peer rtt); else local `workingRelays` top 4; else pinned top 4.
 - **Round ≥1**: backoff `min(2000 · 2^(attempt−1), 60000)`; base on `lastGoodNostrRelays` (expanded via `expandFromHistory` ≤ 16), or weighted-random sample of `workingRelays` (weight `1/score`); round-0 core always included; fanout capped at `MAX_ROUTING_FANOUT` (64).
 - Retries ≤ `MAX_ROUTING_ATTEMPTS` (4).

@@ -5,10 +5,10 @@ import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { buildCensusPacketFromSeed } from '../../discovery/nostr/census.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { startFakeRelay } from '../helpers/fake_relay.mjs'
 import { resolveLocalChrome } from '../helpers/local_chrome.mjs'
-import { buildCensusPacketFromSeed } from '../../discovery/nostr/census.mjs'
 
 const P2P_ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))))
 

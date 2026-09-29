@@ -11,10 +11,10 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { jsonlMutexKey } from '../../dag/storage.mjs'
+import { clearEventTypeRegistry, registerEventTypeDefs } from '../../registries/event_type.mjs'
 import { pruneEventsJsonlAfterCheckpoint } from '../../timeline/prune.mjs'
 import { enforceTimelineEventRetention } from '../../timeline/retention.mjs'
 import { withAsyncMutex } from '../../utils/async_mutex.mjs'
-import { clearEventTypeRegistry, registerEventTypeDefs } from '../../registries/event_type.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 
 /**

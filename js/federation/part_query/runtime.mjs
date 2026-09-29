@@ -227,7 +227,7 @@ function mergeRowsWithSources(entries, maxHits, rowKey) {
 		try { return JSON.stringify(row) }
 		catch { return `\0${rows.length}` }
 	})
-	for (const entry of entries) {
+	for (const entry of entries)
 		for (const row of entry.rows || []) {
 			const key = keyOf(row)
 			if (!seen.has(key)) {
@@ -240,7 +240,7 @@ function mergeRowsWithSources(entries, maxHits, rowKey) {
 			}
 			if (entry.sourceNodeHash) sources.get(key).add(entry.sourceNodeHash)
 		}
-	}
+
 	return { rows, sources }
 }
 
@@ -325,10 +325,10 @@ function filterRowsBySource(rows, sources, rowKey, isSourceBlocked) {
 	return rows.filter(row => {
 		let key
 		if (rowKey) key = rowKey(row)
-		else {
+		else
 			try { key = JSON.stringify(row) }
 			catch { return true }
-		}
+
 		const set = sources.get(key)
 		if (!set || set.size === 0) return true
 		for (const source of set) if (!isSourceBlocked(source)) return true

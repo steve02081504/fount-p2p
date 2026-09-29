@@ -47,15 +47,14 @@ export function activeMutexCount() {
  * @template T
  */
 export async function withAsyncMutex(key, criticalSection) {
-	const lockKey = key
-	const state = mutexState(lockKey)
+	const state = mutexState(key)
 	return new Promise((resolve, reject) => {
 		/** 执行临界区并最终释放锁 */
 		const run = () => {
 			Promise.resolve()
 				.then(criticalSection)
 				.then(resolve, reject)
-				.finally(() => releaseMutex(lockKey, state))
+				.finally(() => releaseMutex(key, state))
 		}
 		if (state.locked) state.queue.push(run)
 		else {

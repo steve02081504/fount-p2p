@@ -15,6 +15,9 @@ import { promisify } from 'node:util'
 const pexec = promisify(execFile)
 const utf8Fatal = new TextDecoder('utf-8', { fatal: true })
 
+/**
+ *
+ */
 export const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
@@ -139,6 +142,11 @@ export function fixFileTextLf(relativePath, bytes) {
  * @returns {Promise<string[]>} 相对路径（正斜杠、已排序）
  */
 export async function listRepoFiles(repoRoot = REPO_ROOT) {
+	/**
+	 * 执行 git 子命令并解析 NUL 分隔的输出。
+	 * @param {string[]} args git 参数
+	 * @returns {Promise<string[]>} 正斜杠相对路径
+	 */
 	const run = async (/** @type {string[]} */ args) => {
 		const { stdout } = await pexec('git', args, { cwd: repoRoot, encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 })
 		return String(stdout).split('\0').map(path => path.trim().replaceAll('\\', '/')).filter(Boolean)
@@ -203,13 +211,12 @@ const isMain = process.argv[1] && import.meta.url === new URL(`file://${process.
 if (isMain) {
 	const fix = argv.includes('--fix')
 	const result = fix ? { fixed: await fixTextLf() } : await scanTextLf()
-	if (fix) {
+	if (fix)
 		if (result.fixed.length) {
 			console.log(`自动修复 ${result.fixed.length} 个文件的换行:`)
 			for (const path of result.fixed) console.log(`  ${path}`)
 		}
 		else console.log('无换行问题')
-	}
 	else {
 		for (const issue of result.issues) console.log(`${issue.path} (${issue.kind})`)
 		console.log(`共 ${result.issues.length} 个问题`)

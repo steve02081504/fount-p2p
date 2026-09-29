@@ -108,7 +108,13 @@ test('duplicate part_query_res from the same peer counts once', async () => {
 		 */
 		rowKey: row => String(row.id),
 	})
-	const dependencies = { state, verifyResponse: async () => true }
+	const dependencies = {
+		state,
+		/**
+		 * @returns {Promise<boolean>} 验证通过
+		 */
+		verifyResponse: async () => true
+	}
 	const response = { requestId: 'r1', fromNodeHash: NODE_B, rows: [{ id: 'b' }], nodePubKey: RES_PUB, sig: RES_SIG }
 	await handleIncomingPartQueryResponse(response, NODE_B, dependencies)
 	await handleIncomingPartQueryResponse({ ...response, rows: [{ id: 'b2' }] }, NODE_B, dependencies)
@@ -126,9 +132,19 @@ test('handleIncomingPartQueryResponse drops responses that fail verification', a
 		expected: 2,
 		received: 0,
 		respondedPeers: new Set(),
+		/**
+		 * @param {{ id: unknown }} row 命中行
+		 * @returns {string} 去重键
+		 */
 		rowKey: row => String(row.id),
 	})
-	const dependencies = { state, verifyResponse: async () => false }
+	const dependencies = {
+		state,
+		/**
+		 * @returns {Promise<boolean>} 验证失败
+		 */
+		verifyResponse: async () => false
+	}
 	await handleIncomingPartQueryResponse({
 		requestId: 'r1',
 		fromNodeHash: NODE_B,

@@ -10,6 +10,8 @@
  */
 import { base64ToBytes } from '../../core/bytes_codec.mjs'
 
+import { estimatePopulation } from './census_math.mjs'
+import { CENSUS_TTL_MS, verifyCensusBytes } from './census_verify.mjs'
 import {
 	CENSUS_TAG_FOUNT,
 	CENSUS_TAG_X,
@@ -17,8 +19,6 @@ import {
 	NIP66_BOOTSTRAP_RELAYS,
 	NOSTR_CENSUS_KIND,
 } from './constants.mjs'
-import { estimatePopulation } from './census_math.mjs'
-import { CENSUS_TTL_MS, verifyCensusBytes } from './census_verify.mjs'
 
 /** NIP-66 relay 注册 kind。 */
 const NIP66_KIND = 30166

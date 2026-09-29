@@ -22,16 +22,16 @@ import { getP2PFeatures, isNodeInitialized } from '../../node/instance.mjs'
 import { nodeDebug } from '../../node/log.mjs'
 
 import {
-	CENSUS_TAG_FOUNT,
-	CENSUS_TAG_X,
-	NOSTR_CENSUS_KIND,
-} from './constants.mjs'
-import {
 	CENSUS_TARGET_EVENTS,
 	estimatePopulation,
 	nextInclusionProbability,
 } from './census_math.mjs'
 import { CENSUS_TTL_MS, buildCensusMessage, verifyCensusBytes } from './census_verify.mjs'
+import {
+	CENSUS_TAG_FOUNT,
+	CENSUS_TAG_X,
+	NOSTR_CENSUS_KIND,
+} from './constants.mjs'
 import { resolveRelayConnectTarget } from './relays.mjs'
 
 /** census 订阅标签数组（发布用）。 */

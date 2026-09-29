@@ -4,8 +4,8 @@ import { test } from 'node:test'
 import {
 	buildCensusPacketFromSeed,
 } from '../../discovery/nostr/census.mjs'
-import { NOSTR_CENSUS_KIND } from '../../discovery/nostr/constants.mjs'
 import { verifyCensusBytes, verifyCensusPacket } from '../../discovery/nostr/census_verify.mjs'
+import { NOSTR_CENSUS_KIND } from '../../discovery/nostr/constants.mjs'
 import { ensureNodeSeed, getNodeHash } from '../../node/identity.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 import { initTestP2pNode } from '../helpers/node.mjs'

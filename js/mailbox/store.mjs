@@ -1,6 +1,3 @@
-import { mkdir } from 'node:fs/promises'
-import { dirname } from 'node:path'
-
 import { isHex64 } from '../core/hexIds.mjs'
 import { jsonlMutexKey, readJsonl, writeJsonl } from '../dag/storage.mjs'
 import { mailboxStorePath } from '../node/user_paths.mjs'
@@ -103,7 +100,7 @@ export function relayHopAfterWireIngress(wireHop, existingStoredHop) {
  * @returns {Promise<MailboxRecord[]>} 全部有效记录
  */
 async function readAll() {
-	return /** @type {MailboxRecord[]} */ (await readJsonl(mailboxStorePath()))
+	return /** @type {MailboxRecord[]} */ await readJsonl(mailboxStorePath())
 }
 
 /**
@@ -111,13 +108,11 @@ async function readAll() {
  * @returns {Promise<void>}
  */
 async function writeAll(rows) {
-	const filePath = mailboxStorePath()
-	await mkdir(dirname(filePath), { recursive: true })
 	const now = Date.now()
 	const kept = pruneMailboxGlobalFair(
 		pruneMailboxBuckets(sortMailboxForRetention(rows.filter(record => record.expiresAt > now))),
 	)
-	await writeJsonl(filePath, kept)
+	await writeJsonl(mailboxStorePath(), kept)
 }
 
 /**

@@ -25,6 +25,7 @@ When set: send final offer/answer after ICE gathering, dedupe remote signals, qu
 `channels` selects which discovery/link media are active — `nostr`, `lan`, `bt`, `webrtc`. Semantics per channel key: `false` **disables**; any other value (`undefined`, `true`, or an object) **enables** — an object is merged over that channel's default config. Channels not mentioned keep their default enabled state.
 
 Channel → components:
+
 - `nostr` (nostr discovery + nostr link) — config `relay` **replaces** the default public relay list (do not merge defaults back in).
 - `lan` (lan discovery + lan_tcp link)
 - `bt` (bt discovery + ble_gatt link)

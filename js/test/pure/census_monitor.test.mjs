@@ -79,6 +79,10 @@ test('listens on provided relays and reports the most populous relay as display 
 	const monitor = createPopulationMonitor({
 		relays: [`ws://127.0.0.1:${relayA.port}`, `ws://127.0.0.1:${relayB.port}`],
 		discover: false,
+		/**
+		 * @param {{ estimate: number, sampleSize: number, eventsInWindow: number, relayUrl: string, relays: number }} snapshot 人口快照
+		 * @returns {void}
+		 */
 		onUpdate: snapshot => snapshots.push(snapshot),
 	})
 	try {
@@ -120,6 +124,10 @@ test('NIP-66 discovery adds candidate relays and they feed the display', async (
 	const monitor = createPopulationMonitor({
 		relays: [`ws://127.0.0.1:${discoveryRelay.port}`],
 		nip66Bootstrap: [`ws://127.0.0.1:${discoveryRelay.port}`],
+		/**
+		 * @param {{ estimate: number, sampleSize: number, eventsInWindow: number, relayUrl: string, relays: number }} snapshot 人口快照
+		 * @returns {void}
+		 */
 		onUpdate: snapshot => snapshots.push(snapshot),
 	})
 	try {
@@ -154,6 +162,9 @@ test('stop closes connections to all relays', async () => {
 	const monitor = createPopulationMonitor({
 		relays: [`ws://127.0.0.1:${relay.port}`],
 		discover: false,
+		/**
+		 *
+		 */
 		onUpdate: () => { },
 	})
 	try {

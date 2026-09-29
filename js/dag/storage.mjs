@@ -49,9 +49,8 @@ async function* readJsonlRawLines(filePath) {
 }
 
 /**
- * 读取 JSONL 并按块返回 `{ row, raw }`，保留原始行以便无损写回。
- * 空行/解析失败/净化抛错的行直接跳过；文件缺失（ENOENT）返回空数组，
- * 其他读错误抛出。
+ * 读取 JSONL 为 `{ row, raw }` 列表，保留原始行以便无损写回。
+ * 空行/解析失败/净化抛错的行跳过；文件缺失（ENOENT）返回空数组，其他读错误抛出。
  * @param {string} filePath 文件路径
  * @param {{ sanitize?: (row: object) => object }} [options] 行净化
  * @returns {Promise<Array<{ row: object, raw: string }>>} 行条目列表
@@ -61,12 +60,8 @@ export async function readJsonlEntries(filePath, options = {}) {
 	/** @type {Array<{ row: object, raw: string }>} */
 	const entries = []
 	for await (const raw of readJsonlRawLines(filePath)) {
-		const trimmed = raw.trim()
-		if (!trimmed) continue
-		try {
-			entries.push({ row: sanitize(JSON.parse(trimmed)), raw })
-		}
-		catch { /* 坏行/净化抛错：跳过 */ }
+		const row = parseJsonlLine(raw, sanitize)
+		if (row != null) entries.push({ row, raw })
 	}
 	return entries
 }
@@ -126,7 +121,6 @@ async function rewriteJsonlKeepingUnlocked(filePath, keep, options = {}) {
 	const buffer = []
 	let kept = 0
 	let dropped = 0
-	let invalid = 0
 	/** @returns {Promise<void>} 将缓冲区原始行写入临时文件 */
 	const flush = async () => {
 		if (!buffer.length) return
@@ -138,12 +132,8 @@ async function rewriteJsonlKeepingUnlocked(filePath, keep, options = {}) {
 	try {
 		for await (const raw of readJsonlRawLines(filePath)) {
 			if (!raw.trim()) continue
-			let row
-			try {
-				row = sanitize(JSON.parse(raw.trim()))
-			}
-			catch {
-				invalid++
+			const row = parseJsonlLine(raw, sanitize)
+			if (row == null) {
 				dropped++
 				continue
 			}
@@ -155,7 +145,7 @@ async function rewriteJsonlKeepingUnlocked(filePath, keep, options = {}) {
 			else dropped++
 		}
 		await flush()
-		if (dropped === 0 && invalid === 0) {
+		if (dropped === 0) {
 			if (tempCreated) await unlink(temporaryPath).catch(() => { })
 			return { kept, dropped }
 		}

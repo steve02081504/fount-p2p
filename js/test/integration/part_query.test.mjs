@@ -460,12 +460,17 @@ test('queryNetwork filters rows whose only source is blocked', async () => {
 	}, hash => hash === NODE_B ? [{ id: 'b-hit' }] : [{ id: 'a-local' }])
 	const result = await net.queryFrom(NODE_A, {
 		ttl: 1,
+		/**
+		 * @param {string} nodeHash 来源节点 hash
+		 * @returns {boolean} 是否屏蔽该来源
+		 */
 		isSourceBlocked: nodeHash => nodeHash === NODE_B,
 	})
 	assertEquals(result.rows.map(r => r.id), ['a-local'])
 })
 
-test('queryNetwork respects timeoutMs even when deliver hangs', async () => {	resetPartQueryStateForTests()
+test('queryNetwork respects timeoutMs even when deliver hangs', async () => {
+	resetPartQueryStateForTests()
 	const state = createPartQueryNodeState({ cache: createPartQueryCache({ ttlMs: 60_000 }) })
 	registerQueryInboundHandler('shells/social', 'entity_search', () => [{ id: 'a-local' }], state)
 

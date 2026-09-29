@@ -4,7 +4,6 @@
  */
 import { test } from 'node:test'
 
-import { assertEquals } from '../helpers/assert.mjs'
 import {
 	detectLeadingLf,
 	detectNonLfLineEndings,
@@ -14,6 +13,7 @@ import {
 	scanFileTextLf,
 	scanTextLf,
 } from '../../scripts/text_lf.mjs'
+import { assertEquals } from '../helpers/assert.mjs'
 
 const encoder = new TextEncoder()
 

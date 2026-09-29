@@ -26,7 +26,7 @@ test('unvalidated __proto__ peer key cannot pollute Object.prototype', async () 
 		await recordMessageRateViolation(PROTO_KEY, 1)
 		await observePeerBehavior(PROTO_KEY, 5)
 		assertObjectPrototypeClean()
-		assertEquals(typeof ({}).score, 'undefined')
+		assertEquals(typeof {}.score, 'undefined')
 	}
 	finally {
 		for (const key of POLLUTED_KEYS) delete Object.prototype[key]

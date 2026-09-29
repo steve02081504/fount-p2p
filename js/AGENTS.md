@@ -3,7 +3,7 @@
 ## Package layers (`@steve02081504/fount-p2p`)
 
 | Layer | Directory | Role |
-|---|---|---|
+| --- | --- | --- |
 | L0 | `core/` | IDs, logical entity, canonical JSON, bytes |
 | L1 | `crypto/`, `wire/`, `schemas/` | Crypto, wire ingress, canonical validation |
 | L2 | `node/` | `initNode`, identity, entity store, denylist, reputation, storage plugins |
@@ -19,7 +19,7 @@ Detail docs: [transports](docs/transports.md) · [mesh](docs/mesh.md) · [signal
 ### Runtime: isomorphic vs Node
 
 | Surface | Runtime | Notes |
-|---|---|---|
+| --- | --- | --- |
 | `core/*` | Node + browser | No `node:*` builtins |
 | `crypto/crypto.mjs` | Node + browser | `@noble/hashes` + `@noble/curves` only — never `node:crypto` |
 | `crypto/key.mjs` / `crypto/channel.mjs`, disk I/O, LAN/BT, `ws`, CLI / `startNode` | Node (+ Deno bridge) | Do not load the whole package via esm.sh in the browser |
@@ -77,7 +77,7 @@ Deno / native / BT: [runtime.md](docs/runtime.md).
 ## Tunables JSON
 
 | File | Directory |
-|---|---|
+| --- | --- |
 | `tunables.json` | `transport/`, `infra/`, `reputation/`, `trust_graph/`, `mailbox/`, `governance/`, `dag/` |
 | `part_query.tunables.json` | `schemas/` |
 

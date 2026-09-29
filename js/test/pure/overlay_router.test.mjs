@@ -135,6 +135,12 @@ test('overlay router rate-limits route_req by default without infra', async () =
 	const local = createOverlayRouter(localRegistry)
 	const origSend = localRegistry.sendToNodeLink.bind(localRegistry)
 	let forwarded = 0
+	/**
+	 * 记录转发次数后委托原方法。
+	 * @param {string} target 目标节点 hash
+	 * @param {object} envelope 链路信封
+	 * @returns {Promise<unknown>} 原方法结果
+	 */
 	localRegistry.sendToNodeLink = async (target, envelope) => {
 		forwarded++
 		return await origSend(target, envelope)
@@ -195,6 +201,12 @@ test('overlay router ignores route response whose path does not end at the targe
 	const left = createOverlayRouter(leftRegistry)
 	const origSend = leftRegistry.sendToNodeLink.bind(leftRegistry)
 	let capturedReqId = ''
+	/**
+	 * 捕获 route_req 的 reqId 后委托原方法。
+	 * @param {string} target 目标节点 hash
+	 * @param {object} envelope 链路信封
+	 * @returns {Promise<unknown>} 原方法结果
+	 */
 	leftRegistry.sendToNodeLink = async (target, envelope) => {
 		if (envelope?.action === 'route_req') capturedReqId = envelope.payload?.reqId || ''
 		return await origSend(target, envelope)

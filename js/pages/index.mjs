@@ -32,6 +32,10 @@ function startLive() {
 	try {
 		monitor = createPopulationMonitor({
 			relays: relayUrl ? [relayUrl] : undefined,
+			/**
+			 * @param {{ estimate: number, sampleSize: number, eventsInWindow: number, relayUrl: string, relays: number }} snapshot 人口快照
+			 * @returns {void}
+			 */
 			onUpdate: snapshot => {
 				render(snapshot)
 				statusEl.textContent = `监听 ${snapshot.relayUrl}（census，共 ${snapshot.relays} 个 relay）`

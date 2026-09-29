@@ -62,21 +62,7 @@ private fun parseJsonlLine(
 suspend fun readJsonl(
 	filePath: String,
 	sanitize: ((Map<String, Any?>) -> Map<String, Any?>)? = null,
-): List<Map<String, Any?>> = withContext(Dispatchers.IO) {
-	val text = try {
-		Files.readString(Paths.get(filePath), Charsets.UTF_8)
-	}
-	catch (_: NoSuchFileException) {
-		return@withContext emptyList()
-	}
-	val snap = sanitize ?: { it }
-	val rows = ArrayList<Map<String, Any?>>()
-	for (line in text.split("\n")) {
-		val row = parseJsonlLine(line, snap)
-		if (row != null) rows.add(row)
-	}
-	rows
-}
+): List<Map<String, Any?>> = readJsonlEntries(filePath, sanitize).map { it.row }
 
 /**
  * 逐行读取 JSONL 原始文本（不 trim）。文件缺失（ENOENT）视为空流，
@@ -138,13 +124,7 @@ suspend fun readJsonlEntries(
 	val snap = sanitize ?: { it }
 	val entries = ArrayList<JsonlEntry>()
 	readJsonlRawLines(filePath).collect { raw ->
-		if (raw.isBlank()) return@collect
-		val row = try {
-			asJsonObject(Json.parse(raw.trim()))?.let { snap(it) }
-		}
-		catch (_: Exception) {
-			null
-		}
+		val row = parseJsonlLine(raw, snap)
 		if (row != null) entries.add(JsonlEntry(row, raw))
 	}
 	return entries
@@ -185,7 +165,6 @@ private suspend fun rewriteJsonlKeepingLocked(
 	var channel: FileChannel? = null
 	var kept = 0
 	var dropped = 0
-	var invalid = 0
 
 	fun ensureChannel(): FileChannel {
 		var open = channel
@@ -201,15 +180,13 @@ private suspend fun rewriteJsonlKeepingLocked(
 		return open
 	}
 
-	fun appendRaw(raw: String) {
-		val target = ensureChannel()
-		val buffer = ByteBuffer.wrap((raw + "\n").toByteArray(Charsets.UTF_8))
-		while (buffer.hasRemaining()) target.write(buffer)
-	}
-
 	fun flush() {
 		if (buffered.isEmpty()) return
-		for (raw in buffered) appendRaw(raw)
+		val target = ensureChannel()
+		for (raw in buffered) {
+			val buffer = ByteBuffer.wrap((raw + "\n").toByteArray(Charsets.UTF_8))
+			while (buffer.hasRemaining()) target.write(buffer)
+		}
 		buffered.clear()
 	}
 
@@ -232,14 +209,8 @@ private suspend fun rewriteJsonlKeepingLocked(
 	try {
 		readJsonlRawLines(filePath).collect { raw ->
 			if (raw.isBlank()) return@collect
-			val row = try {
-				asJsonObject(Json.parse(raw.trim()))?.let { snap(it) }
-			}
-			catch (_: Exception) {
-				null
-			}
+			val row = parseJsonlLine(raw, snap)
 			if (row == null) {
-				invalid++
 				dropped++
 				return@collect
 			}
@@ -252,7 +223,7 @@ private suspend fun rewriteJsonlKeepingLocked(
 		}
 		flush()
 
-		if (dropped == 0 && invalid == 0) {
+		if (dropped == 0) {
 			discardTemp()
 			return kept to dropped
 		}

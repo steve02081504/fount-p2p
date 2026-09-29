@@ -23,7 +23,7 @@ Maven 坐标：`io.github.steve02081504:fount-p2p:<version>`（version 自动读
 Kotlin 包根为 `io.github.steve02081504.fountp2p`，与 JS 目录一一对应：
 
 | JS | Kotlin |
-|---|---|
+| --- | --- |
 | `js/core/x.mjs` | `src/main/kotlin/.../core/X.kt` |
 | `js/crypto/x.mjs` | `.../crypto/X.kt` |
 | `js/schemas/x.mjs` | `.../schemas/X.kt` |

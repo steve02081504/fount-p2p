@@ -161,6 +161,10 @@ test('rewriteJsonlKeeping writes back the original raw line despite sanitize', a
 		const original = `${JSON.stringify({ id: 'a', extra: 'keep-me' })}\n`
 		writeFileSync(path, original)
 		const result = await rewriteJsonlKeeping(path, row => row.extra === undefined, {
+			/**
+			 * @param {Record<string, unknown>} row 原始行
+			 * @returns {Record<string, unknown>} 去除 extra 的副本
+			 */
 			sanitize: row => {
 				const copy = { ...row }
 				delete copy.extra
