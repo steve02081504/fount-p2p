@@ -25,11 +25,19 @@ function mutexState(lockKey) {
  */
 function releaseMutex(lockKey, state) {
 	const next = state.queue.shift()
-	if (next) setTimeout(next, 0)
+	if (next) queueMicrotask(next)
 	else {
 		state.locked = false
 		mutexes.delete(lockKey)
 	}
+}
+
+/**
+ * 当前存活的互斥键数量（仅供测试观察锁表是否回落到基线）。
+ * @returns {number} `mutexes` 中的键数量
+ */
+export function activeMutexCount() {
+	return mutexes.size
 }
 
 /**

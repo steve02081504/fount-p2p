@@ -2,12 +2,12 @@
  * dag/storage.mjs ENOENT 容错：cleanup 竞态下群目录已被删除，后台读流不应抛 unhandled error。
  */
 import { rmSync, writeFileSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { readJsonl, readJsonlStream } from '../../dag/storage.mjs'
-import { assertEquals } from '../helpers/assert.mjs'
+import { assert, assertEquals } from '../helpers/assert.mjs'
 import { mkTestNodeDir, teardownTestNodeDir } from '../helpers/node_dir_leak.mjs'
 
 test('readJsonl returns [] for missing file', async () => {
@@ -58,6 +58,18 @@ test('readJsonl skips torn trailing line and keeps prior rows', async () => {
 		const path = join(nodeDir, 'events.jsonl')
 		await writeFile(path, `${JSON.stringify({ id: 'a' })}\n${JSON.stringify({ id: 'b' })}\n{"id":"c"`, 'utf8')
 		assertEquals(await readJsonl(path), [{ id: 'a' }, { id: 'b' }])
+	}
+	finally {
+		await teardownTestNodeDir(nodeDir)
+	}
+})
+
+test('readJsonl throws on non-ENOENT read error (directory path)', async () => {
+	const nodeDir = await mkTestNodeDir('p2p-dag-')
+	try {
+		const asDirectory = join(nodeDir, 'not-a-file')
+		await mkdir(asDirectory, { recursive: true })
+		await assert.rejects(() => readJsonl(asDirectory), error => error?.code === 'EISDIR')
 	}
 	finally {
 		await teardownTestNodeDir(nodeDir)

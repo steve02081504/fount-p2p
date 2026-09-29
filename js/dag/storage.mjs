@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { appendFile, mkdir, open, readFile, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { appendFile, mkdir, open, unlink, writeFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -29,26 +29,57 @@ function parseJsonlLine(line, sanitize) {
 }
 
 /**
- * 读取 JSONL 文件并解析为对象数组；缺失或读失败时返回空数组。
+ * 逐行读取 JSONL 原始行（不解析、不净化）。文件缺失（ENOENT）视为空流，
+ * 兼容 cleanup 竞态：群目录被删后台仍在尾巴上读它；其他读错误抛出。
+ * @param {string} filePath 文件路径
+ * @returns {AsyncGenerator<string>} 原始行（readline 已去掉行尾换行）
+ */
+async function* readJsonlRawLines(filePath) {
+	const input = createReadStream(filePath, { encoding: 'utf8' })
+	// stream 内部异步 open 失败会触发 'error' 事件；提前订阅避免 unhandled error，
+	// 真实错误仍由下方 for-await 抛出，由本函数统一收口。
+	input.on('error', () => { })
+	const lines = createInterface({ input, crlfDelay: Infinity })
+	try {
+		for await (const line of lines) yield line
+	}
+	catch (error) {
+		if (error?.code !== 'ENOENT') throw error
+	}
+}
+
+/**
+ * 读取 JSONL 并按块返回 `{ row, raw }`，保留原始行以便无损写回。
+ * 空行/解析失败/净化抛错的行直接跳过；文件缺失（ENOENT）返回空数组，
+ * 其他读错误抛出。
+ * @param {string} filePath 文件路径
+ * @param {{ sanitize?: (row: object) => object }} [options] 行净化
+ * @returns {Promise<Array<{ row: object, raw: string }>>} 行条目列表
+ */
+export async function readJsonlEntries(filePath, options = {}) {
+	const sanitize = options.sanitize ?? (row => row)
+	/** @type {Array<{ row: object, raw: string }>} */
+	const entries = []
+	for await (const raw of readJsonlRawLines(filePath)) {
+		const trimmed = raw.trim()
+		if (!trimmed) continue
+		try {
+			entries.push({ row: sanitize(JSON.parse(trimmed)), raw })
+		}
+		catch { /* 坏行/净化抛错：跳过 */ }
+	}
+	return entries
+}
+
+/**
+ * 读取 JSONL 文件并解析为对象数组；缺失（ENOENT）返回空数组，其他读错误抛出。
  * @param {string} filePath 文件系统路径
  * @param {{ sanitize?: (row: object) => object }} [options] 可选净化函数
  * @returns {Promise<object[]>} 各行解析后的对象列表
  */
 export async function readJsonl(filePath, options = {}) {
-	try {
-		const text = await readFile(filePath, 'utf8')
-		const sanitize = options.sanitize ?? (row => row)
-		/** @type {object[]} */
-		const rows = []
-		for (const line of text.split('\n')) {
-			const row = parseJsonlLine(line, sanitize)
-			if (row) rows.push(row)
-		}
-		return rows
-	}
-	catch {
-		return []
-	}
+	const entries = await readJsonlEntries(filePath, options)
+	return entries.map(entry => entry.row).filter(Boolean)
 }
 
 /**
@@ -60,69 +91,98 @@ export async function readJsonl(filePath, options = {}) {
  */
 export async function* readJsonlStream(filePath, options = {}) {
 	const sanitize = options.sanitize ?? (row => row)
-	const input = createReadStream(filePath, { encoding: 'utf8' })
-	// stream 内部异步 open 失败会触发 'error' 事件；提前订阅避免 unhandled error，
-	// 真实错误仍由下方 for-await 抛出，被外层 try/catch 收口。
-	input.on('error', () => { })
-	const lines = createInterface({ input, crlfDelay: Infinity })
-	try {
-		for await (const line of lines) {
-			const row = parseJsonlLine(line, sanitize)
-			if (row) yield row
-		}
-	}
-	catch (error) {
-		if (error?.code !== 'ENOENT') throw error
+	for await (const line of readJsonlRawLines(filePath)) {
+		const row = parseJsonlLine(line, sanitize)
+		if (row) yield row
 	}
 }
 
 /**
- * 流式过滤重写 JSONL：保留 `keep(row)===true` 的行。
+ * 流式过滤重写 JSONL：保留 `keep(row)===true` 的行，写回的是原始行字节，
+ * `sanitize` 只影响传给 `keep` 的值。
+ *
+ * 在 `jsonlMutexKey(filePath)` 互斥锁内执行；调用方不得已持有同一文件的锁（不可重入）。
  * @param {string} filePath 目标路径
- * @param {(row: object) => boolean} keep 保留谓词
+ * @param {(row: object) => boolean | Promise<boolean>} keep 保留谓词（可异步）
  * @param {{ sanitize?: (row: object) => object }} [options] 读行净化
  * @returns {Promise<{ kept: number, dropped: number }>} 统计
  */
 export async function rewriteJsonlKeeping(filePath, keep, options = {}) {
-	const dir = dirname(filePath)
-	await mkdir(dir, { recursive: true })
-	const temporaryPath = atomicTemporaryPath(filePath)
-	/** @type {object[]} */
-	const buffer = []
-	let kept = 0
-	let dropped = 0
-	/** @returns {Promise<void>} */
-	const flush = async () => {
-		if (!buffer.length) return
-		let block = ''
-		for (const row of buffer)
-			block += `${JSON.stringify(row)}\n`
-		await appendFile(temporaryPath, block, 'utf8')
-		buffer.length = 0
-	}
-	try {
-		for await (const row of readJsonlStream(filePath, options))
-			if (keep(row)) {
-				buffer.push(row)
-				kept++
-				if (buffer.length >= WRITE_JSONL_CHUNK_LINES)
-					await flush()
-			}
-			else dropped++
-		await flush()
-	}
-	catch { /* source missing */ }
-	if (kept > 0 || dropped > 0)
-		await finalizeAtomicRename(temporaryPath, filePath)
-	else
-		try { await writeFile(filePath, '', 'utf8') }
-		catch { /* ok */ }
-
-	return { kept, dropped }
+	return withAsyncMutex(jsonlMutexKey(filePath), () => rewriteJsonlKeepingUnlocked(filePath, keep, options))
 }
 
 /**
- * 读取 JSONL 末行事件的 `id`（DAG tip）；空文件为 null。
+ * `rewriteJsonlKeeping` 的无锁实现，调用方须已持有该文件互斥锁。
+ * @param {string} filePath 目标路径
+ * @param {(row: object) => boolean | Promise<boolean>} keep 保留谓词（可异步）
+ * @param {{ sanitize?: (row: object) => object }} [options] 读行净化
+ * @returns {Promise<{ kept: number, dropped: number }>} 统计
+ */
+async function rewriteJsonlKeepingUnlocked(filePath, keep, options = {}) {
+	const sanitize = options.sanitize ?? (row => row)
+	const temporaryPath = atomicTemporaryPath(filePath)
+	let tempCreated = false
+	/** @type {string[]} */
+	const buffer = []
+	let kept = 0
+	let dropped = 0
+	let invalid = 0
+	/** @returns {Promise<void>} 将缓冲区原始行写入临时文件 */
+	const flush = async () => {
+		if (!buffer.length) return
+		const block = buffer.map(line => `${line}\n`).join('')
+		await appendFile(temporaryPath, block, 'utf8')
+		tempCreated = true
+		buffer.length = 0
+	}
+	try {
+		for await (const raw of readJsonlRawLines(filePath)) {
+			if (!raw.trim()) continue
+			let row
+			try {
+				row = sanitize(JSON.parse(raw.trim()))
+			}
+			catch {
+				invalid++
+				dropped++
+				continue
+			}
+			if (await keep(row)) {
+				buffer.push(raw)
+				kept++
+				if (buffer.length >= WRITE_JSONL_CHUNK_LINES) await flush()
+			}
+			else dropped++
+		}
+		await flush()
+		if (dropped === 0 && invalid === 0) {
+			if (tempCreated) await unlink(temporaryPath).catch(() => { })
+			return { kept, dropped }
+		}
+		await mkdir(dirname(filePath), { recursive: true })
+		if (!tempCreated) {
+			await writeFile(temporaryPath, '', 'utf8')
+			tempCreated = true
+		}
+		const fileHandle = await open(temporaryPath, 'r+')
+		try {
+			await fileHandle.sync()
+		}
+		finally {
+			await fileHandle.close()
+		}
+		await finalizeAtomicRename(temporaryPath, filePath)
+		return { kept, dropped }
+	}
+	catch (error) {
+		if (tempCreated) await unlink(temporaryPath).catch(() => { })
+		throw error
+	}
+}
+
+/**
+ * 读取 JSONL 末条可解析事件的 `id`（DAG tip）；从文件尾部最多读 1 MiB，
+ * 跳过撕裂/坏行后取最后一个非空且 `id` 非 null 的行；空文件或缺失为 null。
  * @param {string} filePath 文件路径
  * @returns {Promise<string | null>} tip event id
  */
@@ -132,14 +192,20 @@ export async function readJsonlTipId(filePath) {
 		try {
 			const { size } = await fh.stat()
 			if (!size) return null
-			const chunk = Math.min(size, 65_536)
+			const chunk = Math.min(size, 1_048_576)
 			const buffer = Buffer.alloc(chunk)
 			await fh.read(buffer, 0, chunk, size - chunk)
-			const lines = buffer.toString('utf8').split('\n').filter(Boolean)
-			const last = lines[lines.length - 1]
-			if (!last) return null
-			const row = JSON.parse(last)
-			return row?.id != null ? String(row.id) : null
+			const lines = buffer.toString('utf8').split('\n')
+			for (let index = lines.length - 1; index >= 0; index--) {
+				const line = lines[index].trim()
+				if (!line) continue
+				try {
+					const row = JSON.parse(line)
+					if (row && typeof row === 'object' && row.id != null) return String(row.id)
+				}
+				catch { /* 撕裂/坏行：继续向前找 */ }
+			}
+			return null
 		}
 		finally {
 			await fh.close()
@@ -151,30 +217,50 @@ export async function readJsonlTipId(filePath) {
 }
 
 /**
- * 流式重写 JSONL（临时文件 + rename），避免大数组 join 的内存峰值。
+ * 流式写入原始 JSONL 行（临时文件 + fsync + rename），每行自动补 `\n`。
+ * 不取锁——调用方需自行持有 `jsonlMutexKey(filePath)`。
+ * @param {string} filePath 目标路径
+ * @param {Iterable<string>} lines 原始行（不含换行）
+ * @returns {Promise<void>}
+ */
+export async function writeJsonlLines(filePath, lines) {
+	const dir = dirname(filePath)
+	await mkdir(dir, { recursive: true })
+	const temporaryPath = atomicTemporaryPath(filePath)
+	/** @returns {Generator<string>} 带换行的行 */
+	function* withEol() {
+		for (const line of lines)
+			yield `${line}\n`
+	}
+	await pipeline(Readable.from(withEol()), createWriteStream(temporaryPath, { encoding: 'utf8' }))
+	const fileHandle = await open(temporaryPath, 'r+')
+	try {
+		await fileHandle.sync()
+	}
+	finally {
+		await fileHandle.close()
+	}
+	await finalizeAtomicRename(temporaryPath, filePath)
+}
+
+/**
+ * 流式重写 JSONL（临时文件 + fsync + rename），避免大数组 join 的内存峰值。
+ * 不取锁——`mailbox/store.mjs` 等调用方在自己的 `jsonlMutexKey` 锁内调用；
+ * 需要锁时用 `writeJsonlSynced`。
  * @param {string} filePath 目标路径
  * @param {object[]} records 行对象列表
  * @returns {Promise<void>}
  */
 export async function writeJsonl(filePath, records) {
-	const dir = dirname(filePath)
-	await mkdir(dir, { recursive: true })
-	const temporaryPath = atomicTemporaryPath(filePath)
-	/** @returns {Generator<string>} JSONL 行 */
-	function* lines() {
-		for (const rec of records)
-			yield `${JSON.stringify(rec)}\n`
-	}
-	await pipeline(Readable.from(lines()), createWriteStream(temporaryPath, { encoding: 'utf8' }))
-	await finalizeAtomicRename(temporaryPath, filePath)
+	return writeJsonlLines(filePath, records.map(record => JSON.stringify(record)))
 }
 
 /**
  * @param {string} filePath JSONL 路径
- * @returns {string} 进程内互斥键
+ * @returns {string} 进程内互斥键（路径已规范化为绝对路径）
  */
 export function jsonlMutexKey(filePath) {
-	return `jsonl:${filePath}`
+	return `jsonl:${resolve(filePath)}`
 }
 
 /**
@@ -188,21 +274,23 @@ export async function writeJsonlSynced(filePath, records) {
 }
 
 /**
- * 追加一行 JSONL 并 `fsync`。
+ * 追加一行 JSONL 并 `fsync`；与 rewrite 共用同一 per-file 互斥锁。
  * @param {string} filePath 目标路径
  * @param {object} record 记录对象
  * @returns {Promise<void>}
  */
 export async function appendJsonlSynced(filePath, record) {
-	await mkdir(dirname(filePath), { recursive: true })
-	const fh = await open(filePath, 'a')
-	try {
-		await fh.appendFile(`${JSON.stringify(record)}\n`, 'utf8')
-		await fh.sync()
-	}
-	finally {
-		await fh.close()
-	}
+	return withAsyncMutex(jsonlMutexKey(filePath), async () => {
+		await mkdir(dirname(filePath), { recursive: true })
+		const fh = await open(filePath, 'a')
+		try {
+			await fh.appendFile(`${JSON.stringify(record)}\n`, 'utf8')
+			await fh.sync()
+		}
+		finally {
+			await fh.close()
+		}
+	})
 }
 
 /**
