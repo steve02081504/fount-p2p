@@ -1,13 +1,20 @@
 package io.github.steve02081504.fountp2p.timeline
 
+import io.github.steve02081504.fountp2p.core.Json
+import io.github.steve02081504.fountp2p.dag.jsonlMutexKey
 import io.github.steve02081504.fountp2p.dag.readJsonl
 import io.github.steve02081504.fountp2p.dag.writeJsonl
 import io.github.steve02081504.fountp2p.deleteRecursively
+import io.github.steve02081504.fountp2p.utils.withAsyncMutex
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 
 /**
  * `timeline/prune.mjs` 与 `timeline/retention.mjs` 行为测试
@@ -181,6 +188,135 @@ class PruneRetentionTest {
 
 			assertEquals(PruneStats(true, 3, 1), stats)
 			assertEquals(listOf(e2, e3, e4), readJsonl(path).map { it["id"] })
+		}
+		finally {
+			deleteRecursively(dir)
+		}
+	}
+
+	private fun stripReceivedAt(row: Map<String, Any?>): Map<String, Any?> =
+		LinkedHashMap(row).apply { remove("receivedAt") }
+
+	private fun rawLines(path: String): List<String> =
+		Files.readString(Path.of(path)).lines().filter { it.isNotBlank() }
+
+	@Test
+	fun `pruneEventsJsonlAfterCheckpoint preserves raw lines stripped by sanitize`() = runBlocking {
+		val dir = tempDir()
+		try {
+			val tip = hex('1')
+			val child = hex('2')
+			val orphan = hex('3')
+			val path = dir.resolve("events.jsonl").toString()
+			val tipRaw = Json.stringify(event(tip, emptyList(), 1.0) + mapOf("receivedAt" to 111.0))!!
+			val childRaw = Json.stringify(event(child, listOf(tip), 2.0) + mapOf("receivedAt" to 222.0))!!
+			val orphanRaw = Json.stringify(event(orphan, emptyList(), 3.0))!!
+			Files.writeString(Path.of(path), listOf(tipRaw, childRaw, orphanRaw).joinToString("\n") + "\n")
+
+			val stats = pruneEventsJsonlAfterCheckpoint(path, mapOf("checkpoint_event_id" to tip), ::stripReceivedAt)
+
+			assertEquals(PruneStats(true, 2, 1), stats)
+			assertEquals(listOf(tipRaw, childRaw), rawLines(path))
+		}
+		finally {
+			deleteRecursively(dir)
+		}
+	}
+
+	@Test
+	fun `enforceTimelineEventRetention preserves raw lines stripped by sanitize`() = runBlocking {
+		val dir = tempDir()
+		try {
+			val e1 = hex('1')
+			val e2 = hex('2')
+			val e3 = hex('3')
+			val e4 = hex('4')
+			val path = dir.resolve("events.jsonl").toString()
+			val e1Raw = Json.stringify(event(e1, emptyList(), 1.0))!!
+			val e2Raw = Json.stringify(event(e2, listOf(e1), 2.0))!!
+			val e3Raw = Json.stringify(event(e3, listOf(e2), 3.0) + mapOf("receivedAt" to 333.0))!!
+			val e4Raw = Json.stringify(event(e4, listOf(e3), 4.0))!!
+			Files.writeString(Path.of(path), listOf(e1Raw, e2Raw, e3Raw, e4Raw).joinToString("\n") + "\n")
+
+			val stats = enforceTimelineEventRetention(
+				path,
+				mapOf("checkpoint_event_id" to e2),
+				policy(),
+				::stripReceivedAt,
+			)
+
+			assertEquals(PruneStats(true, 3, 1), stats)
+			assertEquals(listOf(e2Raw, e3Raw, e4Raw), rawLines(path))
+		}
+		finally {
+			deleteRecursively(dir)
+		}
+	}
+
+	@Test
+	fun `pruneEventsJsonlAfterCheckpoint reads events under the jsonl mutex`() = runBlocking {
+		val dir = tempDir()
+		try {
+			val root = hex('0')
+			val tip = hex('1')
+			val orphan = hex('2')
+			val child = hex('3')
+			val path = dir.resolve("events.jsonl").toString()
+			writeJsonl(
+				path,
+				listOf(event(root, emptyList(), 1.0), event(tip, listOf(root), 2.0), event(orphan, emptyList(), 1.5)),
+			)
+			val childRaw = Json.stringify(event(child, listOf(tip), 3.0))!!
+
+			val job = withAsyncMutex(jsonlMutexKey(path)) {
+				val started = launch { pruneEventsJsonlAfterCheckpoint(path, mapOf("checkpoint_event_id" to tip)) }
+				yield()
+				Files.writeString(Path.of(path), childRaw + "\n", StandardOpenOption.APPEND)
+				started
+			}
+			job.join()
+
+			assertTrue(rawLines(path).contains(childRaw))
+			assertEquals(listOf(tip, child), readJsonl(path).map { it["id"] })
+		}
+		finally {
+			deleteRecursively(dir)
+		}
+	}
+
+	@Test
+	fun `enforceTimelineEventRetention reads events under the jsonl mutex`() = runBlocking {
+		val dir = tempDir()
+		try {
+			val e1 = hex('1')
+			val e2 = hex('2')
+			val e3 = hex('3')
+			val e4 = hex('4')
+			val e5 = hex('5')
+			val path = dir.resolve("events.jsonl").toString()
+			writeJsonl(
+				path,
+				listOf(
+					event(e1, emptyList(), 1.0),
+					event(e2, listOf(e1), 2.0),
+					event(e3, listOf(e2), 3.0),
+					event(e4, listOf(e3), 4.0),
+				),
+			)
+			val e5Raw = Json.stringify(event(e5, listOf(e4), 5.0))!!
+
+			val job = withAsyncMutex(jsonlMutexKey(path)) {
+				val started = launch {
+					enforceTimelineEventRetention(path, mapOf("checkpoint_event_id" to e2), policy())
+				}
+				yield()
+				Files.writeString(Path.of(path), e5Raw + "\n", StandardOpenOption.APPEND)
+				started
+			}
+			job.join()
+
+			assertTrue(rawLines(path).contains(e5Raw))
+			assertEquals(listOf(e2, e3, e4, e5), readJsonl(path).map { it["id"] })
 		}
 		finally {
 			deleteRecursively(dir)
