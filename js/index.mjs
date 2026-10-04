@@ -37,6 +37,7 @@ import {
 	unlockReputationMax,
 } from './node/reputation_sync.mjs'
 import { getRoutingProfile, setRoutingProfile } from './node/routing_profile.mjs'
+import { attachNetworkVerification, createNetworkVerificationService, getNetworkVerificationService, proveNetworkVerification } from './node/verification.mjs'
 import { createGroupLinkSet } from './transport/group_link_set.mjs'
 import {
 	configureLinkRegistry,
@@ -62,12 +63,14 @@ import {
  * 包门面：节点、infra、mesh/registry、信誉同步、node-scope 等公开导出。
  */
 export {
+	attachNetworkVerification,
 	attachReputationSyncWire,
 	attachNodeScopeDefaultFeatures,
 	closeNode,
 	configureLinkRegistry,
 	configureNodeStorage,
 	createGroupLinkSet,
+	createNetworkVerificationService,
 	createScopedLinkRoom,
 	ensureChannelAvailable,
 	ensureLinkToNode,
@@ -76,6 +79,7 @@ export {
 	ensureOverlayRouter,
 	ensureUserRoom,
 	getLinkRegistry,
+	getNetworkVerificationService,
 	getNodeDir,
 	getNodeHash,
 	getNodePopulationEstimate,
@@ -93,6 +97,7 @@ export {
 	loadReputation,
 	lockReputationMax,
 	onPeerHealth,
+	proveNetworkVerification,
 	pullReputationFromNode,
 	registerDiscoveryProvider,
 	registerLinkProvider,
