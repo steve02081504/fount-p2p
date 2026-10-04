@@ -388,4 +388,3 @@ fun createPopulationMonitorHandle(options: PopulationMonitorOptions): Map<String
 	val monitor = createPopulationMonitor(options)
 	return linkedMapOf("stop" to { monitor.stop() })
 }
-

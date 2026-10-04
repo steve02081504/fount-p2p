@@ -296,4 +296,3 @@ class NostrLinkProvider(options: Map<String, Any?> = emptyMap()) : LinkProvider 
  */
 @JvmOverloads
 fun createNostrLinkProvider(options: Map<String, Any?> = emptyMap()): NostrLinkProvider = NostrLinkProvider(options)
-
