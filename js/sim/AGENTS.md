@@ -15,7 +15,7 @@ In-process co-evolution of **tunables** (`*.tunables.json`) against an **attack 
 - **`PARAM_SPACE` ↔ defaults:** every `PARAM_SPACE` key must exist in `loadDefaultTunables()`; clear both sides when deleting a key.
 - **`socialRepHideThreshold`:** hide when `score < threshold`. Default `0` (suppress negatives only). Raise the threshold to raise `falsePositiveRate` — never use a negative threshold for "stricter".
 - **Heuristic proxy** (not the real path): `model.mjs`, `discovery.mjs`, `transport.mjs`, `integrity.mjs` — analytical "params → defense" only.
-- **Mesh-first:** explore slots and cold-start join are mandatory; fanout/trust stay separate from link presence. Policy: [docs/mesh.md](../docs/mesh.md). Wiring: [cold_start.md](cold_start.md).
+- **Mesh-first:** explore slots and cold-start join are mandatory; fanout/trust stay separate from link presence. Policy: [docs/mesh.md](../docs/mesh.md). Wiring: [docs/cold_start.md](docs/cold_start.md).
 
 ## Anti-drift
 

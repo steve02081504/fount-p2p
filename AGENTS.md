@@ -1,29 +1,28 @@
 # fount-p2p monorepo
 
-fount 联邦 P2P 层。本仓库同时包含两套等价实现：
+fount federated P2P layer. This repo ships two equivalent implementations:
 
-| 目录 | 语言 | 说明 |
+| Directory | Language | Role |
 |---|---|---|
-| `js/` | JavaScript (ESM, Node ≥20) | 原始实现 `@steve02081504/fount-p2p` |
-| `kotlin/` | Kotlin/JVM | 等价移植，产出 Maven 包 `io.github.steve02081504:fount-p2p`，供 Android/fount 手机端使用 |
+| `js/` | JavaScript (ESM, Node ≥20) | Original implementation, `@steve02081504/fount-p2p` |
+| `kotlin/` | Kotlin/JVM | Equivalent port published as the Maven package `io.github.steve02081504:fount-p2p` for the Android / fount mobile side |
 
-两套实现按模块一一对应（`js/core/x.mjs` ↔ `kotlin/src/main/.../core/X.kt`），
-且每个 JS 测试在 Kotlin 侧都有等价测试。
+The two implementations map one module to one module (`js/core/x.mjs` ↔ `kotlin/src/main/.../core/X.kt`), and every JS test has an equivalent Kotlin test.
 
-## 构建与测试
+## Build and test
 
-### JS（`js/`）
+### JS (`js/`)
 
 ```bash
 cd js
 npm install
 npm test            # pure + integration + frontend
-npm run test:live   # 实时 link / LAN smoke（需要网络）
+npm run test:live   # live link / LAN smoke (needs network)
 ```
 
-### Kotlin（`kotlin/`）
+### Kotlin (`kotlin/`)
 
-需 JDK 17–21（推荐 Android Studio JBR）与 `GRADLE_USER_HOME=E:\Gradle`（本机已缓存离线依赖）：
+Needs JDK 17–21 (Android Studio JBR recommended) and `GRADLE_USER_HOME=E:\Gradle` (offline dependencies are cached on this machine):
 
 ```powershell
 cd kotlin
@@ -32,4 +31,8 @@ $env:JAVA_HOME = 'E:\Android Studio\jbr'
 .\gradlew.bat test --offline
 ```
 
-详见 [kotlin/AGENTS.md](kotlin/AGENTS.md) 与 [js/AGENTS.md](js/AGENTS.md)。
+Details: [kotlin/AGENTS.md](kotlin/AGENTS.md) and [js/AGENTS.md](js/AGENTS.md).
+
+## Docs language
+
+Every `AGENTS.md` and each `.md` reachable from it through local links is written in English (a non-`AGENTS.md` doc in that closure lives under a `docs/` directory), and source JSDoc summaries are Chinese. Both rules are enforced by the static checks described in [js/AGENTS.md](js/AGENTS.md); run `cd js; npm run test:checks`.

@@ -1,26 +1,33 @@
-# fount-p2p Kotlin 移植指南
+# fount-p2p Kotlin port guide
 
-本目录是 `js/`（`@steve02081504/fount-p2p`）的 Kotlin/JVM 等价实现，
-目标产物是可用 Maven 依赖的 Android/JVM 库。
+This directory is the Kotlin/JVM equivalent of `js/` (`@steve02081504/fount-p2p`); the artifact is a plain Android/JVM library consumable as a Maven dependency.
 
-## 构建 / 测试
+## Build / test
 
-本机需使用 JDK 17–21（推荐 Android Studio 自带 JBR = 21）与 `GRADLE_USER_HOME=E:\Gradle`
-（缓存了 Kotlin 2.2.10 插件、BouncyCastle、Gson、coroutines、JUnit4；离线可构建）。
+On this machine use JDK 17–21 (Android Studio's bundled JBR = 21 recommended) and `GRADLE_USER_HOME=E:\Gradle` (the Kotlin 2.2.10 plugin, BouncyCastle, Gson, coroutines and JUnit4 are cached there, so offline builds work).
 
 ```powershell
 $env:GRADLE_USER_HOME = 'E:\Gradle'
 $env:JAVA_HOME = 'E:\Android Studio\jbr'
-.\gradlew.bat test --offline --console=plain                 # 全部测试
+.\gradlew.bat test --offline --console=plain                 # all tests
 .\gradlew.bat test --offline --console=plain --tests 'io.github.steve02081504.fountp2p.core.*'
-.\gradlew.bat compileKotlin --offline --console=plain        # 仅编译主源码
+.\gradlew.bat compileKotlin --offline --console=plain        # main sources only
 ```
 
-Maven 坐标：`io.github.steve02081504:fount-p2p:<version>`（version 自动读取 `../js/package.json`）。
+On this machine the default Windows `TEMP` directory makes the JVM's Unix domain socket fail inside `Selector.open()` with `Unable to establish loopback connection` / `Invalid argument: connect`. A separate socket directory is therefore configured for the Gradle client and daemon in `E:\Gradle\gradle.properties`:
 
-## 目录 ↔ 包映射
+```properties
+systemProp.jdk.net.unixdomain.tmpdir=E:/Gradle/socket-tmp
+org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8 -Djdk.net.unixdomain.tmpdir=E:/Gradle/socket-tmp
+```
 
-Kotlin 包根为 `io.github.steve02081504.fountp2p`，与 JS 目录一一对应：
+`E:\Gradle\init.d\windows-socket-tmp.gradle` sets the same system property for `Test` / `JavaExec` workers so test subprocesses do not fall back to the default `TEMP`. That directory must exist; other machines should point at their own writable directory and keep their existing JVM arguments. No project source and no global `TEMP` change is needed.
+
+Maven coordinates: `io.github.steve02081504:fount-p2p:<version>` (the version is read from `../js/package.json`).
+
+## Directory ↔ package mapping
+
+The Kotlin package root is `io.github.steve02081504.fountp2p`, mirroring the JS directories one to one:
 
 | JS | Kotlin |
 | --- | --- |
@@ -32,75 +39,57 @@ Kotlin 包根为 `io.github.steve02081504.fountp2p`，与 JS 目录一一对应�
 | `js/node/...` | `.../node/...` |
 | `js/test/pure/x.test.mjs` | `src/test/kotlin/.../<pkg>/XTest.kt` |
 
-文件名用 PascalCase；一个 `.mjs` 对应一个 `.kt`（同目录同类功能可合并，但优先 1:1 便于对照）。
+File names use PascalCase; one `.mjs` maps to one `.kt` (same-directory related functionality may be merged, but prefer 1:1 for easy comparison).
 
-## 约定
+## Conventions
 
-- **JSON 模型**：`typealias JsonValue = Any?`，对象是 `Map<String, Any?>`（构造时用
-  `LinkedHashMap` 保证键序与 JS 一致），数组是 `List<Any?>`。数字统一为 `Double`（等价 JS）。
-  用 `Json` 对象访问：`Json.str/obj/arr/bool/num/long/int/at`；用 `Json.parse`、
-  `Json.stringify`、`canonicalStringify`（= `core.canonicalStringify`）序列化。
-  `JsonUndefined` 是 `undefined` 哨兵（对象键被跳过、数组元素序列化为 `null`）。
-- **JS 数字/JSON 语义**：`Json.jsNumberToString` 精确复刻 ECMAScript `Number::toString`
-  （如 `1.0→"1"`、`1e21→"1e+21"`）。任何参与哈希/签名的 JSON 必须走该路径。
-- **解析结果**：wire/入站解析函数返回 `Map<String, Any?>?`（保持 JS 键序），非法返回 `null`；
-  校验失败抛异常的函数保持消息文本一致（如 `"p2p: invalid hex"`）。
-- **异步**：I/O（文件、网络）用 `suspend`；纯计算（crypto、schema 校验）保持同步。
-  并发用 `kotlinx.coroutines`；测试用 `runBlocking`。
-- **crypto**：Ed25519/X25519 用 BouncyCastle（`bcprov-jdk18on`），SHA/HMAC/AES-GCM 用 JCA。
-  禁止 `node:crypto` 等价物的平台不兼容 API；Android 兼容性优先。
-- **错误信息**：尽量与 JS 原文一致，便于对照测试。
-- **注释/文档**：保留 JS 的 KDoc/中文说明；不要写无意义注释。
-- **JSONL 读改写**：`rewriteJsonlKeeping` / `appendJsonlSynced` / `writeJsonlSynced` 自身会取共享的 `jsonlMutexKey` 锁，**不可重入**——持有同一 key 时不要再调用它们（改用无锁的 `writeJsonl` / `writeJsonlLines`）。重写保留原始行（传给 `rewriteJsonlKeeping` / `readJsonlEntries` 的 `sanitize` 只影响交给谓词的值），无删除时跳过 rename。
-- **不要提交**：subagent 只改代码，由主流程统一提交。
+- **JSON model:** `typealias JsonValue = Any?`; objects are `Map<String, Any?>` (built with `LinkedHashMap` so key order matches JS), arrays are `List<Any?>`, numbers are uniformly `Double` (equivalent to JS). Access through the `Json` object: `Json.str/obj/arr/bool/num/long/int/at`; serialize with `Json.parse`, `Json.stringify`, `canonicalStringify` (= `core.canonicalStringify`). `JsonUndefined` is the `undefined` sentinel (object keys are skipped, array elements serialize to `null`).
+- **JS number / JSON semantics:** `Json.jsNumberToString` reproduces ECMAScript `Number::toString` exactly (e.g. `1.0→"1"`, `1e21→"1e+21"`). Any JSON that participates in hashing / signing must go through that path.
+- **Parse results:** wire / ingress parse functions return `Map<String, Any?>?` (preserving JS key order) and `null` when invalid; functions that throw on validation failure keep the message text identical (e.g. `"p2p: invalid hex"`).
+- **Async:** I/O (files, network) uses `suspend`; pure computation (crypto, schema validation) stays synchronous. Concurrency uses `kotlinx.coroutines`; tests use `runBlocking`.
+- **crypto:** Ed25519/X25519 via BouncyCastle (`bcprov-jdk18on`), SHA/HMAC/AES-GCM via JCA. Platform-incompatible equivalents of `node:crypto` are forbidden; Android compatibility comes first.
+- **Error messages:** keep them as close to the JS text as possible so the paired tests can compare.
+- **Comments / docs:** keep the JS KDoc/Chinese explanations; do not write meaningless comments.
+- **JSONL read-modify-write:** `rewriteJsonlKeeping` / `appendJsonlSynced` / `writeJsonlSynced` take the shared `jsonlMutexKey` lock themselves and are **not reentrant** — never call them while already holding the same key (use the lock-free `writeJsonl` / `writeJsonlLines` instead). Rewrites preserve the original raw line (a `sanitize` passed to `rewriteJsonlKeeping` / `readJsonlEntries` only affects the value handed to the predicate) and skip the rename when nothing is dropped.
+- **Do not commit:** subagents only change code; the main flow commits.
 
-## 移植流程（每个模块）
+## Porting flow (per module)
 
-1. 读 `js/<module>/*.mjs` 与对应 `js/test/pure/*.test.mjs`。
-2. 写 Kotlin 等价实现（保持函数名语义与行为）。
-3. **为每个 JS 测试写一个 Kotlin 等价测试**（`@Test` 方法名可去掉非法字符 `.` `/`）。
-4. `.\gradlew.bat test --offline` 跑通。
-5. 记录行为差异（若不得不偏离 JS，写在文件头 KDoc 里）。
+1. Read `js/<module>/*.mjs` and the matching `js/test/pure/*.test.mjs`.
+2. Write the Kotlin equivalent (keep function-name semantics and behavior).
+3. **Write one Kotlin equivalent test per JS test** (`@Test` method names may drop illegal `.` `/` characters).
+4. Get `.\gradlew.bat test --offline` green.
+5. Record behavioral differences (when a deviation from JS is unavoidable, write it in the file-header KDoc).
 
-## 平台抽象约定（网络层）
+## Platform abstraction conventions (network layer)
 
-Android/JVM 侧没有 `ws` / WebRTC / `node:dgram` 等运行时，平台相关能力一律通过
-**注入式接口** 提供（放在 `.../fountp2p/transport/` 或各 provider 包内）：
+Android/JVM has no `ws` / WebRTC / `node:dgram` runtimes, so platform capabilities are always provided through **injected interfaces** (under `.../fountp2p/transport/` or inside each provider package):
 
-- `WebSocketProvider`（nostr relay）、`TcpDialer` / `UdpSocket`（LAN）、`RtcProvider`（WebRTC）、
-  `BluetoothProvider`（BLE）、`LanInterfaceProvider`（本地网卡枚举）。
-- 库内只实现协议/状态机/纯逻辑；接口默认实现可抛 `UnsupportedOperationException`，
-  测试用 fake，Android app 注入真实实现（OkHttp / 系统 API / WebRTC 原生库）。
-- 每个接口都应有对应 JVM 参考实现（OkHttp 4.12 已缓存：WebSocket + TCP；UDP 用 `DatagramChannel`）。
+- `WebSocketProvider` (nostr relay), `TcpDialer` / `UdpSocket` (LAN), `RtcProvider` (WebRTC), `BluetoothProvider` (BLE), `LanInterfaceProvider` (local interface enumeration).
+- The library implements protocols / state machines / pure logic only; interface defaults may throw `UnsupportedOperationException`, tests use fakes, and the Android app injects the real implementation (OkHttp / system APIs / native WebRTC libraries).
+- Every interface should have a JVM reference implementation (OkHttp 4.12 is cached: WebSocket + TCP; UDP uses `DatagramChannel`).
 
-## 已完成（全部 JS 模块已 1:1 移植）
+## Done (every JS module is ported 1:1)
 
-- L0：`core/`、`utils/`、`crypto/`、`schemas/`
-- `dag/`、`registries/`、`wire/`、`trust_graph/`（含 build/cache/send）、`reputation/`、
-  `permissions/`、`federation/`、`governance/`、`mailbox/`（含 deliver_or_store）、
-  `node/`（含 identity、reputation_sync）、`timeline/`、`files/`（EVFS）、
-  `link/`、`discovery/`、`transport/`（含 link_registry、rooms、node_scope）、
-  `overlay/`、`infra/`
-- 门面：`FountP2p.kt`（`startNode` + `FountP2p` 聚合入口）
-- 测试 505 个，全绿（`.\gradlew.bat test --offline`）。
+- L0: `core/`, `utils/`, `crypto/`, `schemas/`
+- `dag/`, `registries/`, `wire/`, `trust_graph/` (including build/cache/send), `reputation/`,
+  `permissions/`, `federation/`, `governance/`, `mailbox/` (including deliver_or_store),
+  `node/` (including identity, reputation_sync), `timeline/`, `files/` (EVFS),
+  `link/`, `discovery/`, `transport/` (including link_registry, rooms, node_scope),
+  `overlay/`, `infra/`
+- Facade: `FountP2p.kt` (`startNode` + the `FountP2p` aggregate entry point)
+- 533 tests, all green (`.\gradlew.bat test --offline`).
 
-## 平台相关（Android 端需注入）
+## Platform-specific (Android must inject)
 
-以下能力以接口抽象、库内只有协议/状态机；JVM 侧提供 `LanInterfaceProvider`（`java.net`）、
-DNS、NIP-11 HTTP 参考实现，其余需宿主注入：
+The following capabilities are abstracted behind interfaces with only protocols / state machines inside the library; the JVM side provides `LanInterfaceProvider` (`java.net`), DNS and a NIP-11 HTTP reference implementation, the rest must be injected by the host:
 
-- `discovery.nostr.WebSocketProvider`（relay WS）、`link.providers.TcpDialer`（LAN TCP）、
-  `discovery.UdpSocketProvider`（LAN 组播）、`link.rtc.RtcProvider`（WebRTC）、
-  `discovery.bt.BluetoothProvider`（BLE；`BleGatt` 的 accept/`ensureListening` 路径由宿主补齐）。
-- BIP340 Schnorr 已在库内实现（`crypto/Schnorr.kt`，含 noble 生成的向量测试），
-  nostr 事件签名/发布（`discovery/nostr/Event.kt` 的 `signNostrEvent` / `publishEvent`）
-  与 provider 的 `sendNodeSignal` / `listenNodeSignals` / `startPresence` / `startGroupPresence` 均已接回。
+- `discovery.nostr.WebSocketProvider` (relay WS), `link.providers.TcpDialer` (LAN TCP), `discovery.UdpSocketProvider` (LAN multicast), `link.rtc.RtcProvider` (WebRTC), `discovery.bt.BluetoothProvider` (BLE; the `BleGatt` accept / `ensureListening` paths must be completed by the host).
+- BIP340 Schnorr is implemented in-library (`crypto/Schnorr.kt`, with vectors generated by noble); nostr event signing / publishing (`signNostrEvent` / `publishEvent` in `discovery/nostr/Event.kt`) and the provider's `sendNodeSignal` / `listenNodeSignals` / `startPresence` / `startGroupPresence` are wired back in.
 
-## 仍延后 / 未覆盖
+## Still deferred / not covered
 
-- `js/sim/`（dev-only tunables 协同演化 harness）未移植。
-- `js/test/live/**`（真实网络/双机）与 `js/test/fount/**`（Deno 跨仓桥）未移植；
-  其等价断言尽量以 fake provider 覆盖在 pure 测试中。
-- 少量依赖真实介质/冷启预算的 JS 用例（`startup_budget` 等）未移植。
-- nostr `connectToNode` 的 adhoc 中继订阅（JS `ensurePeerRelaySubscriptions`）未接回；
-  `extraSubs` 容器已就位，`dispose` 会清理。
+- `js/sim/` (the dev-only tunables co-evolution harness) is not ported.
+- `js/test/live/**` (real network / two-machine) and `js/test/fount/**` (Deno cross-repo bridge) are not ported; their equivalent assertions are covered by fake providers in the pure tests wherever possible.
+- A few JS cases that depend on real media or cold-start budgets (`startup_budget` etc.) are not ported.
+- The adhoc relay subscription of nostr `connectToNode` (JS `ensurePeerRelaySubscriptions`) is not wired back; the `extraSubs` container is in place and `dispose` cleans it up.
