@@ -1,29 +1,34 @@
 /**
  * 仓库 UTF-8 文本文件须使用 LF 换行（text_lf 检查）。
- * 单测各检测/修复函数，并对全仓做只读扫描断言 0 问题。
+ * 单测各检测/修复函数，并对全仓做只读扫描断言 0 问题（写回需显式跑 `npm run check:text_lf:fix`）。
  */
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import {
+	detectFinalNewline,
 	detectLeadingLf,
 	detectNonLfLineEndings,
 	fixFileTextLf,
 	isUtf8Text,
-	listRepoFiles,
 	scanFileTextLf,
 	scanTextLf,
-} from '../../scripts/text_lf.mjs'
+} from '../../scripts/checks/text_lf.mjs'
 import { assertEquals } from '../helpers/assert.mjs'
 
 const encoder = new TextEncoder()
+/** 仓库根（`js/` 的父目录，含 `kotlin/` 与根文档）。 */
+const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 test('isUtf8Text: accepts plain UTF-8', () => {
 	assertEquals(isUtf8Text(encoder.encode('hello\n中文')), true)
 })
 
-test('isUtf8Text: rejects NUL and invalid UTF-8', () => {
+test('isUtf8Text: rejects NUL, C0 controls and invalid UTF-8', () => {
 	assertEquals(isUtf8Text(new Uint8Array([0x61, 0x00, 0x62])), false)
+	assertEquals(isUtf8Text(new Uint8Array([0x50, 0x4b, 0x03, 0x04])), false)
 	assertEquals(isUtf8Text(new Uint8Array([0xff, 0xfe])), false)
+	assertEquals(isUtf8Text(new Uint8Array([...encoder.encode('a\tb\r\nc')])), true)
 })
 
 test('detectNonLfLineEndings: LF only', () => {
@@ -40,6 +45,14 @@ test('detectNonLfLineEndings: lone CR', () => {
 
 test('detectNonLfLineEndings: mixed', () => {
 	assertEquals(detectNonLfLineEndings(encoder.encode('{\r\n"a": 1\r}')), 'mixed')
+})
+
+test('detectFinalNewline', () => {
+	assertEquals(detectFinalNewline(encoder.encode('a')), 'none')
+	assertEquals(detectFinalNewline(encoder.encode('a\n')), 'single')
+	assertEquals(detectFinalNewline(encoder.encode('a\n\n')), 'multiple')
+	assertEquals(detectFinalNewline(encoder.encode('a\r\n')), 'single')
+	assertEquals(detectFinalNewline(new Uint8Array([])), 'none')
 })
 
 test('detectLeadingLf', () => {
@@ -127,8 +140,10 @@ test('fixFileTextLf: single-line svg drops trailing LF; other files keep exactly
 })
 
 test('repo: UTF-8 text files use LF, correct final LF, no leading LF', async () => {
-	const files = await listRepoFiles()
-	assertEquals(Array.isArray(files), true, 'listRepoFiles returns a path array')
-	const { issues } = await scanTextLf()
-	assertEquals(issues, [], `文本文件须使用 LF 换行、结尾 LF 符合规则且开头不为 LF (${issues.length}):\n${issues.slice(0, 12).map(issue => `${issue.path} (${issue.kind})`).join('\n')}`)
+	const { issues } = await scanTextLf(REPO_ROOT)
+	assertEquals(
+		issues,
+		[],
+		`文本文件须使用 LF 换行、结尾 LF 符合规则且开头不为 LF (${issues.length}):\n${issues.slice(0, 12).map(issue => `${issue.path} (${issue.kind})`).join('\n')}`,
+	)
 })

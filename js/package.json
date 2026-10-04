@@ -25,7 +25,9 @@
 		"test:fount": "deno test -A --config deno.json test/fount/",
 		"test:live": "node --test --test-concurrency=1 --test-force-exit test/live/*.test.mjs",
 		"test:sim": "node --test --test-concurrency=1 --test-force-exit sim/test/*.test.mjs",
-		"test:frontend": "node --test --test-concurrency=1 --test-force-exit test/frontend/*.test.mjs"
+		"test:frontend": "node --test --test-concurrency=1 --test-force-exit test/frontend/*.test.mjs",
+		"test:checks": "node --test --test-concurrency=1 --test-force-exit test/pure/text_lf.test.mjs test/pure/jsdoc_no_english.test.mjs test/pure/agents_md_english.test.mjs",
+		"check:text_lf:fix": "node scripts/checks/text_lf.mjs --fix .."
 	},
 	"bin": {
 		"fount-p2p": "infra/cli.mjs"

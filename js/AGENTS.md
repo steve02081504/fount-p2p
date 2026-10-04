@@ -47,11 +47,23 @@ Deno / native / BT: [runtime.md](docs/runtime.md).
 - `npm run test:live` — live link / LAN smoke
 - `npm run test:fount` — cross-repo Deno bridge (`test/fount/`); see [runtime.md](docs/runtime.md)
 - `npm run test:sim` — tunables co-evolution (dev-only; [sim/AGENTS.md](sim/AGENTS.md))
+- `npm run test:checks` — the three static-health suites below only
+- `npm run check:text_lf:fix` — rewrite line-ending violations (the suites themselves never write)
 - `node scripts/check-imports.mjs` — relative import check
 - `node scripts/find-unused-exports.mjs` — dead-export scan (`--fount <path>` optional)
 - Assertions: `test/helpers/assert.mjs`
 - Fixed-seed identity: `test/helpers/identity.mjs`
 - Mock discovery: `test/helpers/mock_discovery.mjs`
+
+## Static checks (`scripts/checks/`, ported from fount's check standard)
+
+| Check | Enforces |
+| --- | --- |
+| `text_lf` | Every UTF-8 text file (fatal decode, no NUL / C0 control byte; empty files exempt) uses LF, ends with exactly one LF (single-line `.svg` instead ends with none), and does not start with LF (leading UTF-8 BOM skipped). Binary files such as `gradle-wrapper.jar` are skipped. Scanner: `scripts/checks/text_lf.mjs`; `npm run check:text_lf:fix` writes the fix |
+| `jsdoc_no_english` | JSDoc summaries are Chinese (CJK required; a pure-English summary or a missing summary fails); multi-line blocks put a line break right after `/**` and before `*/`. Tag-only blocks (`@param` / `@typedef` …) are fine, empty `/** */` stubs are not. Scanner: `scripts/checks/jsdoc_no_english.mjs` |
+| `agents_md_english` | Every `AGENTS.md` and each `.md` reachable through its local links is English (no CJK) and its links resolve; a non-`AGENTS.md` doc in that closure must live under a `docs/` directory. Scanner: `scripts/checks/agents_md_english.mjs` |
+
+The scanners run from `js/test/pure/*.test.mjs` (repo-wide scope: they walk up to the monorepo root, so `kotlin/AGENTS.md` and the root docs are covered too). Docs language is unified to English — write agent docs and `.md` in the AGENTS.md closure in English.
 
 ## Hard rules
 
