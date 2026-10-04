@@ -58,6 +58,9 @@ suspend fun startNode(options: StartNodeOptions = StartNodeOptions()) {
  * `io.github.steve02081504.fountp2p.transport.getLinkRegistry`）。
  */
 object FountP2p {
+	fun getNetworkVerificationService() = io.github.steve02081504.fountp2p.node.getNetworkVerificationService()
+	fun attachNetworkVerification() = io.github.steve02081504.fountp2p.node.attachNetworkVerification()
+	suspend fun proveNetworkVerification(request: Map<String, Any?>) = io.github.steve02081504.fountp2p.node.proveNetworkVerification(request)
 	// 节点
 	suspend fun closeNode() = io.github.steve02081504.fountp2p.node.closeNode()
 	fun isNodeInitialized(): Boolean = io.github.steve02081504.fountp2p.node.isNodeInitialized()
