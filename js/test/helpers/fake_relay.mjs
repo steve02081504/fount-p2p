@@ -79,7 +79,7 @@ export async function startFakeRelay(accept = () => true, options = {}) {
 		return true
 	}
 
-	/** socket → Map<subscriptionId, filter> */
+	/** socket → Map<subscriptionId, filter> 的订阅映射。 */
 	const subsBySocket = new Map()
 
 	webSocketServer.on('connection', socket => {

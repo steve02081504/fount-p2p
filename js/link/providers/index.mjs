@@ -9,7 +9,8 @@
  *   onDown: (callback: (reason: string) => void) => () => void,
  *   close: (reason?: string) => Promise<void>,
  *   stats: () => object,
- * }} LinkHandle */
+ * }} LinkHandle
+ */
 
 /**
  * @typedef {{

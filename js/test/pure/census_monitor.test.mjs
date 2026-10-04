@@ -162,9 +162,7 @@ test('stop closes connections to all relays', async () => {
 	const monitor = createPopulationMonitor({
 		relays: [`ws://127.0.0.1:${relay.port}`],
 		discover: false,
-		/**
-		 *
-		 */
+		/** 人口统计更新回调（本用例只关心连接关闭，故为空实现）。 */
 		onUpdate: () => { },
 	})
 	try {

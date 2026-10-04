@@ -12,9 +12,11 @@ import { asLinkHandle } from '../../pipe.mjs'
 import { LINK_LEVEL_NOSTR } from '../levels.mjs'
 import { createLinkIdBoundPipe } from '../link_id_pipe.mjs'
 
-/** 单包 payload（UTF-8 / base64）上限，避免撞 relay content 限制。
- *  默认兜底取 2026-08 本机对默认公共 relay 的 NIP-11 `max_message_length` 非零最小值（131072 = nostr.mom）。
- *  有 relay 信息时用实测非零最小值覆盖（见 refreshPayloadCap），无 relay / 未探测到时用此默认。 */
+/**
+ * 单包 payload（UTF-8 / base64）上限，避免撞 relay content 限制。
+ * 默认兜底取 2026-08 本机对默认公共 relay 的 NIP-11 `max_message_length` 非零最小值（131072 = nostr.mom）。
+ * 有 relay 信息时用实测非零最小值覆盖（见 refreshPayloadCap），无 relay / 未探测到时用此默认。
+ */
 export const MAX_LINK_PAYLOAD_CHARS = 131072
 
 /** relay info（NIP-11）单次探测超时。 */
@@ -52,8 +54,10 @@ export function estimateEventMessageBytes(packet) {
 	}])).length
 }
 
-/** relay cap 低于此字符数视为无法承载最小正 chunk（帧头 + 1 字节 chunk 的完整 EVENT 封装），从统一上限中剔除。
- *  这类 relay 即便能传也无法携带有效载荷（maxFrameChunkBytesForPayload 得 0），参与取最小值只会无谓拖低/毒化整条链路。 */
+/**
+ * relay cap 低于此字符数视为无法承载最小正 chunk（帧头 + 1 字节 chunk 的完整 EVENT 封装），从统一上限中剔除。
+ * 这类 relay 即便能传也无法携带有效载荷（maxFrameChunkBytesForPayload 得 0），参与取最小值只会无谓拖低/毒化整条链路。
+ */
 export const MIN_USABLE_RELAY_CAP_CHARS = estimateEventMessageBytes({
 	type: 'link',
 	op: 'b',

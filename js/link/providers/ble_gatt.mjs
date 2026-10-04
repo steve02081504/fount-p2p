@@ -63,7 +63,7 @@ async function openGattPipe(options) {
 }
 
 /**
- * Central dial。
+ * central 角色主动拨号：按 peer hint 扫描外围设备并建立 GATT 链路。
  * @param {object} options dial 选项
  * @returns {Promise<import('./index.mjs').LinkHandle>} 已就绪的 link
  */
@@ -187,7 +187,7 @@ export function createBleGattLinkProvider() {
 			uuid: BLE_DATA_CHAR_UUID,
 			properties: ['write', 'writeWithoutResponse', 'notify'],
 			/**
-			 * stoprocent/bleno onWriteRequest(connection, data, offset, withoutResponse, callback)
+			 * peripheral 角色的写入回调（stoprocent/bleno onWriteRequest 签名）。
 			 * @param {*} _connection 连接句柄
 			 * @param {Buffer} data 写入
 			 * @param {number} _offset 偏移

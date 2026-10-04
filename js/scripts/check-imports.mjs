@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-/** 递归收集目录下所有 .mjs 文件。
+/**
+ * 递归收集目录下所有 .mjs 文件。
  * @param {string} dir 起始目录
  * @returns {string[]} 相对 ROOT 的绝对路径列表
  */

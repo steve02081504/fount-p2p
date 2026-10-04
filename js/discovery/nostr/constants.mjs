@@ -57,7 +57,5 @@ export const NOSTR_CENSUS_KIND = 30789
 
 /** census 订阅/发布标签：`t=fount` + `x=census`（subscribeNostrKind 以 rendezvousKey/tagX 匹配）。 */
 export const CENSUS_TAG_FOUNT = 'fount'
-/**
- *
- */
+/** census 标签 `x` 的取值（`t=fount` + `x=census` 共同标识 census 事件）。 */
 export const CENSUS_TAG_X = 'census'
