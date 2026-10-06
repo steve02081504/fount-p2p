@@ -1,24 +1,42 @@
 package io.github.steve02081504.fountp2p.node
 
+import io.github.steve02081504.fountp2p.link.rtc.IceLocalHostnamePolicy
+
 /**
  * 信令运行时配置（等价 `node/signaling_config.mjs`）。
  *
- * JS 用 `process.platform === 'win32'` 选择 webrtc 的 iceLocalHostnamePolicy；
- * Kotlin/JVM 用 `os.name` 判断。
+ * webrtc 通道不再有 `trickleIceOff`：本仓库的 ICE 候选是靠 description 一次性带出去的
+ * （对端要先有 remoteDescription 才吃候选），所以「收齐后一次性发送」是信令层的固定语义。
+ * `iceLocalHostnamePolicy` 是 ICE 阶梯的起点（见 [iceLocalHostnameLadder]），不做平台分支。
  */
 
-/** webrtc 通道默认配置。 */
-private fun defaultWebRtcConfig(): Map<String, Any?> {
-	val iceLocalHostnamePolicy = if (isWindowsPlatform()) "drop" else "none"
-	return linkedMapOf(
-		"iceLocalHostnamePolicy" to iceLocalHostnamePolicy,
-		"trickleIceOff" to (iceLocalHostnamePolicy != "none"),
-	)
-}
+/**
+ * ICE 本地主机名策略的升级阶梯（宽松度递增）。
+ *
+ * `.local`（mDNS）候选对端通常解析不了，所以从 `drop` 起；若丢弃后候选集为空，说明这台主机只产出了
+ * mDNS 候选，就升到 `none` 让对端自己处理。判据是运行时观测到的候选集，不是平台。
+ *
+ * `rewrite-loopback` 不在阶梯里：它把候选改写成 `127.0.0.1`，只对同机有意义。
+ */
+val ICE_LOCAL_HOSTNAME_LADDER: List<IceLocalHostnamePolicy> = listOf("drop", "none")
 
-/** @return 是否 Windows 平台（等价 `process.platform === 'win32'`） */
-private fun isWindowsPlatform(): Boolean =
-	System.getProperty("os.name")?.lowercase()?.contains("win") == true
+/** webrtc 通道默认配置。 */
+private fun defaultWebRtcConfig(): Map<String, Any?> = linkedMapOf(
+	"iceLocalHostnamePolicy" to ICE_LOCAL_HOSTNAME_LADDER.first(),
+)
+
+/**
+ * 从起点策略推导要依次尝试的策略（宽松度递增），用于把「候选集为空」当成升级信号。
+ * `rewrite-loopback` 作为显式起点时只试它自己：它是调试/同机用途，不应自动放宽成对外候选。
+ * @param from 起点策略；未配置/非阶梯项时用阶梯首项
+ * @return 依次尝试的策略（至少一项）
+ */
+fun iceLocalHostnameLadder(from: IceLocalHostnamePolicy?): List<IceLocalHostnamePolicy> {
+	if (from == "rewrite-loopback") return listOf("rewrite-loopback")
+	val startIndex = ICE_LOCAL_HOSTNAME_LADDER.indexOf(from)
+	if (startIndex < 0) return ICE_LOCAL_HOSTNAME_LADDER.toList()
+	return ICE_LOCAL_HOSTNAME_LADDER.drop(startIndex)
+}
 
 /** 各介质的默认 channel 配置；对象值是启用并覆盖默认。 */
 private val DEFAULT_CHANNEL_CONFIG: Map<String, Any?> = linkedMapOf(

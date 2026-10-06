@@ -5,6 +5,8 @@ import { nodeDebug } from '../../node/log.mjs'
 
 import { wrapRtcPeerConnectionForIceLocalHostname } from './ice_local_hostname.mjs'
 
+/** @typedef {import('./ice_local_hostname.mjs').IceLocalHostnamePolicy} IceLocalHostnamePolicy */
+
 /** @type {boolean} */
 let exitCleanupHooked = false
 
@@ -87,7 +89,7 @@ function defaultRtcBackends() {
 }
 
 /**
- * @param {{ backends?: RtcBackend[] }} options 后端列表
+ * @param {{ backends?: RtcBackend[], policy?: IceLocalHostnamePolicy }} options 后端列表与策略覆盖
  * @returns {Promise<LoadedRtcPolyfill>} 首个可用后端的 polyfill
  */
 async function loadNodeRtcPolyfillUncached(options) {
@@ -99,7 +101,7 @@ async function loadNodeRtcPolyfillUncached(options) {
 	for (const backend of backends)
 		try {
 			const mod = await backend.load()
-			const iceLocalHostnamePolicy = getSignalingRuntimeConfig().channels.webrtc?.iceLocalHostnamePolicy
+			const iceLocalHostnamePolicy = options.policy ?? getSignalingRuntimeConfig().channels.webrtc?.iceLocalHostnamePolicy
 			return {
 				RTCPeerConnection: wrapRtcPeerConnectionForIceLocalHostname(
 					mod.RTCPeerConnection,
@@ -122,13 +124,14 @@ async function loadNodeRtcPolyfillUncached(options) {
 }
 
 /**
- * 加载 RTC polyfill（node-datachannel 优先，失败则 node-rtc-connection），并按配置包装 RTCPeerConnection。
- * 默认后端路径会缓存首次成功结果；注入 backends 时不走缓存。
- * @param {{ backends?: RtcBackend[] }} [options] 可注入后端列表（测试用）
+ * 加载 RTC polyfill（node-datachannel 优先，失败则 node-rtc-connection），并按 ICE 本地主机名策略包装
+ * RTCPeerConnection。策略是构造期烘进包装类的，所以 ICE 阶梯每换一级都要带 `policy` 重新取一次。
+ * 默认后端路径会缓存首次成功结果（仅在不带 policy 覆盖时）；注入 backends / policy 时不走缓存。
+ * @param {{ backends?: RtcBackend[], policy?: IceLocalHostnamePolicy }} [options] 可注入后端列表与策略覆盖（测试/阶梯用）
  * @returns {Promise<LoadedRtcPolyfill>} RTC 构造器
  */
 export async function loadNodeRtcPolyfill(options = {}) {
-	if (options.backends?.length)
+	if (options.backends?.length || options.policy)
 		return loadNodeRtcPolyfillUncached(options)
 	const epoch = getRtcPolyfillCacheEpoch()
 	if (!cachedDefaultPolyfill || cachedDefaultPolyfillEpoch !== epoch) {
