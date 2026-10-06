@@ -33,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * P2P 链路注册表（等价 `js/transport/link_registry.mjs`）：discovery、信令、直连与 overlay relay。
@@ -50,6 +51,25 @@ private val DIAL_COOLDOWN_BASE_MS: Long = ms("30s")
 
 /** dial 冷却上限。 */
 private val DIAL_COOLDOWN_MAX_MS: Long = ms("10m")
+
+/**
+ * 单次确保直连的整体上限：覆盖全部 provider 尝试（含 offer/answer 握手）后必须结算。
+ * 必须大于 nostr 入队 publish 等待上限，让「relay 连不上」走 provider 自身的失败路径，
+ * 而不是在这里被掐断（否则拿不到 provider 级诊断）。见 fount-p2p#37。
+ */
+val LINK_DIAL_DEADLINE_MS: Long = ms("90s")
+
+/** 测试可缩短的单次直连上限。 */
+@Volatile
+private var dialDeadlineMs = LINK_DIAL_DEADLINE_MS
+
+/**
+ * 覆盖单次直连上限（测试用；传 null 恢复默认）。
+ * @param value 毫秒上限；null 恢复默认
+ */
+fun setLinkDialDeadlineMsForTests(value: Long?) {
+	dialDeadlineMs = value ?: LINK_DIAL_DEADLINE_MS
+}
 
 private val linkRegistryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -353,6 +373,54 @@ class LinkRegistry internal constructor(
 		return links[remoteNodeHash]
 	}
 
+	/**
+	 * 记一次 dial 失败并进入指数退避。
+	 * @param normalized 远端节点 64 hex
+	 * @return 本次冷却毫秒
+	 */
+	private fun noteDialFailure(normalized: String): Double {
+		val failures = (dialCooldown[normalized]?.failures ?: 0) + 1
+		val delay = minOf(
+			DIAL_COOLDOWN_MAX_MS.toDouble(),
+			DIAL_COOLDOWN_BASE_MS.toDouble() * Math.pow(2.0, minOf(failures - 1, 5).toDouble()),
+		)
+		dialCooldown.touch(normalized, DialCool(nowMs() + delay, failures))
+		return delay
+	}
+
+	/**
+	 * 为一个已登记的直连尝试套上整体上限：超时即返回 null（调用方不再等）。
+	 *
+	 * dial 本身失败时也返回 null，所以不能拿返回值当超时判据：只有 `task.await()` 真的返回过，
+	 * 才说明任务结算了，否则就是超时。
+	 * @param task 进行中的 dial
+	 * @param normalized 远端节点 64 hex
+	 * @return dial 结果；超时 null
+	 */
+	private suspend fun awaitDialAttempt(task: Deferred<LinkHandle?>, normalized: String): LinkHandle? {
+		val deadline = dialDeadlineMs
+		if (deadline <= 0) return task.await()
+		var settled = false
+		val result = withTimeoutOrNull(deadline) {
+			val link = task.await()
+			settled = true
+			link
+		}
+		if (settled) return result
+		// 超时：调用方不再等，但后台尝试仍会自行收敛（成功照样注册链路，失败自己记冷却）。
+		if (inflights[normalized] === task) inflights.remove(normalized)
+		val cooldownMs = noteDialFailure(normalized)
+		nodeDebug(
+			"p2p:dial deadline",
+			linkedMapOf(
+				"peer" to shortHash(normalized),
+				"deadlineMs" to deadline.toDouble(),
+				"cooldownMs" to cooldownMs,
+			),
+		)
+		return null
+	}
+
 	/** 按 level 降序尝试各 LinkProvider，不可用/不可达/失败则回落。 */
 	override suspend fun ensureLinkToNode(remoteNodeHash: String): LinkHandle? {
 		bootstrap.ensureRuntime()
@@ -360,7 +428,7 @@ class LinkRegistry internal constructor(
 		val normalized = remoteNodeHash
 		if (normalized.isEmpty() || normalized == selfNodeHash) return null
 		links[normalized]?.let { return it }
-		inflights[normalized]?.let { return it.await() }
+		inflights[normalized]?.let { return awaitDialAttempt(it, normalized) }
 		val cool = dialCooldown[normalized]
 		val now = nowMs()
 		if (cool != null) {
@@ -429,15 +497,10 @@ class LinkRegistry internal constructor(
 						)
 					}
 				}
-				val failures = (cool?.failures ?: 0) + 1
-				val delay = minOf(
-					DIAL_COOLDOWN_MAX_MS.toDouble(),
-					DIAL_COOLDOWN_BASE_MS.toDouble() * Math.pow(2.0, minOf(failures - 1, 5).toDouble()),
-				)
-				dialCooldown.touch(normalized, DialCool(nowMs() + delay, failures))
+				val cooldownMs = noteDialFailure(normalized)
 				nodeDebug(
 					"p2p:dial exhausted",
-					linkedMapOf("peer" to shortHash(normalized), "cooldownMs" to delay, "failures" to failures.toDouble()),
+					linkedMapOf("peer" to shortHash(normalized), "cooldownMs" to cooldownMs),
 				)
 				null
 			}
@@ -447,7 +510,7 @@ class LinkRegistry internal constructor(
 		}
 		inflights[normalized] = task
 		task.start()
-		return task.await()
+		return awaitDialAttempt(task, normalized)
 	}
 
 	/** 启动 discovery/link runtime 并开启 mesh keepalive。 */

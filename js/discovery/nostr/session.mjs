@@ -16,6 +16,24 @@ const NOSTR_PUBLISH_OK_TIMEOUT_MS = 3_000
 const NOSTR_RECONNECT_DELAY_MS = 500
 /** 无 sub/publish 工作时共享 relay 空闲回收延迟（给连续 send 复用窗口）。 */
 const NOSTR_IDLE_DROP_MS = 2_000
+/**
+ * 已入队 publish 的等待上限（从入队起算，覆盖多次「连不上 → 退避重连」）。
+ * 连接超时 2s + 重连间隔 0.5s ≈ 2.5s/轮，20s 约等于 8 轮；连不上的 relay 必须结算，
+ * 否则请求永久留在 pendingPublishes 里（见 fount-p2p#37）。
+ */
+export const NOSTR_QUEUED_PUBLISH_DEADLINE_MS = 20_000
+
+/** 测试可缩短的入队 publish 等待上限。 */
+let queuedPublishDeadlineMs = NOSTR_QUEUED_PUBLISH_DEADLINE_MS
+
+/**
+ * 覆盖入队 publish 等待上限（测试用；传 null 恢复默认）。
+ * @param {number | null} value 毫秒上限；null 恢复默认
+ * @returns {void}
+ */
+export function setQueuedPublishDeadlineMsForTests(value) {
+	queuedPublishDeadlineMs = value == null ? NOSTR_QUEUED_PUBLISH_DEADLINE_MS : value
+}
 
 /**
  * @param {string[] | undefined | null} urls 原始列表
@@ -216,6 +234,7 @@ function publishEventOnRelay(ws, relayUrl, event, signal, isCurrent) {
  *   attempt: number,
  *   onAbort: (() => void) | null,
  *   removeAbort: (() => void) | null,
+ *   deadline: ReturnType<typeof setTimeout> | null,
  *   resolve: (ok: boolean) => void,
  *   reject: (err: Error) => void,
  * }} NostrPublishRequest
@@ -326,7 +345,7 @@ function attachSharedRelaySocket(relayUrl, session, ws) {
 		if (session.inflightPublishes.length) {
 			session.pendingPublishes.push(...session.inflightPublishes)
 			for (const publishRequest of session.inflightPublishes)
-				attachQueuedAbort(session, publishRequest)
+				attachQueuedAbort(relayUrl, session, publishRequest)
 			session.inflightPublishes = []
 		}
 		if (!hasPendingWork(session)) {
@@ -465,6 +484,8 @@ function flushPendingPublishes(relayUrl, session, socket) {
 		publishRequest.removeAbort?.()
 		publishRequest.onAbort = null
 		publishRequest.removeAbort = null
+		// 请求已进入实际发送：等待上限改由本次 send 的 OK 超时负责。
+		clearQueuedDeadline(publishRequest)
 		const attempt = ++publishRequest.attempt
 		session.inflightPublishes.push(publishRequest)
 		void publishEventOnRelay(socket, relayUrl, publishRequest.event, publishRequest.signal, () => publishRequest.attempt === attempt)
@@ -476,22 +497,82 @@ function flushPendingPublishes(relayUrl, session, socket) {
 }
 
 /**
+ * 清除待发请求的等待上限定时器。
+ * @param {NostrPublishRequest} publishRequest 待发请求
+ * @returns {void}
+ */
+function clearQueuedDeadline(publishRequest) {
+	if (!publishRequest.deadline) return
+	clearTimeout(publishRequest.deadline)
+	publishRequest.deadline = null
+}
+
+/**
+ * 把一个尚未发出的 publish 移出队列并清掉它的等待上限。
+ * 队列已在别处清空（已 flush 到 socket / 已 abort）时返回 false。
+ * @param {string} relayUrl 中继 URL
+ * @param {SharedRelaySession} session 会话
+ * @param {NostrPublishRequest} publishRequest 待发请求
+ * @returns {boolean} 是否确实已出队
+ */
+function dequeueQueuedPublish(relayUrl, session, publishRequest) {
+	const pendingIndex = session.pendingPublishes.indexOf(publishRequest)
+	if (pendingIndex < 0) return false
+	clearQueuedDeadline(publishRequest)
+	publishRequest.removeAbort?.()
+	publishRequest.onAbort = null
+	publishRequest.removeAbort = null
+	session.pendingPublishes.splice(pendingIndex, 1)
+	// 这条 relay 已无任何工作：立刻回收，别把连不上的 socket / 重连循环留在进程里。
+	if (!hasPendingWork(session)) {
+		sharedRelaySessions.delete(relayUrl)
+		clearSharedRelayReconnect(session)
+		if (session.ws) dropWebSocket(session.ws)
+		session.ws = null
+	}
+	return true
+}
+
+/**
+ * 为队列中的 publish 挂上等待上限：从入队起算，超时即 reject 并出队。
+ * 只覆盖「尚未拿到可用 socket」的阶段；已 flush 到 open socket 的请求由 publishEventOnRelay 的 OK 超时负责。
+ * 定时器跨断线重发保留（请求在 pending ↔ inflight 间移动时不重置），故僵尸请求的总等待有界。
+ * @param {string} relayUrl 中继 URL
+ * @param {SharedRelaySession} session 会话
+ * @param {NostrPublishRequest} publishRequest 待发请求
+ * @returns {void}
+ */
+function attachQueuedDeadline(relayUrl, session, publishRequest) {
+	clearQueuedDeadline(publishRequest)
+	if (queuedPublishDeadlineMs <= 0) return
+	const timer = setTimeout(() => {
+		publishRequest.deadline = null
+		if (!dequeueQueuedPublish(relayUrl, session, publishRequest)) return
+		nodeDebug('p2p:nostr publish deadline', {
+			url: relayUrl,
+			err: `nostr: connect timeout for ${relayUrl}`,
+		})
+		publishRequest.reject(new Error(`nostr: connect timeout for ${relayUrl}`))
+	}, queuedPublishDeadlineMs)
+	timer.unref?.()
+	publishRequest.deadline = timer
+}
+
+/**
  * 为队列中的 publish 挂上 abort 处理：先移除监听器（释放 signal 对回调/event/session 的引用），
  * 再从队列删除并 reject。
+ * @param {string} relayUrl 中继 URL
  * @param {SharedRelaySession} session 会话
  * @param {SharedRelaySession['pendingPublishes'][number]} publishRequest 待发请求
  * @returns {void}
  */
-function attachQueuedAbort(session, publishRequest) {
+function attachQueuedAbort(relayUrl, session, publishRequest) {
 	const { signal, reject } = publishRequest
 	/**
 	 * 处理 abort 事件
 	 */
 	publishRequest.onAbort = () => {
-		publishRequest.removeAbort?.()
-		const pendingIndex = session.pendingPublishes.indexOf(publishRequest)
-		if (pendingIndex < 0) return
-		session.pendingPublishes.splice(pendingIndex, 1)
+		if (!dequeueQueuedPublish(relayUrl, session, publishRequest)) return
 		reject(new Error('nostr: aborted'))
 	}
 	/**
@@ -525,7 +606,8 @@ function settleInflightPublish(relayUrl, session, publishRequest, attempt, settl
 
 /**
  * 通过共享 relay 会话发布 EVENT：复用已打开 socket，避免每次 send 重开一条连接（内存泄漏）。
- * 无现成连接时入队并触发连接，连上后由 flushPendingPublishes 统一派发。
+ * 无现成连接时入队并触发连接，连上后由 flushPendingPublishes 统一派发；
+ * 连不上的 relay 由入队等待上限（NOSTR_QUEUED_PUBLISH_DEADLINE_MS）reject，不会永久悬挂。
  * @param {string} relayUrl 中继 URL
  * @param {object} event 待发布事件
  * @param {AbortSignal} [signal] 取消信号
@@ -541,13 +623,15 @@ export function publishViaSharedRelay(relayUrl, event, signal, connectTarget) {
 		const session = acquireSharedRelay(relayUrl, connectTarget)
 		clearIdleDrop(session)
 		/** @type {SharedRelaySession['pendingPublishes'][number]} */
-		const publishRequest = { event, signal, attempt: 0, resolve, reject, onAbort: null, removeAbort: null }
-		attachQueuedAbort(session, publishRequest)
+		const publishRequest = { event, signal, attempt: 0, deadline: null, resolve, reject, onAbort: null, removeAbort: null }
+		attachQueuedAbort(relayUrl, session, publishRequest)
 		session.pendingPublishes.push(publishRequest)
-		if (session.ws?.readyState === WebSocket.OPEN)
+		if (session.ws?.readyState === WebSocket.OPEN) {
 			flushPendingPublishes(relayUrl, session, session.ws)
-		else
-			scheduleSharedRelayConnect(relayUrl, session)
+			return
+		}
+		attachQueuedDeadline(relayUrl, session, publishRequest)
+		scheduleSharedRelayConnect(relayUrl, session)
 	})
 }
 

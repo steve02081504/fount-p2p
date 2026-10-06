@@ -203,7 +203,8 @@ async function signNostrEvent(kind, tags, content, secretKey) {
 }
 
 /**
- * 全量发布到给定 relay（任一成功即返回）。
+ * 全量发布到给定 relay：任一成功即返回，其余 relay 的发布留在后台自行结算。
+ * 每个 relay 尝试都有界（连接超时 / OK 超时 / 入队等待上限），故后台不会永久悬挂。
  * @param {string[]} relayUrls 中继 URL 列表
  * @param {object} event 待发布事件
  * @param {AbortSignal} [signal] 取消信号
@@ -212,19 +213,30 @@ async function signNostrEvent(kind, tags, content, secretKey) {
 async function publishEvent(relayUrls, event, signal) {
 	const urls = dedupeRelayUrls(relayUrls)
 	if (!urls.length) throw new Error('nostr: no relay')
-	let published = false
-	let lastError = null
-	await Promise.allSettled(urls.map(async relayUrl => {
+	const targets = (await Promise.all(urls.map(async relayUrl => {
 		try {
-			const connectTarget = await resolveRelayConnectTarget(relayUrl)
-			if (!connectTarget) return
-			if (await publishViaSharedRelay(relayUrl, event, signal, connectTarget)) published = true
+			return { relayUrl, connectTarget: await resolveRelayConnectTarget(relayUrl) }
 		}
-		catch (error) {
+		catch {
+			return { relayUrl, connectTarget: null }
+		}
+	}))).filter(target => target.connectTarget)
+	let lastError = null
+	if (!targets.length) throw new Error('nostr: no relay')
+	const attempts = targets.map(target => publishViaSharedRelay(target.relayUrl, event, signal, target.connectTarget)
+		.then(ok => {
+			if (ok) return true
+			lastError = new Error(`nostr: relay rejected publish (${target.relayUrl})`)
+			return false
+		}, error => {
 			lastError = error
-		}
-	}))
-	if (!published) throw lastError || new Error('nostr: no relay accepted publish')
+			return false
+		}))
+	// 首个成功的 relay 即结算调用方；其余尝试继续在后台跑（失败已就地吞掉，不会变成 unhandled rejection）。
+	const accepted = await Promise.race(attempts.map((attempt, index) => attempt.then(ok => ok ? index : -1)))
+	if (accepted >= 0) return
+	await Promise.all(attempts)
+	throw lastError || new Error('nostr: no relay accepted publish')
 }
 
 /**

@@ -25,6 +25,24 @@ import { createRuntimeBootstrap } from './runtime_bootstrap.mjs'
 const DIAL_COOLDOWN_BASE_MS = ms('30s')
 /** dial 冷却上限。 */
 const DIAL_COOLDOWN_MAX_MS = ms('10m')
+/**
+ * 单次确保直连的整体上限：覆盖全部 provider 尝试（含 offer/answer 握手）后必须结算。
+ * 必须大于 nostr 入队 publish 等待上限，让「relay 连不上」走 provider 自身的失败路径，
+ * 而不是在这里被掐断（否则拿不到 provider 级诊断）。见 fount-p2p#37。
+ */
+export const LINK_DIAL_DEADLINE_MS = ms('90s')
+
+/** 测试可缩短的单次直连上限。 */
+let dialDeadlineMs = LINK_DIAL_DEADLINE_MS
+
+/**
+ * 覆盖单次直连上限（测试用；传 null 恢复默认）。
+ * @param {number | null} value 毫秒上限；null 恢复默认
+ * @returns {void}
+ */
+export function setLinkDialDeadlineMsForTests(value) {
+	dialDeadlineMs = value == null ? LINK_DIAL_DEADLINE_MS : value
+}
 
 /**
  * 解析或从节点种子推导本地身份。
@@ -264,7 +282,57 @@ export function createLinkRegistry(options = {}) {
 	}
 
 	/**
+	 * 记一次 dial 失败并进入指数退避。
+	 * @param {string} normalized 远端节点 64 hex
+	 * @returns {number} 本次冷却毫秒
+	 */
+	function noteDialFailure(normalized) {
+		const failures = (dialCooldown.get(normalized)?.failures || 0) + 1
+		const delay = Math.min(DIAL_COOLDOWN_MAX_MS, DIAL_COOLDOWN_BASE_MS * (2 ** Math.min(failures - 1, 5)))
+		dialCooldown.touch(normalized, { until: Date.now() + delay, failures })
+		return delay
+	}
+
+	/**
+	 * 为一个已登记的直连尝试套上整体上限：超时即返回 null（调用方不再等），
+	 * 后台尝试照旧收敛，成功仍会注册链路。
+	 *
+	 * 超时后立刻从 inflights 摘除，后续 dial 走新尝试而不是复用这个卡住的 promise。
+	 * @param {string} normalized 远端节点 64 hex
+	 * @param {Promise<object | null>} task 进行中的 dial
+	 * @returns {Promise<object | null>} dial 结果；超时 null
+	 */
+	async function awaitDialAttempt(normalized, task) {
+		if (dialDeadlineMs <= 0) return await task
+		/** @type {boolean} */
+		let expired = false
+		/** @type {ReturnType<typeof setTimeout> | null} */
+		let timer = null
+		const timeout = new Promise(resolve => {
+			timer = setTimeout(() => {
+				expired = true
+				resolve(null)
+			}, dialDeadlineMs)
+			timer.unref?.()
+		})
+		const link = await Promise.race([task, timeout])
+		if (timer) clearTimeout(timer)
+		if (!expired) return link
+		// 超时：调用方不再等，但后台尝试仍会自行收敛（成功照样注册链路，失败自己记冷却）。
+		if (inflights.get(normalized) === task) inflights.delete(normalized)
+		const cooldownMs = noteDialFailure(normalized)
+		nodeDebug('p2p:dial deadline', {
+			peer: shortHash(normalized),
+			deadlineMs: dialDeadlineMs,
+			cooldownMs,
+		})
+		return null
+	}
+
+	/**
 	 * 按 level 降序尝试各 LinkProvider，不可用/不可达/失败则回落。
+	 * 整体有 LINK_DIAL_DEADLINE_MS 上限：卡住的 provider 既不能让调用方永久等待，
+	 * 也不能把坏 promise 留在 inflights 里毒化后续 dial。
 	 * @param {string} remoteNodeHash 远端节点 64 hex
 	 * @returns {Promise<object | null>} 链路实例；失败时 null
 	 */
@@ -274,7 +342,7 @@ export function createLinkRegistry(options = {}) {
 		const normalized = remoteNodeHash
 		if (!normalized || normalized === localIdentity.nodeHash) return null
 		if (links.has(normalized)) return links.get(normalized)
-		if (inflights.has(normalized)) return await inflights.get(normalized)
+		if (inflights.has(normalized)) return await awaitDialAttempt(normalized, inflights.get(normalized))
 		const cool = dialCooldown.get(normalized)
 		const now = Date.now()
 		if (cool) {
@@ -335,14 +403,12 @@ export function createLinkRegistry(options = {}) {
 					})
 				}
 
-			const failures = (cool?.failures || 0) + 1
-			const delay = Math.min(DIAL_COOLDOWN_MAX_MS, DIAL_COOLDOWN_BASE_MS * (2 ** Math.min(failures - 1, 5)))
-			dialCooldown.touch(normalized, { until: Date.now() + delay, failures })
-			nodeDebug('p2p:dial exhausted', { peer: shortHash(normalized), cooldownMs: delay, failures })
+			const cooldownMs = noteDialFailure(normalized)
+			nodeDebug('p2p:dial exhausted', { peer: shortHash(normalized), cooldownMs })
 			return null
 		})().finally(() => inflights.delete(normalized))
 		inflights.set(normalized, task)
-		return await task
+		return await awaitDialAttempt(normalized, task)
 	}
 
 	meshKeepalive = createMeshKeepalive({
