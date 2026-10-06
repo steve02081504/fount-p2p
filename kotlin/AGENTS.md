@@ -69,6 +69,8 @@ Android/JVM has no `ws` / WebRTC / `node:dgram` runtimes, so platform capabiliti
 - The library implements protocols / state machines / pure logic only; interface defaults may throw `UnsupportedOperationException`, tests use fakes, and the Android app injects the real implementation (OkHttp / system APIs / native WebRTC libraries).
 - Every interface should have a JVM reference implementation (OkHttp 4.12 is cached: WebSocket + TCP; UDP uses `DatagramChannel`).
 
+Because the host owns connect, a provider `connect` that ignores cancellation would otherwise pin `sessionMutex` (`discovery/nostr/Session.kt`) or the registry dial (`transport/LinkRegistry.kt`) forever: the connect coroutine is tracked in `SharedRelaySession.connectJob` and cancelled by `clearReconnect`, and every await on it is additionally bounded (`NOSTR_QUEUED_PUBLISH_DEADLINE_MS`, `LINK_DIAL_DEADLINE_MS`). Keep both properties when touching those paths, and use `clearSharedRelaySessionsForTests()` in tests that touch nostr sessions so a previous case's reconnect loop cannot hold the mutex across cases.
+
 ## Done (every JS module is ported 1:1)
 
 - L0: `core/`, `utils/`, `crypto/`, `schemas/`
@@ -78,7 +80,7 @@ Android/JVM has no `ws` / WebRTC / `node:dgram` runtimes, so platform capabiliti
   `link/`, `discovery/`, `transport/` (including link_registry, rooms, node_scope),
   `overlay/`, `infra/`
 - Facade: `FountP2p.kt` (`startNode` + the `FountP2p` aggregate entry point)
-- 533 tests, all green (`.\gradlew.bat test --offline`).
+- 546 tests, all green (`.\gradlew.bat test --offline`).
 
 ## Platform-specific (Android must inject)
 

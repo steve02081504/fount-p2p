@@ -45,9 +45,19 @@ LinkHandle for upper layers: `ready` / `nodeHash` / `send` / `onEnvelope` / `onD
 
 Provider optional hooks (package-internal): `ensureListening`, `localEndpoint`, `canReach`, `caps.probe: 'sync' | 'native'` (`native` = skipped on ensureRuntime fast-listen). Discovery `connectToNode` / `sendNodeSignal` may return `false` when the path is unavailable; fan-out treats that as silent skip. Per-provider throw/false in discovery and link dial fallback are silent; only total failure of the abstraction surfaces to the caller.
 
-Each registry only calls `ensureListening` on **its own** `lan_tcp` / `ble_gatt` instances (unique registry ids like `lan_tcp:ab12cd34`). Never fan out listening to other registries' sockets.
+Each registry only owns its own `lan_tcp` / `ble_gatt` instances (unique registry ids like `lan_tcp:ab12cd34`), so those are listened to per registry. Every other **registered and enabled** provider (e.g. `nostr`, `webrtc`) is listened to by the registry that can see it: `ensureRuntime` and `reloadDiscoveryRelays` call `ensureListening` on any enabled provider that has no registered stop function yet. A provider registered later — notably the fresh instance `reconcileLinkProviders()` installs when a channel is toggled off and back on — must be picked up by that pass, otherwise it silently drops every inbound `link-open` (a missing listener is logged as `p2p:nostr link-open dropped — listener not attached`).
 
 Chain `providerId` on the LinkHandle stays the short name (`lan_tcp` / `ble_gatt` / `webrtc` / `nostr`) for scheduling/stats.
+
+## Bounded waits (no unbounded dial / publish)
+
+Nothing on the dial path may wait forever:
+
+- Intra-relay publish (`discovery/nostr/session.mjs`): a request queued behind a relay that never completes its WebSocket connect is rejected with a connect-stage error after `NOSTR_QUEUED_PUBLISH_DEADLINE_MS`, and the session is reclaimed. The EVent OK timeout only starts once a socket is open, so it cannot cover the connect stage.
+- Relay fan-out (`discovery/nostr/index.mjs` `publishEvent`): resolves as soon as **one** relay accepts; the remaining publishes keep running in the background but are bounded by the above.
+- One `ensureLinkToNode` (`transport/link_registry.mjs`): bounded by `LINK_DIAL_DEADLINE_MS` (larger than the publish deadline, so a dead relay normally fails through the provider's own error path). On timeout the in-flight promise is dropped from `inflights` so later dials start a fresh attempt instead of reusing a stuck one.
+
+`kotlin/` mirrors all three; there a connect coroutine holding `sessionMutex` must also be cancellable (see [kotlin/AGENTS.md](../../kotlin/AGENTS.md)).
 
 ## Level table
 
@@ -80,6 +90,10 @@ Plain TCP on the LAN. Registry schedules listen in the background after `ensureR
 ### `webrtc` (70)
 
 Discovery signal + dual DataChannel; DTLS fingerprint as handshake binding; `needsOfferAnswer` glare path. Soft-fail (`null`) continues to lower-level providers. Backend: `node-datachannel` when the native addon loads, else pure-JS `node-rtc-connection` (Android/Termux skips native). See [runtime.md](runtime.md).
+
+Every link gathers local ICE candidates first and then sends one offer/answer (there is no trickle mode: a peer must already hold the remote description before it accepts candidates). `collectIceGathering` (`link/providers/webrtc.mjs`) therefore does not wait for `iceGatheringState === 'complete'` alone — server-side polyfills leave the state at `gathering` when every relay times out or when the local-hostname policy drops all host candidates. It also finishes on a quiet candidate stream (`ICE_CANDIDATE_SETTLE_MS`) and gives up after `ICE_GATHERING_STALL_MS` when nothing was gathered, so DTLS/data-channel timeouts decide instead of a hard failure. `handshakeTimeoutMs` remains the hard stop on every path. Progress is counted from `icecandidate` events, not SDP diffs, because `localDescription.sdp` carries no candidate lines on those backends.
+
+When the configured local-hostname policy drains every candidate the link cannot work at all, so the initiator escalates through `ICE_LOCAL_HOSTNAME_LADDER` (`drop` → `none`) and rebuilds the peer connection per rung; the responder follows the rung named in the offer. Nothing here is platform-specific. Details: [signaling.md](signaling.md).
 
 ### `ble_gatt` (40)
 
