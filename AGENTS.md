@@ -33,6 +33,10 @@ $env:JAVA_HOME = 'E:\Android Studio\jbr'
 
 Details: [kotlin/AGENTS.md](kotlin/AGENTS.md) and [js/AGENTS.md](js/AGENTS.md).
 
+### Verifying one commit in isolation
+
+`git worktree add` is handy for running a single commit's tests, but never leave a `node_modules` directory junction/symlink inside a worktree that `git worktree remove --force` will delete: git follows the link and empties the real `js/node_modules` (observed here). Delete the link first (`cmd /c rmdir <worktree>\js\node_modules`) or run `npm ci --prefer-offline` inside the worktree instead.
+
 ## Docs language
 
 Every `AGENTS.md` and each `.md` reachable from it through local links is written in English (a non-`AGENTS.md` doc in that closure lives under a `docs/` directory), and source JSDoc summaries are Chinese. Both rules are enforced by the static checks described in [js/AGENTS.md](js/AGENTS.md); run `cd js; npm run test:checks`.
