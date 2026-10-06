@@ -10,7 +10,8 @@ import { assertEquals } from '../helpers/assert.mjs'
 import { startFakeRelay } from '../helpers/fake_relay.mjs'
 import { resolveLocalChrome } from '../helpers/local_chrome.mjs'
 
-const P2P_ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))))
+const PACKAGE_ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))))
+const REPO_ROOT = path.dirname(PACKAGE_ROOT)
 
 const MIME_BY_EXTENSION = {
 	'.html': 'text/html; charset=utf-8',
@@ -79,7 +80,7 @@ function injectImportMap(html) {
 	const importMap = `<script type="importmap">
 {
 	"imports": {
-		"https://esm.sh/@steve02081504/fount-p2p/": "/",
+		"https://esm.sh/@steve02081504/fount-p2p/": "/js/",
 		"@noble/": "https://esm.sh/@noble/"
 	}
 }
@@ -88,14 +89,14 @@ function injectImportMap(html) {
 }
 
 /**
- * 静态服务包根目录（pages/ 页面 + 包源码 + node_modules，离线可跑）。
+ * 静态服务仓库根目录（`pages/` 页面 + `js/` 包源码，离线可跑）。
  * @returns {Promise<{ port: number, stop: () => Promise<void> }>} 静态服务器句柄
  */
 async function startStaticServer() {
 	const server = createServer(async (request, response) => {
 		const urlPath = new URL(request.url, 'http://127.0.0.1').pathname
-		const filePath = path.resolve(P2P_ROOT, urlPath.replace(/^\/+/u, ''))
-		if (filePath !== P2P_ROOT && !filePath.startsWith(P2P_ROOT + path.sep)) {
+		const filePath = path.resolve(REPO_ROOT, urlPath.replace(/^\/+/u, ''))
+		if (filePath !== REPO_ROOT && !filePath.startsWith(REPO_ROOT + path.sep)) {
 			response.writeHead(403)
 			response.end('forbidden')
 			return
