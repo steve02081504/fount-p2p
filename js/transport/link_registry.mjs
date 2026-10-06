@@ -453,9 +453,12 @@ export function createLinkRegistry(options = {}) {
 
 	/**
 	 * 启动 discovery/link runtime 并开启 mesh keepalive。
+	 * 顺带重启 peer health 订阅：`shutdown()` 会停掉它，重启运行时后必须重新挂上，
+	 * 否则 getPeerHealth / listPeerHealth 会永远为空（见 fount-p2p#38）。
 	 */
 	const ensureRuntimeWithMesh = async () => {
 		await bootstrap.ensureRuntime()
+		peerHealth.start()
 		meshKeepalive?.start()
 	}
 

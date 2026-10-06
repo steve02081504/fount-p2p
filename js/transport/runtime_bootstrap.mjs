@@ -30,10 +30,29 @@ import { isConnectivityDebug, nodeDebug, shortHash } from '../node/log.mjs'
 
 /**
  * @param {import('../link/providers/index.mjs').LinkProvider} provider 链路提供者
+ * @returns {boolean} 是否由本 registry 自己持有（lan_tcp / ble_gatt 走各自的快速监听路径）
+ */
+function providerIsRegistryOwned(provider) {
+	const { id } = provider
+	return id.startsWith('lan_tcp') || id.startsWith('ble_gatt')
+}
+
+/**
+ * @param {import('../link/providers/index.mjs').LinkProvider} provider 链路提供者
  * @returns {boolean} 是否使用原生 probe 路径
  */
 export function providerHasNativeProbe(provider) {
 	return provider.caps?.probe === 'native'
+}
+
+/**
+ * @param {import('../link/providers/index.mjs').LinkProvider} provider 链路提供者
+ * @returns {boolean} 是否需要在 runtime 暖机时补挂监听
+ */
+export function providerNeedsListening(provider) {
+	if (providerIsRegistryOwned(provider)) return false
+	if (providerHasNativeProbe(provider)) return false
+	return !!provider.ensureListening
 }
 
 /**
@@ -45,10 +64,8 @@ export function collectFastListenProviders(ownedLanTcp) {
 	const listenProviders = []
 	if (ownedLanTcp) listenProviders.push(ownedLanTcp)
 	for (const provider of listLinkProviders()) {
-		const { id } = provider
-		if (id.startsWith('lan_tcp') || id.startsWith('ble_gatt')) continue
-		if (!provider.ensureListening) continue
-		if (providerHasNativeProbe(provider)) continue
+		if (!providerNeedsListening(provider)) continue
+		// 快速路径只接同步 isAvailable：要等异步探测的 provider 交给 startEnabledProviderListening。
 		if (provider.isAvailable)
 			try {
 				const available = provider.isAvailable()
@@ -203,6 +220,24 @@ export function createRuntimeBootstrap(deps) {
 	}
 
 	/**
+	 * 为所有「已注册、已启用、尚未监听」的 link provider 启动监听。
+	 * `reconcileLinkProviders()` 重新注册的 provider 只有走到这里才会拿到 onInbound/localIdentity，
+	 * 否则它会静默丢弃全部入站 link-open（见 fount-p2p#38）。
+	 *
+	 * 刻意不看 `isAvailable()`：relay 池为空/未探测时 nostr 的 `isAvailable()` 会是 false，而 relay 列表
+	 * 是在发送时解析的；先挂上监听才能收到入站 link-open，暂时不可用不该让它变哑巴。
+	 * @returns {Promise<void>}
+	 */
+	async function startEnabledProviderListening() {
+		if (!autoRegisterLinkProviders) return
+		await Promise.all(listLinkProviders()
+			.filter(provider => isChannelEnabled(provider.id.split(':')[0]))
+			.filter(provider => providerNeedsListening(provider))
+			.filter(provider => !stopLinkListeners.has(provider.id))
+			.map(provider => startProviderListening(provider)))
+	}
+
+	/**
 	 * @param {number} gen 启动世代
 	 * @returns {Promise<void>}
 	 */
@@ -211,6 +246,8 @@ export function createRuntimeBootstrap(deps) {
 		lanListenReady = Promise.all(listenProviders.map(provider => startProviderListening(provider))).then(() => { })
 		signalListenReady = (async () => {
 			await lanListenReady.catch(() => { })
+			if (generation !== gen || !isLive()) return
+			await startEnabledProviderListening().catch(() => { })
 			if (generation !== gen || !isLive()) return
 			if (!listDiscoveryProviders().length) return
 			stopSignalListener = await listenNodeSignals(localIdentity.nodeHash, bytes => {
@@ -324,11 +361,9 @@ export function createRuntimeBootstrap(deps) {
 			reconcileLinkProviders()
 			reconcileDiscoveryProviders()
 			if (generation !== gen || !isLive()) return
-			if (ownedLanTcp && !stopLinkListeners.has(ownedLanTcp.id))
-				await startProviderListening(ownedLanTcp)
-			if (ownedBleGatt && !stopLinkListeners.has(ownedBleGatt.id)
-				&& await Promise.resolve(ownedBleGatt.isAvailable()))
-				await startProviderListening(ownedBleGatt)
+			// 覆盖本轮新注册/重新注册的 provider（例如关掉再打开 nostr）：只补 ownedLanTcp/BLE
+			// 会让新 provider 永远拿不到 onInbound（见 fount-p2p#38）。
+			await startEnabledProviderListening()
 			signalListenReady = (async () => {
 				if (generation !== gen || !isLive()) return
 				if (!listDiscoveryProviders().length) return

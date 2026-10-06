@@ -48,21 +48,45 @@ import kotlinx.coroutines.withTimeoutOrNull
  * 偏离：
  * - JS 用 `setInterval` / promise；Kotlin 用 coroutine。`startNostrRelayDiscovery` 在 JS 无参，
  *   Kotlin 需显式 scope，这里用模块级 scope。
- * - JS `collectFastListenProviders` 借「isAvailable 是否返回 thenable」跳过慢 provider；
- *   Kotlin 无法运行时探测，改为只返回本 registry 持有的 lan_tcp（与内置 provider 的 JS 结果一致）。
+ * - JS `collectFastListenProviders` 借「isAvailable 是否返回 thenable」把异步探测的 provider 留给补监听路径；
+ *   Kotlin 的 `isAvailable()` 一律是 suspend，没法同步问，所以快速路径只放本 registry 自己持有的实例。
  */
+
+/**
+ * @param provider 链路提供者
+ * @return 是否由本 registry 自己持有（lan_tcp / ble_gatt 走各自的启动路径）
+ */
+fun providerIsRegistryOwned(provider: LinkProvider): Boolean =
+	provider.id.startsWith("lan_tcp") || provider.id.startsWith("ble_gatt")
 
 /** @param provider 链路提供者 @return 是否使用原生 probe 路径 */
 fun providerHasNativeProbe(provider: LinkProvider): Boolean = provider.caps?.get("probe") == "native"
 
 /**
+ * @param provider 链路提供者
+ * @return 是否需要在 runtime 暖机时补挂监听
+ */
+fun providerNeedsListening(provider: LinkProvider): Boolean {
+	if (providerIsRegistryOwned(provider)) return false
+	if (providerHasNativeProbe(provider)) return false
+	// 不因「暂时不可用」而拒绝挂监听：relay 池为空/未探测时 nostr 的 isAvailable() 会是 false，
+	// 而 relay 列表是在发送时解析的，先挂上监听才能收到入站 link-open（见 fount-p2p#38）。
+	// Kotlin 的 `ensureListening` 带默认空实现，没法像 JS 那样问「有没有这个方法」；真返回 null 的
+	// provider 在 startProviderListening 里自然不会被登记，无需在这里预判。
+	return true
+}
+
+/**
  * @param ownedLanTcp 本 registry 持有的 lan_tcp
+ * @param ownedBleGatt 本 registry 持有的 ble_gatt
  * @return 可快速启动监听的 provider 列表
  */
-fun collectFastListenProviders(ownedLanTcp: LinkProvider?): List<LinkProvider> {
+fun collectFastListenProviders(ownedLanTcp: LinkProvider?, ownedBleGatt: LinkProvider?): List<LinkProvider> {
 	val out = ArrayList<LinkProvider>()
+	// 自己持有的实例必须在注册/重注册时立刻挂监听，不能等 discovery 就绪：BLE 的 ensureListening
+	// 在宿主未注入蓝牙运行时就是空实现（no-op），真正的可用性判断在宿主侧。
 	if (ownedLanTcp != null) out.add(ownedLanTcp)
-	// 其余内置 provider 在 JS 中因异步 isAvailable / native probe / id 前缀被跳过。
+	if (ownedBleGatt != null) out.add(ownedBleGatt)
 	return out
 }
 
@@ -205,11 +229,30 @@ private class DefaultRuntimeBootstrap(private val deps: RuntimeBootstrapDeps) : 
 		return encryptAdvertForScope("network", localIdentity, body)
 	}
 
+	/**
+	 * 为所有「已注册、已启用、尚未监听」的 link provider 启动监听。
+	 * `reconcileLinkProviders()` 重新注册的 provider 只有走到这里才会拿到 onInbound/localIdentity，
+	 * 否则它会静默丢弃全部入站 link-open（见 fount-p2p#38）。
+	 *
+	 * 刻意不看 `isAvailable()`：relay 池为空/未探测时 nostr 的 `isAvailable()` 会是 false，而 relay 列表
+	 * 是在发送时解析的；先挂上监听才能收到入站 link-open，暂时不可用不该让它变哑巴。
+	 */
+	private suspend fun startEnabledProviderListening() {
+		if (!deps.autoRegisterLinkProviders) return
+		for (provider in listLinkProviders()) {
+			if (!isChannelEnabled(provider.id.split(":")[0])) continue
+			if (!providerNeedsListening(provider)) continue
+			if (stopLinkListeners.containsKey(provider.id)) continue
+			startProviderListening(provider)
+		}
+	}
+
 	private suspend fun warmListenAndDiscovery(gen: Int) {
-		val listenProviders = collectFastListenProviders(ownedLanTcp)
+		val listenProviders = collectFastListenProviders(ownedLanTcp, ownedBleGatt)
 		val lanReady = CompletableDeferred<Unit>()
 		lanListenReady = lanReady
 		for (provider in listenProviders) startProviderListening(provider)
+		startEnabledProviderListening()
 		lanReady.complete(Unit)
 
 		val signalReady = CompletableDeferred<Unit>()
@@ -374,10 +417,9 @@ private class DefaultRuntimeBootstrap(private val deps: RuntimeBootstrapDeps) : 
 				deferred.complete(Unit)
 				return
 			}
-			ownedLanTcp?.let { if (!stopLinkListeners.containsKey(it.id)) startProviderListening(it) }
-			ownedBleGatt?.let {
-				if (!stopLinkListeners.containsKey(it.id) && it.isAvailable()) startProviderListening(it)
-			}
+			// 覆盖本轮新注册/重新注册的 provider（例如关掉再打开 nostr）：只补 ownedLanTcp/BLE
+			// 会让新 provider 永远拿不到 onInbound（见 fount-p2p#38）。
+			startEnabledProviderListening()
 			val signalReady = CompletableDeferred<Unit>()
 			signalListenReady = signalReady
 			try {

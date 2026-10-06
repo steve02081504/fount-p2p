@@ -63,7 +63,7 @@ interface PeerHealthLink {
 private fun now(): Double = System.currentTimeMillis().toDouble()
 
 /** peer health 聚合器。 */
-class PeerHealthTracker internal constructor(registry: PeerHealthRegistry) {
+class PeerHealthTracker internal constructor(private val registry: PeerHealthRegistry) {
 	private val entries = LinkedHashMap<String, PeerHealthEntry>()
 	private val cleanups = LinkedHashMap<String, () -> Unit>()
 	private val listeners = LinkedHashSet<(String, PeerHealthEntry) -> Unit>()
@@ -72,6 +72,16 @@ class PeerHealthTracker internal constructor(registry: PeerHealthRegistry) {
 	private var stopDown: (() -> Unit)? = null
 
 	init {
+		start()
+	}
+
+	/**
+	 * 订阅 registry 的链路事件（幂等）。
+	 * `stop()` 之后可用它重新挂上监听：registry 的 link up/down 桶在 shutdown 时不会被清空，
+	 * 所以重启运行时后健康记录能自然恢复。
+	 */
+	fun start() {
+		if (stopUp != null) return
 		stopUp = registry.onLinkUp { nodeHash, link ->
 			if (nodeHash.isEmpty()) return@onLinkUp
 			val stopRtt = link?.onRtt {
@@ -85,7 +95,7 @@ class PeerHealthTracker internal constructor(registry: PeerHealthRegistry) {
 					),
 				)
 			}
-			val stopDown = link?.onDown {
+			val stopLinkDown = link?.onDown {
 				cleanups[nodeHash]?.invoke()
 				cleanups.remove(nodeHash)
 				update(nodeHash, linkedMapOf("connected" to false, "lastSeenAt" to now()))
@@ -100,7 +110,7 @@ class PeerHealthTracker internal constructor(registry: PeerHealthRegistry) {
 			)
 			cleanups[nodeHash] = {
 				stopRtt?.invoke()
-				stopDown?.invoke()
+				stopLinkDown?.invoke()
 			}
 		}
 		stopDown = registry.onLinkDown { nodeHash ->
@@ -152,14 +162,15 @@ class PeerHealthTracker internal constructor(registry: PeerHealthRegistry) {
 		return { listeners.remove(listener) }
 	}
 
-	/** 停止监听并清空聚合。 */
+	/** 停止监听并清空聚合（start() 可重新挂上；listeners 订阅者保留）。 */
 	fun stop() {
 		stopUp?.invoke()
 		stopDown?.invoke()
+		stopUp = null
+		stopDown = null
 		for (cleanup in cleanups.values) cleanup()
 		cleanups.clear()
 		entries.clear()
-		listeners.clear()
 	}
 }
 

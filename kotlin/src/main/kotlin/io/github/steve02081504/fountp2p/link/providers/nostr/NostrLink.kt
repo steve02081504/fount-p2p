@@ -10,6 +10,8 @@ import io.github.steve02081504.fountp2p.discovery.getDiscoveryProvider
 import io.github.steve02081504.fountp2p.discovery.nostr.NOSTR_SIGNAL_KIND
 import io.github.steve02081504.fountp2p.discovery.nostr.resolveNostrRelayUrls
 import io.github.steve02081504.fountp2p.discovery.sendNodeSignalPacket
+import io.github.steve02081504.fountp2p.node.nodeDebug
+import io.github.steve02081504.fountp2p.node.shortHash
 import io.github.steve02081504.fountp2p.link.FRAME_HEADER_BYTES
 import io.github.steve02081504.fountp2p.link.LinkPipeOptions
 import io.github.steve02081504.fountp2p.link.asLinkHandle
@@ -234,7 +236,15 @@ class NostrLinkProvider(options: Map<String, Any?> = emptyMap()) : LinkProvider 
 			if (sessions.containsKey(linkId)) return
 			val inbound = onInbound
 			val identity = localIdentity
-			if (inbound == null || identity == null) return
+			if (inbound == null || identity == null) {
+				// 监听未挂上（例如通道关掉再打开后 registry 没重新 ensureListening）时入站包会被丢弃；
+				// 静默丢弃曾让「对端明明在线却始终握手超时」无法诊断（见 fount-p2p#38）。
+				nodeDebug(
+					"p2p:nostr link-open dropped — listener not attached",
+					linkedMapOf("peer" to shortHash(from), "linkId" to shortHash(linkId)),
+				)
+				return
+			}
 			refreshPayloadCap(resolveRelayUrls())
 			if (sessions.containsKey(linkId)) return
 			val pipe = openPipe(mapOf("linkId" to linkId, "remoteNodeHash" to from, "initiator" to false, "localIdentity" to identity))

@@ -156,3 +156,28 @@ test('peer health: unknown node returns null; stop clears entries', () => {
 	tracker.stop()
 	assertEquals(tracker.listPeerHealth().length, 0)
 })
+
+test('peer health: start() after stop() resumes tracking and keeps subscribers', () => {
+	const { tracker, registry, link } = setup()
+	/** @type {string[]} */
+	const seen = []
+	tracker.onPeerHealth((nodeHash, entry) => { seen.push(`${nodeHash}:${entry.connected}`) })
+	registry.emitUp(PEER, link)
+	tracker.stop()
+	assertEquals(tracker.listPeerHealth().length, 0)
+	// 重启运行时后必须重新挂上：否则 getPeerHealth / listPeerHealth 永久为空（fount-p2p#38）。
+	tracker.start()
+	registry.emitUp(PEER, link)
+	assertEquals(tracker.getPeerHealth(PEER).connected, true)
+	assertEquals(seen, [`${PEER}:true`, `${PEER}:true`])
+})
+
+test('peer health: start() is idempotent and does not double count', () => {
+	const { tracker, registry, link } = setup()
+	tracker.start()
+	tracker.start()
+	registry.emitUp(PEER, link)
+	assertEquals(tracker.listPeerHealth().length, 1)
+	link.emitRtt()
+	assertEquals(tracker.getPeerHealth(PEER).rttMs, 42)
+})

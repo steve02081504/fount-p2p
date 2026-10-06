@@ -5,6 +5,7 @@ import { base64ToBytes, bytesToBase64 } from '../../../core/bytes_codec.mjs'
 import { isHex64 } from '../../../core/hexIds.mjs'
 import { getDiscoveryProvider, sendNodeSignalPacket } from '../../../discovery/index.mjs'
 import { NOSTR_SIGNAL_KIND, resolveNostrRelayUrls } from '../../../discovery/nostr/index.mjs'
+import { nodeDebug, shortHash } from '../../../node/log.mjs'
 import { ms } from '../../../utils/duration.mjs'
 import { createLruMap } from '../../../utils/lru.mjs'
 import { FRAME_HEADER_BYTES, maxFrameChunkBytesForPayload } from '../../frame.mjs'
@@ -327,7 +328,15 @@ export function createNostrLinkProvider(options = {}) {
 		const op = String(packet.op || '')
 		if (op === 'open') {
 			if (sessions.has(linkId)) return
-			if (!onInbound || !localIdentity) return
+			if (!onInbound || !localIdentity) {
+				// 监听未挂上（例如通道关掉再打开后 registry 没重新 ensureListening）时入站包会被丢弃；
+				// 静默丢弃曾让「对端明明在线却始终握手超时」无法诊断（见 fount-p2p#38）。
+				nodeDebug('p2p:nostr link-open dropped — listener not attached', {
+					peer: shortHash(from),
+					linkId: shortHash(linkId),
+				})
+				return
+			}
 			await refreshPayloadCap(resolveRelayUrls())
 			if (sessions.has(linkId)) return
 			const pipe = openPipe({

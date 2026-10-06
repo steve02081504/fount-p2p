@@ -19,6 +19,7 @@ import { emitSafe } from '../utils/emit_safe.mjs'
  *   getPeerHealth: (nodeHash: string) => PeerHealthEntry | null
  *   listPeerHealth: () => PeerHealthEntry[]
  *   onPeerHealth: (listener: (nodeHash: string, entry: PeerHealthEntry) => void) => () => void
+ *   start: () => void
  *   stop: () => void
  * }} peer health 聚合器
  */
@@ -29,6 +30,10 @@ export function createPeerHealthTracker(registry) {
 	const cleanups = new Map()
 	/** @type {Set<(nodeHash: string, entry: PeerHealthEntry) => void>} */
 	const listeners = new Set()
+	/** @type {(() => void) | null} registry link up 退订 */
+	let stopUp = null
+	/** @type {(() => void) | null} registry link down 退订 */
+	let stopDown = null
 
 	/**
 	 * 合并补丁并通知订阅方。
@@ -54,37 +59,48 @@ export function createPeerHealthTracker(registry) {
 		emitSafe(listeners, nodeHash, entry)
 	}
 
-	const stopUp = registry.onLinkUp?.((nodeHash, link) => {
-		if (!nodeHash) return
-		const stopRtt = link?.onRtt?.(() => {
-			const stats = link.stats?.() ?? {}
+	/**
+	 * 订阅 registry 的链路事件（幂等）。
+	 * `stop()` 之后可用它重新挂上监听：registry 的 link up/down 桶在 shutdown 时不会被清空，
+	 * 所以重启运行时后健康记录能自然恢复。
+	 * @returns {void}
+	 */
+	function start() {
+		if (stopUp) return
+		stopUp = registry.onLinkUp?.((nodeHash, link) => {
+			if (!nodeHash) return
+			const stopRtt = link?.onRtt?.(() => {
+				const stats = link.stats?.() ?? {}
+				update(nodeHash, {
+					rttMs: stats.rttMs ?? null,
+					avgRttMs: stats.avgRttMs ?? null,
+					lastSeenAt: Date.now(),
+				})
+			}) ?? null
+			const stopLinkDown = link?.onDown?.(() => {
+				cleanups.get(nodeHash)?.()
+				cleanups.delete(nodeHash)
+				update(nodeHash, { connected: false, lastSeenAt: Date.now() })
+			}) ?? null
 			update(nodeHash, {
-				rttMs: stats.rttMs ?? null,
-				avgRttMs: stats.avgRttMs ?? null,
+				connected: true,
+				source: link?.providerId ?? null,
 				lastSeenAt: Date.now(),
 			})
+			cleanups.set(nodeHash, () => {
+				stopRtt?.()
+				stopLinkDown?.()
+			})
 		}) ?? null
-		const stopDown = link?.onDown?.(() => {
+		stopDown = registry.onLinkDown?.(nodeHash => {
+			if (!nodeHash) return
 			cleanups.get(nodeHash)?.()
 			cleanups.delete(nodeHash)
 			update(nodeHash, { connected: false, lastSeenAt: Date.now() })
 		}) ?? null
-		update(nodeHash, {
-			connected: true,
-			source: link?.providerId ?? null,
-			lastSeenAt: Date.now(),
-		})
-		cleanups.set(nodeHash, () => {
-			stopRtt?.()
-			stopDown?.()
-		})
-	}) ?? null
-	const stopDown = registry.onLinkDown?.(nodeHash => {
-		if (!nodeHash) return
-		cleanups.get(nodeHash)?.()
-		cleanups.delete(nodeHash)
-		update(nodeHash, { connected: false, lastSeenAt: Date.now() })
-	}) ?? null
+	}
+
+	start()
 
 	return {
 		/**
@@ -108,17 +124,19 @@ export function createPeerHealthTracker(registry) {
 			listeners.add(listener)
 			return () => listeners.delete(listener)
 		},
+		start,
 		/**
-		 * 停止监听并清空聚合。
+		 * 停止监听并清空聚合（listen 订阅保留，listeners 订阅者保留）。
 		 * @returns {void}
 		 */
 		stop() {
 			stopUp?.()
 			stopDown?.()
+			stopUp = null
+			stopDown = null
 			for (const cleanup of cleanups.values()) cleanup()
 			cleanups.clear()
 			entries.clear()
-			listeners.clear()
 		},
 	}
 }
