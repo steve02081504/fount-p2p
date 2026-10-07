@@ -209,16 +209,19 @@ class RtcIceLadderTest {
 
 	/** 建链前把句柄 `ready` 结算成的状态。 */
 	private enum class ReadyState { SUCCEEDED, CANCELLED, FAILED }
+	private class FailedAnswerRun(val tornDown: Boolean, val answerAttempts: Int)
 
 	/**
 	 * 失败信令装置：`send` 遇到 answer 时记录一次并抛错，模拟订阅已断的响应方。
 	 */
 	private class FailingAnswerSignal {
 		var remoteHandler: ((Map<String, Any?>) -> Unit)? = null
+		var answerAttempts = 0
 		val answerSendAttempted = CompletableDeferred<Unit>()
 		val signal = object : RtcSignal {
 			override suspend fun send(message: Map<String, Any?>) {
 				if ((message["description"] as? Map<*, *>)?.get("type") != "answer") return
+				answerAttempts++
 				answerSendAttempted.complete(Unit)
 				throw IllegalStateException("signal unavailable")
 			}
@@ -237,13 +240,41 @@ class RtcIceLadderTest {
 		}
 	}
 
+	private class TransientAnswerSignal(private val failFirst: Int) {
+		var remoteHandler: ((Map<String, Any?>) -> Unit)? = null
+		var answerAttempts = 0
+		val firstAnswerAttempt = CompletableDeferred<Unit>()
+		val answerAccepted = CompletableDeferred<Unit>()
+		val signal = object : RtcSignal {
+			override suspend fun send(message: Map<String, Any?>) {
+				if ((message["description"] as? Map<*, *>)?.get("type") != "answer") return
+				answerAttempts++
+				firstAnswerAttempt.complete(Unit)
+				if (answerAttempts <= failFirst) throw IllegalStateException("temporary signal failure")
+				answerAccepted.complete(Unit)
+			}
+
+			override fun onRemote(handler: (Map<String, Any?>) -> Unit): () -> Unit {
+				remoteHandler = handler
+				return { remoteHandler = null }
+			}
+		}
+
+		fun deliverOffer() {
+			remoteHandler?.invoke(
+				linkedMapOf("type" to "description", "rung" to 0.0, "description" to mapOf("type" to "offer", "sdp" to "v=0\r\n")),
+			)
+		}
+	}
+
 	/**
 	 * 跑一次「答复信令发不出去」的响应方建链：answer 发送已发生，随后信令层抛错。
 	 * @param ready 建链前把句柄的 ready 结算成什么状态；null 表示保持未结算
 	 * @return 该链路是否被拆掉（建链失败路径会关掉底层 peer connection）
 	 */
-	private suspend fun runFailedAnswerSignal(ready: ReadyState?): Boolean {
+	private suspend fun runFailedAnswerSignal(ready: ReadyState?): FailedAnswerRun {
 		var tornDown = false
+		var answerAttempts = 0
 		withTempNode("fount-p2p-webrtc-answer-signal-") {
 			val rtc = FakeRtcProvider("candidate:2 1 udp 2130706430 10.0.0.5 54322 typ host")
 			val failing = FailingAnswerSignal()
@@ -259,32 +290,143 @@ class RtcIceLadderTest {
 				failing.deliverOffer(0)
 				withTimeout(1_000) { failing.answerSendAttempted.await() }
 				// 关闭是 fire-and-forget 的：等它一整个建链窗口，等到就说明被拆了。
-				tornDown = withTimeoutOrNull(500) { while (connection.connectionState != "closed") delay(5) } != null
+				// Three sends have a 700ms retry budget (initial attempt plus 200ms and 500ms delays).
+				tornDown = withTimeoutOrNull(1_500) { while (connection.connectionState != "closed") delay(5) } != null
+				answerAttempts = failing.answerAttempts
 			}
 			finally {
 				link.close("test-done")
 			}
 		}
-		return tornDown
+		return FailedAnswerRun(tornDown, answerAttempts)
 	}
 
 	@Test
 	fun `failed renegotiation signal leaves a ready link open`() = runBlocking {
-		assertEquals(false, runFailedAnswerSignal(ReadyState.SUCCEEDED))
+		val run = runFailedAnswerSignal(ReadyState.SUCCEEDED)
+		assertEquals(false, run.tornDown)
+		assertEquals(1, run.answerAttempts)
 	}
 
 	@Test
 	fun `failed renegotiation signal does not treat a cancelled ready as ready`() = runBlocking {
-		assertEquals(true, runFailedAnswerSignal(ReadyState.CANCELLED))
+		val run = runFailedAnswerSignal(ReadyState.CANCELLED)
+		assertEquals(true, run.tornDown)
+		assertEquals(3, run.answerAttempts)
 	}
 
 	@Test
 	fun `failed renegotiation signal does not treat a failed ready as ready`() = runBlocking {
-		assertEquals(true, runFailedAnswerSignal(ReadyState.FAILED))
+		val run = runFailedAnswerSignal(ReadyState.FAILED)
+		assertEquals(true, run.tornDown)
+		assertEquals(3, run.answerAttempts)
 	}
 
 	@Test
 	fun `failed answer signal still closes a link before ready`() = runBlocking {
-		assertEquals(true, runFailedAnswerSignal(null))
+		val run = runFailedAnswerSignal(null)
+		assertEquals(true, run.tornDown)
+		assertEquals(3, run.answerAttempts)
+	}
+
+	@Test
+	fun `responder retries transient answer failures and keeps the link open after success`() = runBlocking {
+		withTempNode("fount-p2p-webrtc-answer-retry-") {
+			val rtc = FakeRtcProvider("candidate:2 1 udp 2130706430 10.0.0.5 54322 typ host")
+			val signal = TransientAnswerSignal(failFirst = 2)
+			val link = createWebRtcLink(WebRtcLinkOptions(signal = signal.signal, rtc = rtc, iceServers = emptyList(), iceCandidateSettleMs = 5, iceGatheringStallMs = 20))
+			try {
+				signal.deliverOffer()
+				withTimeout(2_000) { signal.answerAccepted.await() }
+				assertEquals(3, signal.answerAttempts)
+				assertEquals("new", rtc.connections.single().connectionState)
+			}
+			finally {
+				link.close("test-done")
+			}
+		}
+	}
+
+	@Test
+	fun `responder stops answer retries after the pipe closes`() = runBlocking {
+		withTempNode("fount-p2p-webrtc-answer-close-") {
+			val rtc = FakeRtcProvider("candidate:2 1 udp 2130706430 10.0.0.5 54322 typ host")
+			val signal = TransientAnswerSignal(failFirst = 1)
+			val link = createWebRtcLink(WebRtcLinkOptions(signal = signal.signal, rtc = rtc, iceServers = emptyList(), iceCandidateSettleMs = 5, iceGatheringStallMs = 20))
+			try {
+				signal.deliverOffer()
+				withTimeout(1_000) { signal.firstAnswerAttempt.await() }
+				assertEquals(1, signal.answerAttempts)
+				link.close("test-close-during-retry")
+				delay(300)
+				assertEquals("closed pipe prevents stale retry", 1, signal.answerAttempts)
+			}
+			finally {
+				link.close("test-done")
+			}
+		}
+	}
+
+	/**
+	 * 答复信令装置：首个 answer 的发布悬挂到测试放行为止，其余 answer 记下后照常成功。
+	 * 用于构造「旧的 answer 还没结算，链路已经换级」的过期答复。
+	 */
+	private class PendingAnswerSignal {
+		var remoteHandler: ((Map<String, Any?>) -> Unit)? = null
+		val firstAnswerSent = CompletableDeferred<Unit>()
+		val acceptedAnswers = ArrayList<Map<String, Any?>>()
+		/** 首个 answer 发送后在此悬挂，由测试抛错结算。 */
+		val pendingAnswer = CompletableDeferred<Unit>()
+
+		val signal = object : RtcSignal {
+			override suspend fun send(message: Map<String, Any?>) {
+				if ((message["description"] as? Map<*, *>)?.get("type") != "answer") return
+				if (!firstAnswerSent.isCompleted) {
+					firstAnswerSent.complete(Unit)
+					pendingAnswer.await()
+					return
+				}
+				acceptedAnswers.add(message)
+			}
+
+			override fun onRemote(handler: (Map<String, Any?>) -> Unit): () -> Unit {
+				remoteHandler = handler
+				return { remoteHandler = null }
+			}
+		}
+
+		/** @param rung offer 的级号 */
+		fun deliverOffer(rung: Int) {
+			remoteHandler?.invoke(
+				linkedMapOf("type" to "description", "rung" to rung.toDouble(), "description" to mapOf("type" to "offer", "sdp" to "v=0\r\n")),
+			)
+		}
+	}
+
+	@Test
+	fun `stale answer failure during a rung switch does not close the link`() = runBlocking {
+		withTempNode("fount-p2p-webrtc-stale-answer-") {
+			val rtc = FakeRtcProvider("candidate:2 1 udp 2130706430 10.0.0.5 54322 typ host")
+			val signal = PendingAnswerSignal()
+			val link = createWebRtcLink(WebRtcLinkOptions(signal = signal.signal, rtc = rtc, iceServers = emptyList(), iceCandidateSettleMs = 5, iceGatheringStallMs = 20))
+			try {
+				// rung 0 的 answer 发出去后悬挂：此刻它是「还没失败」的当前答复。
+				signal.deliverOffer(0)
+				withTimeout(1_000) { signal.firstAnswerSent.await() }
+				// 换级：rungIndex 跳到 1 并重建 pc，rung 0 的那个答复就此过期。
+				signal.deliverOffer(1)
+				val rebuiltDeadline = System.currentTimeMillis() + 1_000
+				while (rtc.connections.size < 2 && System.currentTimeMillis() < rebuiltDeadline) delay(5)
+				assertEquals("rung switch rebuilt the peer connection", 2, rtc.connections.size)
+				signal.pendingAnswer.completeExceptionally(IllegalStateException("stale answer publish failed"))
+				delay(400)
+				// 过期答复的失败必须就地消失：新一级既不能被拆掉，也不该被它干扰出答复。
+				assertEquals("live rung survives the stale failure", "new", rtc.connections[1].connectionState)
+				assertEquals("the superseded answer is not re-sent", 1, signal.acceptedAnswers.size)
+			}
+			finally {
+				link.close("test-done")
+			}
+		}
 	}
 }

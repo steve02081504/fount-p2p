@@ -22,6 +22,7 @@ import { LINK_LEVEL_WEBRTC } from './levels.mjs'
 export const ICE_CANDIDATE_SETTLE_MS = 300
 /** gathering 状态轮询间隔。 */
 const ICE_GATHERING_POLL_MS = 50
+const ANSWER_SIGNAL_RETRY_DELAYS_MS = [200, 500]
 /** 一个候选都没收到时，等这么久就放行让 DTLS/数据通道自行判成败。 */
 export const ICE_GATHERING_STALL_MS = ms('3s')
 
@@ -156,6 +157,32 @@ export async function createWebRtcLink(options) {
 	 */
 	async function sendSignal(message) {
 		await Promise.resolve(options.signal.send(message))
+	}
+
+	/**
+	 * 发送 answer 信令：暂时性失败按 [ANSWER_SIGNAL_RETRY_DELAYS_MS] 重试。
+	 * 链路已就绪（重协商）或已被换掉/关闭时不再重试——那时重发只会打到过期的会话。
+	 * @param {object} message 待发送的 answer
+	 * @param {() => boolean} isCurrent 该 answer 是否仍属于当前一级与存活的链路
+	 * @returns {Promise<void>}
+	 */
+	async function sendAnswerSignal(message, isCurrent) {
+		for (let attempt = 0; ; attempt++) {
+			if (!isCurrent()) return
+			try {
+				await sendSignal(message)
+				return
+			}
+			catch (error) {
+				// 过期的 answer（换级/换 pc 或链路已关）：直接放弃，不能再靠失败去拆掉当前活链路。
+				if (!isCurrent()) return
+				if (linkReady) throw error
+				const delayMs = ANSWER_SIGNAL_RETRY_DELAYS_MS[attempt]
+				if (delayMs == null) throw error
+				nodeDebug('p2p:webrtc answer signal retry', { attempt: attempt + 1, reason: formatErrorReason(error) })
+				await new Promise(resolve => setTimeout(resolve, delayMs))
+			}
+		}
 	}
 
 	const createPipe = options.createPipe ?? createLinkPipe
@@ -424,11 +451,12 @@ export async function createWebRtcLink(options) {
 					hasCandidates,
 				})
 				try {
-					await sendSignal({
+					const answerPeerConnection = peerConnection
+					await sendAnswerSignal({
 						type: 'description',
 						rung: rungIndex,
 						description: peerConnection.localDescription?.toJSON?.() ?? peerConnection.localDescription ?? answer,
-					})
+					}, () => peerConnection === answerPeerConnection && rungIndex === remoteRung && !pipe.stats().closed)
 				}
 				catch (error) {
 					// 已认证的数据链路不应被后续信令发送失败关闭。

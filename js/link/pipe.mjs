@@ -422,6 +422,7 @@ export function createLinkPipe(options) {
 		stats() {
 			return {
 				ready,
+				closed,
 				providerId,
 				level,
 				nodeHash: remoteNodeHash,

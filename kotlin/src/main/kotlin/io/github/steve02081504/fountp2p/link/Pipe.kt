@@ -424,6 +424,7 @@ class LinkPipe(private val options: LinkPipeOptions) : LinkHandle {
 	override fun stats(): Map<String, Any?> {
 		val out = LinkedHashMap<String, Any?>()
 		out["ready"] = readyFlag
+		out["closed"] = closed
 		out["providerId"] = providerId
 		out["level"] = level
 		out["nodeHash"] = remoteNodeHash

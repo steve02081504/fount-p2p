@@ -34,6 +34,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+private val answerSignalRetryDelaysMs = listOf(200L, 500L)
+
 /** WebRTC 信令收发抽象。 */
 interface RtcSignal {
 	/**
@@ -218,6 +220,42 @@ suspend fun createWebRtcLink(options: WebRtcLinkOptions): LinkHandle {
 		),
 	)
 
+	/**
+	 * 数据链路是否已完成握手认证（`ready` 成功完成）。取消或异常完成不算：那时 `isCompleted` 也是真，
+	 * 但握手从未成功，链路仍该按建链失败处理。
+	 * @return 已就绪为 true
+	 */
+	fun linkReady(): Boolean = pipe.ready.isCompleted && pipe.ready.getCompletionExceptionOrNull() == null
+
+	/**
+	 * 发送 answer 信令：暂时性失败按 [answerSignalRetryDelaysMs] 重试。
+	 * 链路已就绪（重协商）或已被换掉/关闭时不再重试——那时重发只会打到过期的会话。
+	 * @param message 待发送的 answer
+	 * @param isCurrent 该 answer 是否仍属于当前一级与存活的链路
+	 */
+	suspend fun sendAnswerSignal(message: Map<String, Any?>, isCurrent: () -> Boolean) {
+		var attempt = 0
+		while (true) {
+			if (!isCurrent()) return
+			try {
+				sendSignal(message)
+				return
+			}
+			catch (error: Exception) {
+				if (error is CancellationException) throw error
+				// 过期的 answer（换级/换 pc 或链路已关）：直接放弃，不能再靠失败去拆掉当前活链路。
+				if (!isCurrent()) return
+				if (linkReady()) throw error
+				val delayMs = answerSignalRetryDelaysMs.getOrNull(attempt++) ?: throw error
+				nodeDebug(
+					"p2p:webrtc answer signal retry",
+					mapOf("attempt" to attempt.toDouble(), "reason" to formatErrorReason(error)),
+				)
+				delay(delayMs)
+			}
+		}
+	}
+
 	fun attachBackpressurePump(channel: RtcDataChannel) {
 		configureBufferedAmountLowThreshold(channel, CHANNEL_LOW_THRESHOLD_BYTES.toDouble())
 		onBufferedAmountLow(channel) {
@@ -288,13 +326,6 @@ suspend fun createWebRtcLink(options: WebRtcLinkOptions): LinkHandle {
 	}
 
 	/**
-	 * 数据链路是否已完成握手认证（`ready` 成功完成）。取消或异常完成不算：那时 `isCompleted` 也是真，
-	 * 但握手从未成功，链路仍该按建链失败处理。
-	 * @return 已就绪为 true
-	 */
-	fun linkReady(): Boolean = pipe.ready.isCompleted && pipe.ready.getCompletionExceptionOrNull() == null
-
-	/**
 	 * 处理入站信令。
 	 *
 	 * 当前这一级的 pc 在订阅信令前就已建好并挂过回调，所以这里不必补建；只有 offer 点名了别的级
@@ -337,7 +368,11 @@ suspend fun createWebRtcLink(options: WebRtcLinkOptions): LinkHandle {
 				val payload = linkedMapOf<String, Any?>("type" to "description", "rung" to rungIndex.toDouble())
 				payload["description"] = peerConnection.localDescription ?: answer
 				try {
-					sendSignal(payload)
+					val answerPeerConnection = peerConnection
+					val answerRung = rungIndex
+					sendAnswerSignal(payload) {
+						peerConnection === answerPeerConnection && rungIndex == answerRung && pipe.stats()["closed"] != true
+					}
 				}
 				catch (error: Exception) {
 					if (error is CancellationException) throw error

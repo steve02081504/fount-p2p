@@ -198,8 +198,8 @@ function createStubPipe(pipeOptions, readyState = 'pending') {
 		async startHandshake() { },
 		/** @returns {Promise<void>} */
 		async maybeSendAuth() { },
-		/** @returns {object} 统计 */
-		stats() { return { rttMs: null, avgRttMs: null } },
+		/** `closed` 供重试逻辑判断链路是否已被换掉/关闭。@returns {object} 统计 */
+		stats() { return { rttMs: null, avgRttMs: null, ready: readyState === 'ready', closed: closedReasons.length > 0 } },
 		closedReasons,
 	}
 	return pipe
@@ -207,8 +207,8 @@ function createStubPipe(pipeOptions, readyState = 'pending') {
 
 /**
  * 搭一次建链的测试装置：假后端按 [FakeRtcBackend.candidateSdp] 产出候选，pipe 替身只记录关闭原因。
- * @param {{ initiator?: boolean, candidateSdp?: string | null, handshakeTimeoutMs?: number, iceCandidateSettleMs?: number, iceGatheringStallMs?: number, readyState?: 'pending' | 'ready' | 'failed', failAnswerSend?: boolean }} options 测试参数
- * @returns {{ backend: FakeRtcBackend, sent: object[], pipeStub: object, linking: Promise<object>, sendInbound: (message: object) => void, stop: () => void }} 装置；`stop` 停掉 gathering 推进
+ * @param {{ initiator?: boolean, candidateSdp?: string | null, handshakeTimeoutMs?: number, iceCandidateSettleMs?: number, iceGatheringStallMs?: number, readyState?: 'pending' | 'ready' | 'failed', failAnswerSend?: boolean, failAnswerSendAttempts?: number }} options 测试参数
+ * @returns {{ backend: FakeRtcBackend, sent: object[], answerSendAttempts: number, pipeStub: object, linking: Promise<object>, sendInbound: (message: object) => void, stop: () => void }} 装置；`stop` 停掉 gathering 推进
  */
 function createLadderHarness(options) {
 	const backend = new FakeRtcBackend(options.candidateSdp ?? LOCAL_HOSTNAME_CANDIDATE)
@@ -217,6 +217,7 @@ function createLadderHarness(options) {
 	/** @type {((message: object) => void) | null} */
 	let inbound = null
 	let pipeStub = null
+	let answerSendAttempts = 0
 	// 推进各轮 gathering（真实代码每 50ms 轮询一次本地候选数）。
 	const advance = setInterval(() => {
 		for (const connection of backend.connections) connection.advanceGathering()
@@ -230,7 +231,12 @@ function createLadderHarness(options) {
 			 * @returns {void}
 			 */
 			send(message) {
-				if (options.failAnswerSend && message.description?.type === 'answer') throw new Error('signal unavailable')
+				if (message.description?.type !== 'answer') return sent.push(message)
+				answerSendAttempts++
+				// 两种失败语义：永久失败（responderWithFailingAnswer）或只失败前 N 次（瞬时失败）。
+				if (options.failAnswerSend) throw new Error('signal unavailable')
+				if (answerSendAttempts <= (options.failAnswerSendAttempts ?? 0)) throw new Error('temporary signal failure')
+				if (options.seedPendingAnswer) return options.seedPendingAnswer(message)
 				sent.push(message)
 			},
 			/**
@@ -267,6 +273,7 @@ function createLadderHarness(options) {
 	return {
 		backend,
 		sent,
+		get answerSendAttempts() { return answerSendAttempts },
 		/** @type {object} */ pipeStub: /** @type {object} */ (pipeStub),
 		linking,
 		/** @param {object} message 入站信令 */
@@ -279,7 +286,7 @@ function createLadderHarness(options) {
  * 跑一次建链，返回出站信令、策略序列与建过的 peer connection。
  * `closeStates` 是收尾关链前的快照：被换掉的一级应当只关过自己、且关闭时已无状态回调；存活的一级应当一次都没关过。
  * @param {{ initiator?: boolean, candidateSdp?: string | null, inboundSignals?: object[], handshakeTimeoutMs?: number, iceCandidateSettleMs?: number, iceGatheringStallMs?: number }} [options] 测试参数
- * @returns {Promise<{ sent: object[], policies: string[], connections: FakePeerConnection[], closeStates: { closeCalls: number[], closedWithStateHandler: number[] }, rejected: Error | null, closedReasons: string[] }>} 结果
+ * @returns {Promise<{ sent: object[], answerSendAttempts: number, policies: string[], connections: FakePeerConnection[], closeStates: { closeCalls: number[], closedWithStateHandler: number[] }, rejected: Error | null, closedReasons: string[] }>} 结果
  */
 async function runWebRtcLink(options = {}) {
 	const harness = createLadderHarness(options)
@@ -302,6 +309,7 @@ async function runWebRtcLink(options = {}) {
 	const { backend, pipeStub } = harness
 	return {
 		sent: harness.sent,
+		answerSendAttempts: harness.answerSendAttempts,
 		policies: backend.policies,
 		connections: backend.connections,
 		closeStates: backend.closeStates(),
@@ -408,12 +416,83 @@ test('responder stays on rung 0 when the offer does not name a rung', async () =
 test('responder signal send failure does not close an already ready link', async () => {
 	const result = await runWebRtcLink({ ...responderWithFailingAnswer, readyState: 'ready' })
 	assertEquals(result.closedReasons, [])
+	assertEquals(result.answerSendAttempts, 1, 'ready links do not retry later signalling')
+})
+
+test('responder retries a transient answer send failure before closing the link', async () => {
+	const result = await runWebRtcLink({
+		initiator: false,
+		candidateSdp: PLAIN_HOST_CANDIDATE,
+		handshakeTimeoutMs: 2_000,
+		failAnswerSendAttempts: 2,
+		inboundSignals: [offerFor(0)],
+	})
+	assertEquals(result.answerSendAttempts, 3)
+	assertEquals(result.sent.filter(message => message.description?.type === 'answer').length, 1)
+	assertEquals(result.closedReasons, [])
+})
+
+test('responder stops answer retries after its pipe closes', async () => {
+	const harness = createLadderHarness({
+		initiator: false,
+		candidateSdp: PLAIN_HOST_CANDIDATE,
+		handshakeTimeoutMs: 2_000,
+		failAnswerSendAttempts: 1,
+	})
+	try {
+		await harness.linking
+		harness.sendInbound(offerFor(0))
+		const deadline = Date.now() + 1_000
+		while (harness.answerSendAttempts === 0 && Date.now() < deadline)
+			await new Promise(resolve => setTimeout(resolve, 10))
+		assertEquals(harness.answerSendAttempts, 1, 'first send failed before the retry delay')
+		await harness.pipeStub.close('test-close-during-retry')
+		// 等过第一次重试延迟（200ms）：若关闭没被看见，这里就会多出一次发送。
+		await new Promise(resolve => setTimeout(resolve, 250))
+		assertEquals(harness.answerSendAttempts, 1, 'closed pipe prevents stale retry')
+	}
+	finally {
+		harness.stop()
+	}
+})
+
+test('a stale answer failure during a rung switch does not close the link', async () => {
+	/** @type {((error: Error) => void) | null} */
+	let failPendingSend = null
+	/** 首个 answer 的发布悬挂到测试放行为止：此时 rung 0 的 answer 就是「已经过期但还没失败」的那一个。 */
+	const seedPendingAnswer = () => new Promise((_resolve, reject) => { failPendingSend = reject })
+	const harness = createLadderHarness({
+		initiator: false,
+		candidateSdp: PLAIN_HOST_CANDIDATE,
+		handshakeTimeoutMs: 4_000,
+		seedPendingAnswer,
+	})
+	try {
+		await harness.linking
+		harness.sendInbound(offerFor(0))
+		const firstAnswerDeadline = Date.now() + 1_000
+		while (!failPendingSend && Date.now() < firstAnswerDeadline)
+			await new Promise(resolve => setTimeout(resolve, 5))
+		assertEquals(failPendingSend != null, true, `rung 0 answer is pending (attempts=${harness.answerSendAttempts})`)
+		// 换级：rungIndex 同步跳到 1，新 pc 要等 loadRtc 与旧连接收尾后才装上，rung 0 的 answer 此刻过期。
+		harness.sendInbound(offerFor(1))
+		await Promise.resolve()
+		const pendingAnswer = /** @type {(error: Error) => void} */ (failPendingSend)
+		pendingAnswer(new Error('stale answer publish failed'))
+		// 等过第一次重试延迟（200ms）：过期 answer 的失败不该再被重试，更不该拆掉活链路。
+		await new Promise(resolve => setTimeout(resolve, 400))
+		assertEquals(harness.pipeStub.closedReasons, [], 'the live link survives the stale failure')
+	}
+	finally {
+		harness.stop()
+	}
 })
 
 test('responder signal send failure still closes a link whose ready never succeeded', async () => {
 	// 未结算与被异常结算的 ready 都不算「已就绪」：握手从未成功，链路仍该按建链失败处理。
 	for (const readyState of ['pending', 'failed']) {
 		const result = await runWebRtcLink({ ...responderWithFailingAnswer, readyState })
+		assertEquals(result.answerSendAttempts, 3, `readyState=${readyState} retries are bounded`)
 		assertEquals(result.closedReasons.length, 1, `readyState=${readyState} closedReasons=${JSON.stringify(result.closedReasons)}`)
 		assertEquals(result.closedReasons[0].startsWith('signal-error:'), true, `readyState=${readyState}`)
 	}
