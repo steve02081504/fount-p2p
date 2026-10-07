@@ -175,8 +175,8 @@ test('disable then re-enable nostr keeps the newly registered provider answering
 				linkId: 'a'.repeat(64),
 			})
 			await waitFor(() => seenPackets.includes('link:c'), 5_000)
-			/** @type {number} */
-			const baselinePackets = seenPackets.length
+			// 只数 hello：入站 open 的应答链路随后还会被对端/健康探测关掉，末包位置不可当作判断依据。
+			const baselineHellos = seenPackets.filter(packet => packet === 'link:c').length
 
 			// 关掉 nostr 再打开：registry 会在 reconcile 时注册一个全新的 provider 实例。
 			setSignalingRuntimeConfig({ channels: { nostr: false, lan: false, bt: false, webrtc: false } })
@@ -193,8 +193,8 @@ test('disable then re-enable nostr keeps the newly registered provider answering
 				from: peer.nodeHash,
 				linkId: 'b'.repeat(64),
 			})
-			await waitFor(() => seenPackets.length > baselinePackets, 5_000)
-			assertEquals(seenPackets.at(-1), 'link:c')
+			await waitFor(() => seenPackets.filter(packet => packet === 'link:c').length > baselineHellos, 5_000)
+			assertEquals(seenPackets.filter(packet => packet === 'link:c').length, baselineHellos + 1, 'the restarted provider answers the second inbound link-open with one hello')
 		})
 	}
 	finally {
