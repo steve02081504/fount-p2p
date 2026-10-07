@@ -135,7 +135,7 @@ export async function createWebRtcLink(options) {
 	const rungs = iceLocalHostnameLadder(icePolicy)
 	const remoteSignalQueue = []
 	const seenRemoteSignals = createLruMap(1024)
-	/** @type {InstanceType<import('../rtc/polyfill.mjs').LoadedRtcPolyfill['RTCPeerConnection']> & { onicecandidate?: unknown, ondatachannel?: unknown, onconnectionstatechange?: unknown }} */
+	/** @type {InstanceType<import('../rtc/polyfill.mjs').LoadedRtcPolyfill['RTCPeerConnection']> & { ondatachannel?: unknown, onconnectionstatechange?: unknown, candidateCountHandler?: unknown }} */
 	let peerConnection = null
 	let remoteDescriptionSet = false
 	let controlChannel = null
@@ -269,8 +269,12 @@ export async function createWebRtcLink(options) {
 		remoteSignalQueue.length = 0
 		localCandidateCount = 0
 		attachPeerConnection(peerConnection)
-		if (previous)
+		if (previous) {
+			// 先摘回调再关：旧连接 close() 会经 connectionstatechange 触发 pipe.close，而
+			// closeTransport() 关的是 peerConnection 这个变量（此刻已指向新连接），于是刚建好的一级被自己关掉（fount-p2p#39）。
+			detachPeerConnection(previous)
 			try { await previous.close() } catch { /* ignore */ }
+		}
 		nodeDebug('p2p:webrtc ice rung', {
 			rung: rungIndex,
 			policy: rungs[rungIndex],
@@ -288,22 +292,29 @@ export async function createWebRtcLink(options) {
 
 	/**
 	 * 给 peer connection 挂上事件与回调（换级重建后需重新挂）。
+	 *
+	 * 回调一律用传入的这个连接，不读 `peerConnection` 闭包变量：换级后旧连接仍可能派发事件，
+	 * 读变量就会把事件算到新连接头上。
 	 * @param {RTCPeerConnection} connection peer connection
 	 * @returns {void}
 	 */
 	function attachPeerConnection(connection) {
 		// 候选随 description 一次性带出（对端要先有 remoteDescription 才吃候选），故这里只计数、不外发。
-		// 事件 API 由后端提供（W3C 是 addEventListener）；缺失时退化为 onicecandidate 计数。
+		// 事件 API 由后端提供（W3C 是 addEventListener）；缺失时退化为 onicecandidate，摘的时候看 candidateCountHandler 在不在。
 		const countCandidate = event => {
 			if (event?.candidate) localCandidateCount++
 		}
-		if (connection.addEventListener) connection.addEventListener('icecandidate', countCandidate)
+		if (connection.addEventListener) {
+			connection.candidateCountHandler = countCandidate
+			connection.addEventListener('icecandidate', countCandidate)
+		}
 		else {
 			const previousHandler = connection.onicecandidate
-			connection.onicecandidate = event => {
+			connection.candidateCountHandler = event => {
 				countCandidate(event)
 				previousHandler?.(event)
 			}
+			connection.onicecandidate = connection.candidateCountHandler
 		}
 		connection.ondatachannel = event => {
 			attachChannel(event.channel)
@@ -315,6 +326,19 @@ export async function createWebRtcLink(options) {
 				void pipe.close(`connection-${connection.connectionState}`)
 			}
 		}
+	}
+
+	/**
+	 * 摘掉某一级 peer connection 上挂的事件与回调（重建前必须调用，见 [buildPeerConnection]）。
+	 * @param {RTCPeerConnection} connection 待摘的连接
+	 * @returns {void}
+	 */
+	function detachPeerConnection(connection) {
+		if (connection.candidateCountHandler) connection.removeEventListener?.('icecandidate', connection.candidateCountHandler)
+		else connection.onicecandidate = null
+		delete connection.candidateCountHandler
+		connection.ondatachannel = null
+		connection.onconnectionstatechange = null
 	}
 
 	/**
@@ -469,7 +493,7 @@ export async function createWebRtcLink(options) {
 		void handleRemoteSignal(message).catch(error => pipe.close(`signal-error:${formatErrorReason(error)}`))
 	}) ?? null
 
-	// 信令随时可能到，故先为当前一级建好 pc（发起方随后会在阶梯里逐级重建）。
+	// 信令随时可能到，故先为当前一级（第 0 级）建好 pc；发起方阶梯的首次迭代直接用它，不重建。
 	await ensurePeerConnection()
 
 	if (options.initiator) {
@@ -478,7 +502,8 @@ export async function createWebRtcLink(options) {
 		const ladderDeadline = Date.now() + handshakeTimeoutMs
 		let sentOffer = false
 		for (let index = 0; index < rungs.length; index++) {
-			await buildPeerConnection(index)
+			// 同一级不重建：换 pc 会牵动并发信令与旧连接的关闭，只在真的换级时才需要（fount-p2p#39）。
+			if (rungIndex !== index) await buildPeerConnection(index)
 			attachChannel(peerConnection.createDataChannel(CHANNEL_CONTROL))
 			attachChannel(peerConnection.createDataChannel(CHANNEL_BULK))
 			const offer = await peerConnection.createOffer()
@@ -491,7 +516,8 @@ export async function createWebRtcLink(options) {
 			})
 			// 候选集为空说明这一级策略把本机候选全滤掉了（例如只产出 mDNS 候选），换更宽松的一级重建。
 			// 只在预算内、且还有更宽松的一级时升级；`rewrite-loopback` 起点不会走到这里（阶梯只有它自己）。
-			if (!hasCandidates && Date.now() < ladderDeadline && index + 1 < rungs.length) {
+			const escalatable = index + 1 < rungs.length
+			if (!hasCandidates && escalatable && Date.now() < ladderDeadline) {
 				nodeDebug('p2p:webrtc ice rung escalated', {
 					from: rungs[index],
 					to: rungs[index + 1],
@@ -509,7 +535,7 @@ export async function createWebRtcLink(options) {
 				nodeDebug('p2p:webrtc offer has no usable ice candidates', {
 					rung: index,
 					policy: rungs[index],
-					escalatable: index + 1 < rungs.length,
+					escalatable,
 					iceServers: options.iceServers?.length || 0,
 				})
 			break

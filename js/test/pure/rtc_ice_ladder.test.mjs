@@ -23,10 +23,15 @@ const PLAIN_HOST_CANDIDATE = 'candidate:2 1 udp 2130706430 10.0.0.5 54322 typ ho
 /**
  * 假 RTCPeerConnection：候选由测试推进（[advanceGathering]）经真实包装类过滤后以事件派发，
  * 与 node-datachannel polyfill 的实际行为一致（候选不进 `localDescription.sdp`）。
+ * `close()` 也照真实后端做：把状态推到 `closed`、经 `connectionstatechange` 通知，之后拒绝再协商。
  */
 class FakePeerConnection extends globalThis.EventTarget {
-	constructor() {
+	/**
+	 * @param {string | null} candidateSdp gathering 时要派发的候选；null 表示这一级不产出候选
+	 */
+	constructor(candidateSdp) {
 		super()
+		this.candidateSdp = candidateSdp
 		this.localDescription = null
 		this.remoteDescription = null
 		this.signalingState = 'stable'
@@ -35,12 +40,20 @@ class FakePeerConnection extends globalThis.EventTarget {
 		this.iceConnectionState = 'new'
 		this.pollCount = 0
 		this.channelLabels = []
+		this.ondatachannel = null
+		this.onconnectionstatechange = null
+		/** `close()` 次数：被替换掉的那一级只该关一次。 */
+		this.closeCalls = 0
+		/** `close()` 时是否还挂着状态回调：是的话这次关闭就会连带去关当前存活的那一级（fount-p2p#39）。 */
+		this.closedWithStateHandler = false
 	}
 	/**
 	 * @param {object} description 本地描述
 	 * @returns {Promise<void>}
 	 */
 	async setLocalDescription(description) {
+		// 与 node-datachannel 同一报错文本：已销毁的连接不能再协商。
+		if (this.connectionState === 'closed') throw new Error('setLocalDescription() called on destroyed peer connection')
 		this.localDescription = { type: description.type, sdp: 'v=0\r\no=- 1 1 IN IP4 0.0.0.0\r\n' }
 		this.pollCount = 0
 	}
@@ -68,9 +81,15 @@ class FakePeerConnection extends globalThis.EventTarget {
 	 */
 	async addIceCandidate() { }
 	/**
+	 * 模拟真实后端：close() 推进到 `closed` 并向 `onconnectionstatechange` 派发通知。
 	 * @returns {Promise<void>}
 	 */
-	async close() { }
+	async close() {
+		this.closeCalls++
+		this.closedWithStateHandler = this.onconnectionstatechange !== null
+		this.connectionState = 'closed'
+		this.onconnectionstatechange?.()
+	}
 	/**
 	 * @param {string} label 通道名
 	 * @returns {object} 假数据通道
@@ -81,24 +100,39 @@ class FakePeerConnection extends globalThis.EventTarget {
 	}
 	/**
 	 * 推进一次 gathering：第二次被观测时派发一次候选，之后不再产出（模拟候选收齐后安静下来）。
-	 * @param {string} candidateSdp 要派发的候选 SDP 行
 	 */
-	advanceGathering(candidateSdp) {
+	advanceGathering() {
 		this.pollCount++
 		if (this.pollCount !== 2) return
 		const event = new globalThis.Event('icecandidate')
-		event.candidate = new FakeIceCandidate({ candidate: candidateSdp })
+		event.candidate = new FakeIceCandidate({ candidate: this.candidateSdp })
 		this.dispatchEvent(event)
 	}
 }
 
 /** 假 RTC 后端：记录每级策略，并把包装后的类交给被测代码。 */
 class FakeRtcBackend {
-	constructor() {
+	/**
+	 * @param {string | null} candidateSdp 每级连接 gathering 时要派发的候选；null 表示不产出候选
+	 */
+	constructor(candidateSdp) {
+		this.candidateSdp = candidateSdp
 		/** @type {string[]} */
 		this.policies = []
 		/** @type {FakePeerConnection[]} */
 		this.connections = []
+	}
+	/**
+	 * 关链前的快照：此时被换掉的那一级应当已经关过（且关闭时不带状态回调），存活的一级应当还没关。
+	 * @returns {{ closeCalls: number[], closedWithStateHandler: number[] }} 各连接的关闭次数，以及带着状态回调被关掉的下标
+	 */
+	closeStates() {
+		return {
+			closeCalls: this.connections.map(connection => connection.closeCalls),
+			closedWithStateHandler: this.connections
+				.map((connection, index) => connection.closedWithStateHandler ? index : -1)
+				.filter(index => index >= 0),
+		}
 	}
 	/**
 	 * @param {string} policy ICE 本地主机名策略
@@ -107,9 +141,10 @@ class FakeRtcBackend {
 	polyfillFor(policy) {
 		this.policies.push(policy)
 		const connections = this.connections
+		const candidateSdp = this.candidateSdp
 		class TrackedPeerConnection extends FakePeerConnection {
 			constructor(config) {
-				super()
+				super(candidateSdp)
 				this.config = config
 				connections.push(this)
 			}
@@ -125,10 +160,11 @@ class FakeRtcBackend {
 
 /**
  * 造一个不会自己完成的 pipe 替身：被测代码只用到它的回调与 close。
- * @param {(options: object) => void} capture 捕获 pipe options
+ * close 照真实 pipe 做两件事——只认第一次关闭原因、并关掉底层传输（否则旧连接的关闭通知影响不到 pc 层）。
+ * @param {object} pipeOptions 传给 pipe 工厂的配置
  * @returns {object} pipe 替身
  */
-function createStubPipe(capture) {
+function createStubPipe(pipeOptions) {
 	/** @type {string[]} */
 	const closedReasons = []
 	const pipe = {
@@ -146,7 +182,11 @@ function createStubPipe(capture) {
 		 * @param {string} reason 关闭原因
 		 * @returns {Promise<void>}
 		 */
-		async close(reason) { closedReasons.push(reason) },
+		async close(reason) {
+			if (closedReasons.length) return
+			closedReasons.push(reason)
+			await pipeOptions.closeTransport?.()
+		},
 		/** @returns {Promise<void>} */
 		async startHandshake() { },
 		/** @returns {Promise<void>} */
@@ -155,27 +195,24 @@ function createStubPipe(capture) {
 		stats() { return { rttMs: null, avgRttMs: null } },
 		closedReasons,
 	}
-	capture(pipe)
 	return pipe
 }
 
 /**
- * 跑一次建链，返回出站信令与策略序列。
- * @param {{ initiator?: boolean, candidateSdp?: string, inboundSignals?: object[], handshakeTimeoutMs?: number, iceCandidateSettleMs?: number, iceGatheringStallMs?: number }} [options] 测试参数
- * @returns {Promise<{ sent: object[], policies: string[], rejected: Error | null, closedReasons: string[] }>} 结果
+ * 搭一次建链的测试装置：假后端按 [FakeRtcBackend.candidateSdp] 产出候选，pipe 替身只记录关闭原因。
+ * @param {{ initiator?: boolean, candidateSdp?: string | null, handshakeTimeoutMs?: number, iceCandidateSettleMs?: number, iceGatheringStallMs?: number }} options 测试参数
+ * @returns {{ backend: FakeRtcBackend, sent: object[], pipeStub: object, linking: Promise<object>, sendInbound: (message: object) => void, stop: () => void }} 装置；`stop` 停掉 gathering 推进
  */
-async function runWebRtcLink(options = {}) {
-	const backend = new FakeRtcBackend()
-	const candidateSdp = options.candidateSdp ?? LOCAL_HOSTNAME_CANDIDATE
-	const handshakeTimeoutMs = options.handshakeTimeoutMs ?? 5_000
+function createLadderHarness(options) {
+	const backend = new FakeRtcBackend(options.candidateSdp ?? LOCAL_HOSTNAME_CANDIDATE)
 	/** @type {object[]} */
 	const sent = []
 	/** @type {((message: object) => void) | null} */
 	let inbound = null
-	let stub = null
+	let pipeStub = null
 	// 推进各轮 gathering（真实代码每 50ms 轮询一次本地候选数）。
 	const advance = setInterval(() => {
-		for (const connection of backend.connections) connection.advanceGathering(candidateSdp)
+		for (const connection of backend.connections) connection.advanceGathering()
 	}, 20)
 	const linking = createWebRtcLink({
 		initiator: !!options.initiator,
@@ -195,7 +232,7 @@ async function runWebRtcLink(options = {}) {
 				return () => { inbound = null }
 			},
 		},
-		handshakeTimeoutMs,
+		handshakeTimeoutMs: options.handshakeTimeoutMs ?? 5_000,
 		iceServers: [],
 		// 阶梯测试不该依赖真实墙钟窗口（全量并发时会抖动）。
 		iceCandidateSettleMs: options.iceCandidateSettleMs ?? 60,
@@ -212,28 +249,55 @@ async function runWebRtcLink(options = {}) {
 		 * @returns {object} pipe 替身
 		 */
 		createPipe(pipeOptions) {
-			stub = createStubPipe(() => { })
-			stub.initiator = !!pipeOptions.initiator
-			return stub
+			pipeStub = createStubPipe(pipeOptions)
+			pipeStub.initiator = !!pipeOptions.initiator
+			return pipeStub
 		},
 	})
+	return {
+		backend,
+		sent,
+		/** @type {object} */ pipeStub: /** @type {object} */ (pipeStub),
+		linking,
+		/** @param {object} message 入站信令 */
+		sendInbound(message) { /** @type {(message: object) => void} */ (inbound)(message) },
+		stop() { clearInterval(advance) },
+	}
+}
+
+/**
+ * 跑一次建链，返回出站信令、策略序列与建过的 peer connection。
+ * `closeStates` 是收尾关链前的快照：被换掉的一级应当只关过自己、且关闭时已无状态回调；存活的一级应当一次都没关过。
+ * @param {{ initiator?: boolean, candidateSdp?: string | null, inboundSignals?: object[], handshakeTimeoutMs?: number, iceCandidateSettleMs?: number, iceGatheringStallMs?: number }} [options] 测试参数
+ * @returns {Promise<{ sent: object[], policies: string[], connections: FakePeerConnection[], closeStates: { closeCalls: number[], closedWithStateHandler: number[] }, rejected: Error | null, closedReasons: string[] }>} 结果
+ */
+async function runWebRtcLink(options = {}) {
+	const harness = createLadderHarness(options)
 	/** @type {Error | null} */
 	let rejected = null
 	try {
-		await linking
+		await harness.linking
 	}
 	catch (error) {
 		rejected = /** @type {Error} */ (error)
 	}
-	if (options.inboundSignals?.length && inbound) {
+	if (options.inboundSignals?.length) {
 		for (const message of options.inboundSignals) {
-			/** @type {(message: object) => void} */ (inbound)(message)
+			harness.sendInbound(message)
 			// 入站处理是 fire-and-forget，只能按停滞/超时窗口等待。
 			await new Promise(resolve => setTimeout(resolve, 2_500))
 		}
 	}
-	clearInterval(advance)
-	return { sent, policies: backend.policies, rejected, closedReasons: stub?.closedReasons ?? [] }
+	harness.stop()
+	const { backend, pipeStub } = harness
+	return {
+		sent: harness.sent,
+		policies: backend.policies,
+		connections: backend.connections,
+		closeStates: backend.closeStates(),
+		rejected,
+		closedReasons: /** @type {{ closedReasons: string[] }} */ (pipeStub).closedReasons,
+	}
 }
 
 /**
@@ -258,6 +322,12 @@ test('initiator escalates to the next rung when a policy drains every local cand
 	assertEquals(result.rejected, null)
 	assertEquals(result.policies[0], 'drop')
 	assertEquals(result.policies.includes('none'), true, `policies=${JSON.stringify(result.policies)}`)
+	// 首轮复用 ensurePeerConnection() 建好的第 0 级，升级时才建第 1 级：不建一次性 pc（fount-p2p#39）。
+	assertEquals(result.connections.length, 2, `connections=${result.connections.length}`)
+	// 被换掉的一级只关过一次（自己），且关闭时已经摘掉回调：旧连接的关闭波不到刚建好的这一级。
+	assertEquals(result.closeStates.closeCalls, [1, 0], `closeStates=${JSON.stringify(result.closeStates)}`)
+	assertEquals(result.closeStates.closedWithStateHandler, [])
+	assertEquals(result.closedReasons, [])
 	const offers = result.sent.filter(message => message.type === 'description')
 	assertEquals(offers.length, 1, 'only the accepted rung offer is sent')
 	assertEquals(offers[0].rung > 0, true, 'offer came from an escalated rung')
@@ -270,6 +340,10 @@ test('initiator does not escalate when the first rung already produced candidate
 	assertEquals(result.rejected, null)
 	// 第 0 级就有候选：不应再取用更宽松的一级。
 	assertEquals(result.policies.includes('none'), false, `policies=${JSON.stringify(result.policies)}`)
+	// 阶梯首轮要用的第 0 级已经建好，同一级不再重建：整条链路只该有一个 pc（fount-p2p#39）。
+	assertEquals(result.connections.length, 1, `connections=${result.connections.length}`)
+	assertEquals(result.closeStates.closeCalls, [0])
+	assertEquals(result.closedReasons, [])
 	const offers = result.sent.filter(message => message.type === 'description')
 	assertEquals(offers.length, 1)
 	assertEquals(offers[0].rung, 0)
@@ -285,10 +359,16 @@ test('responder rebuilds on the rung the offer names and echoes it in the answer
 	assertEquals(result.rejected, null)
 	// 接受方按 offer 的级号重建：最后一次取用的策略应当是 none（第 1 级）。
 	assertEquals(result.policies.at(-1), 'none')
+	// 重建同样要先摘回调再关被换掉的那一级，否则它会关掉答复用的新连接（fount-p2p#39）。
+	assertEquals(result.connections.length, 2, `connections=${result.connections.length}`)
+	assertEquals(result.closeStates.closeCalls, [1, 0], `closeStates=${JSON.stringify(result.closeStates)}`)
+	assertEquals(result.closeStates.closedWithStateHandler, [])
+	assertEquals(result.closedReasons, [])
 	const answers = result.sent.filter(message => message.type === 'description')
 	assertEquals(answers.length, 1)
 	assertEquals(answers[0].rung, 1)
 })
+
 test('responder stays on rung 0 when the offer does not name a rung', async () => {
 	const result = await runWebRtcLink({
 		initiator: false,
@@ -298,7 +378,26 @@ test('responder stays on rung 0 when the offer does not name a rung', async () =
 	})
 	assertEquals(result.rejected, null)
 	assertEquals(result.policies.at(-1), 'drop')
+	// 同级不重建：接受方收到同级 offer 时继续用已经建好的 pc。
+	assertEquals(result.connections.length, 1, `connections=${result.connections.length}`)
+	assertEquals(result.closedReasons, [])
 	const answers = result.sent.filter(message => message.type === 'description')
 	assertEquals(answers.length, 1)
 	assertEquals(answers[0].rung, 0)
+})
+
+test('closing a rebuilt-away connection never closes the live one', async () => {
+	// 第 0 级只产出 `.local` 候选会触发升级，于是被换掉的第 0 级与存活的第 1 级能同时拿到。
+	const harness = createLadderHarness({ initiator: true, candidateSdp: LOCAL_HOSTNAME_CANDIDATE, handshakeTimeoutMs: 2_000 })
+	await harness.linking
+	const [replaced, live] = harness.backend.connections
+	// 换级时先摘回调再关：被换掉的那一级身上已经没有状态回调，只有存活的一级还挂着。
+	assertEquals(harness.backend.connections.length, 2, `connections=${harness.backend.connections.length}`)
+	assertEquals(replaced.onconnectionstatechange, null)
+	assertEquals(live.onconnectionstatechange !== null, true)
+	// 再按后端方式关掉被换掉的那一级：回调若还在，closeTransport 就会连带关掉存活的一级（fount-p2p#39）。
+	await replaced.close()
+	harness.stop()
+	assertEquals(harness.pipeStub.closedReasons, [], `closedReasons=${JSON.stringify(harness.pipeStub.closedReasons)}`)
+	assertEquals(live.connectionState !== 'closed', true, `live=${live.connectionState}`)
 })

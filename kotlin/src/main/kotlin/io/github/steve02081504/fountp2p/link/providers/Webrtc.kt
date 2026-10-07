@@ -157,6 +157,7 @@ suspend fun createWebRtcLink(options: WebRtcLinkOptions): LinkHandle {
 	val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 	val remoteSignalQueue = ArrayList<Map<String, Any?>>()
 	val seenRemoteSignals = LruMap<String, Boolean>(1024)
+	// 信令随时可能到，故先为当前一级（第 0 级）建好 pc；发起方阶梯的首次迭代直接用它，不重建。
 	var peerConnection: RtcPeerConnectionLike = rtc.createPeerConnection(peerConfig)
 	var remoteDescriptionSet = false
 	var controlChannel: RtcDataChannel? = null
@@ -168,13 +169,6 @@ suspend fun createWebRtcLink(options: WebRtcLinkOptions): LinkHandle {
 	var rungIndex = 0
 	/** 当前一级收到的可用候选数（`drop` 策略下 `.local` 候选在此被剔除）。 */
 	var usableCandidateCount = 0
-	/**
-	 * 当前 rungIndex 级是否已重建并挂过回调。
-	 *
-	 * JVM 侧的 `peerConnection` 不是可空引用，所以「还没建」没法用它判断；这个标志就是那件事，
-	 * 保证入站信令到达时按当前级补建一次，而不是每份信令都重建。
-	 */
-	var rungReady = false
 
 	suspend fun sendSignal(message: Map<String, Any?>) {
 		options.signal.send(message)
@@ -294,14 +288,15 @@ suspend fun createWebRtcLink(options: WebRtcLinkOptions): LinkHandle {
 
 	/**
 	 * 处理入站信令。
+	 *
+	 * 当前这一级的 pc 在订阅信令前就已建好并挂过回调，所以这里不必补建；只有 offer 点名了别的级
+	 * 才需要重建。
 	 * @param message 信令消息
 	 * @param buildPeer 按阶梯下标重建 peer connection（声明顺序上晚于本函数，故显式传入）
 	 */
-	suspend fun handleRemoteSignal(message: Map<String, Any?>, buildPeer: (Int) -> Unit) {
+	suspend fun handleRemoteSignal(message: Map<String, Any?>, buildPeer: suspend (Int) -> Unit) {
 		val type = message["type"] as? String ?: return
 		val candidate = message["candidate"] as? Map<String, Any?>
-		// 信令与建链是并发的：任何入站信令都要先确保当前这一级已有可用 pc。
-		if (!rungReady) buildPeer(rungIndex)
 		val signalKey = if (type == "ice" && candidate != null)
 			"ice:${candidate["candidate"] ?: ""}:${candidate["sdpMid"] ?: ""}:${candidate["sdpMLineIndex"] ?: ""}"
 		else Json.stringify(message) ?: ""
@@ -386,10 +381,13 @@ suspend fun createWebRtcLink(options: WebRtcLinkOptions): LinkHandle {
 	 *
 	 * 候选按当前一级的策略过滤：`drop` 丢掉 `.local`、`rewrite-loopback` 改写成回环地址、
 	 * `none` 原样保留。候选不单独外发（随 description 一次性带出），过滤在这里只影响进度计数。
+	 * 回调一律用传入的这个连接，不读 `peerConnection` 变量：换级后旧连接仍可能派发事件，
+	 * 读变量就会把事件算到新连接头上。
+	 * @param connection 本级的 peer connection
 	 */
-	fun attachPeerConnection() {
+	fun attachPeerConnection(connection: RtcPeerConnectionLike) {
 		val policy = rungs[rungIndex]
-		peerConnection.onIceCandidate = { event ->
+		connection.onIceCandidate = { event ->
 			val candidateMap = event?.get("candidate") as? Map<*, *>
 			if (candidateMap == null) {
 				// 后端只给外层的 `{ candidate }` 包装时，直接按可用候选计数。
@@ -408,7 +406,7 @@ suspend fun createWebRtcLink(options: WebRtcLinkOptions): LinkHandle {
 					usableCandidateCount++
 				}
 		}
-		peerConnection.onDataChannel = { channel ->
+		connection.onDataChannel = { channel ->
 			attachChannel(channel)
 			scope.launch {
 				try {
@@ -419,33 +417,47 @@ suspend fun createWebRtcLink(options: WebRtcLinkOptions): LinkHandle {
 				}
 			}
 		}
-		peerConnection.onConnectionStateChange = {
-			if (peerConnection.connectionState in listOf("failed", "closed", "disconnected")) {
+		connection.onConnectionStateChange = {
+			if (connection.connectionState in listOf("failed", "closed", "disconnected")) {
 				reconnectCount++
-				scope.launch { pipe.close("connection-${peerConnection.connectionState}") }
+				scope.launch { pipe.close("connection-${connection.connectionState}") }
 			}
 		}
+	}
+
+	/**
+	 * 摘掉某一级 peer connection 上挂的事件与回调（重建前必须调用，见 [buildPeerConnection]）。
+	 * @param connection 待摘的连接
+	 */
+	fun detachPeerConnection(connection: RtcPeerConnectionLike) {
+		connection.onIceCandidate = null
+		connection.onDataChannel = null
+		connection.onConnectionStateChange = null
 	}
 
 	/**
 	 * 用第 index 级策略重建 peer connection（换级即换 pc：一次全新建链尝试）。
 	 * @param index 阶梯下标
 	 */
-	fun buildPeerConnection(index: Int) {
+	suspend fun buildPeerConnection(index: Int) {
+		val previous = peerConnection
 		rungIndex = index.coerceIn(0, rungs.size - 1)
 		peerConnection = rtc.createPeerConnection(peerConfig)
 		remoteDescriptionSet = false
 		remoteSignalQueue.clear()
 		usableCandidateCount = 0
-		rungReady = true
-		attachPeerConnection()
+		attachPeerConnection(peerConnection)
+		// 先摘回调再关：旧连接 close() 会经 onConnectionStateChange 触发 pipe.close，而 closeTransport
+		// 关的是 peerConnection 这个变量（此刻已指向新连接），于是刚建好的一级被自己关掉（fount-p2p#39）。
+		detachPeerConnection(previous)
+		runCatching { previous.close() }
 		nodeDebug(
 			"p2p:webrtc ice rung",
 			linkedMapOf("rung" to rungIndex.toDouble(), "policy" to rungs[rungIndex], "rungs" to rungs.size.toDouble()),
 		)
 	}
 
-	attachPeerConnection()
+	attachPeerConnection(peerConnection)
 
 	options.signal.onRemote { message ->
 		scope.launch {
@@ -464,7 +476,8 @@ suspend fun createWebRtcLink(options: WebRtcLinkOptions): LinkHandle {
 		val ladderDeadline = System.currentTimeMillis() + handshakeTimeoutMs
 		var sentOffer = false
 		for (index in rungs.indices) {
-			buildPeerConnection(index)
+			// 同一级不重建：换 pc 会牵动并发信令与旧连接的关闭，只在真的换级时才需要（fount-p2p#39）。
+			if (rungIndex != index) buildPeerConnection(index)
 			attachChannel(peerConnection.createDataChannel(CHANNEL_CONTROL))
 			attachChannel(peerConnection.createDataChannel(CHANNEL_BULK))
 			val offer = peerConnection.createOffer()

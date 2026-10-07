@@ -28,7 +28,8 @@ class RtcIceLadderTest {
 
 	/**
 	 * 假 RTCPeerConnection：本地描述一就绪就产出候选（模拟真实 gathering），
-	 * 候选经库内策略过滤后计数。
+	 * 候选经库内策略过滤后计数。`close()` 也照真实后端做：把状态推到 `closed`、经
+	 * [RtcPeerConnectionLike.onConnectionStateChange] 通知，之后拒绝再协商（fount-p2p#39）。
 	 * @param candidateSdp 要派发的候选；null 表示这一级不产出候选
 	 */
 	private class FakePeerConnection(private val candidateSdp: String?) : RtcPeerConnectionLike {
@@ -36,17 +37,25 @@ class RtcIceLadderTest {
 		override var remoteDescription: Map<String, Any?>? = null
 		override val signalingState: String = "stable"
 		override val iceGatheringState: String = "gathering"
-		override val connectionState: String = "new"
+		override var connectionState: String = "new"
 		override val iceConnectionState: String = "new"
 		override var onIceCandidate: ((Map<String, Any?>?) -> Unit)? = null
 		override var onDataChannel: ((RtcDataChannel) -> Unit)? = null
 		override var onConnectionStateChange: (() -> Unit)? = null
+
+		/** `close()` 次数：被替换掉的那一级只该关一次。 */
+		var closeCalls = 0
+
+		/** `close()` 时是否还挂着状态回调；为 true 就意味着这次关闭会去关当前存活的那一级（fount-p2p#39）。 */
+		var closedWithStateHandler = false
 
 		override suspend fun createOffer(): Map<String, Any?> = linkedMapOf("type" to "offer", "sdp" to "v=0\r\n")
 
 		override suspend fun createAnswer(): Map<String, Any?> = linkedMapOf("type" to "answer", "sdp" to "v=0\r\n")
 
 		override suspend fun setLocalDescription(description: Map<String, Any?>) {
+			// 与 node-datachannel 同一报错文本：已销毁的连接不能再协商。
+			check(connectionState != "closed") { "setLocalDescription() called on destroyed peer connection" }
 			localDescription = description
 			val sdp = candidateSdp ?: return
 			onIceCandidate?.invoke(linkedMapOf("candidate" to linkedMapOf("candidate" to sdp, "sdpMid" to "0")))
@@ -72,7 +81,12 @@ class RtcIceLadderTest {
 				override fun close() { }
 			}
 
-		override suspend fun close() { }
+		override suspend fun close() {
+			closeCalls++
+			closedWithStateHandler = onConnectionStateChange != null
+			connectionState = "closed"
+			onConnectionStateChange?.invoke()
+		}
 
 		override fun localDescriptionSdp(): String = localDescription?.get("sdp") as? String ?: ""
 
@@ -89,15 +103,30 @@ class RtcIceLadderTest {
 	}
 
 	/**
+	 * 建链结束时某个 pc 的关闭状态快照。
+	 * 取快照的时机是「测试收尾关链之前」，所以它只反映阶梯自己关掉的连接。
+	 * @property closeCalls `close()` 被调用的次数
+	 * @property closedWithStateHandler `close()` 时是否还挂着状态回调（是的话这次关闭会连带去关存活的那一级）
+	 */
+	private class ConnectionCloseState(val closeCalls: Int, val closedWithStateHandler: Boolean)
+
+	/**
+	 * 一次发起方建链的结果。
+	 * @property sent 出站信令
+	 * @property closeStates 依次建过的 pc 的关闭状态快照（顺序即建链顺序）
+	 */
+	private class InitiatorRun(val sent: List<Map<String, Any?>>, val closeStates: List<ConnectionCloseState>)
+
+	/**
 	 * 跑一次发起方建链并收集出站信令。
 	 * @param candidateSdp 每级 gathering 要产出的候选；null 表示不产出
 	 * @param handshakeTimeoutMs 握手超时
-	 * @return 出站信令列表与建过的 pc 数
+	 * @return 出站信令与各 pc 的关闭状态快照
 	 */
 	private suspend fun runInitiator(
 		candidateSdp: String?,
 		handshakeTimeoutMs: Long = 5_000,
-	): Pair<List<Map<String, Any?>>, Int> {
+	): InitiatorRun {
 		val rtc = FakeRtcProvider(candidateSdp)
 		val sent = ArrayList<Map<String, Any?>>()
 		val firstSend = CompletableDeferred<Unit>()
@@ -124,7 +153,7 @@ class RtcIceLadderTest {
 		)
 		return try {
 			withTimeoutOrNull(handshakeTimeoutMs) { firstSend.await() }
-			sent.toList() to rtc.connections.size
+			InitiatorRun(sent.toList(), rtc.connections.map { ConnectionCloseState(it.closeCalls, it.closedWithStateHandler) })
 		}
 		finally {
 			link.close("test-done")
@@ -147,13 +176,18 @@ class RtcIceLadderTest {
 	fun `initiator escalates to the next rung when a policy drains every local candidate`() = runBlocking {
 		withTempNode("fount-p2p-ice-ladder-") {
 			setSignalingRuntimeConfig(mapOf("channels" to mapOf("webrtc" to mapOf("iceLocalHostnamePolicy" to "drop"))))
-			val (sent, connectionCount) = runInitiator(localHostnameCandidate)
-			val offers = sent.filter { it["type"] == "description" }
+			val run = runInitiator(localHostnameCandidate)
+			val offers = run.sent.filter { it["type"] == "description" }
 			assertEquals(1, offers.size)
 			// 第 0 级 drop 丢掉唯一的 `.local` 候选 → 升到第 1 级再发。
 			assertEquals(1.0, (offers[0]["rung"] as? Number)?.toDouble())
-			// 至少建过两级 pc（初始一次 + 每级各一次）。
-			assertEquals(true, connectionCount >= 3)
+			// 首轮复用订阅信令前建好的第 0 级，换级时才建新 pc：整条阶梯只有两个 pc。
+			assertEquals(2, run.closeStates.size)
+			// 被换掉的一级要「先摘回调再关」：它只关过一次（自己），且关闭时已无状态回调，关闭波不到存活的那一级。
+			assertEquals(1, run.closeStates[0].closeCalls)
+			assertEquals(false, run.closeStates[0].closedWithStateHandler)
+			// 存活的那一级阶梯自己没关过（快照取在测试收尾关链之前）。
+			assertEquals(0, run.closeStates[1].closeCalls)
 		}
 	}
 
@@ -162,12 +196,13 @@ class RtcIceLadderTest {
 		withTempNode("fount-p2p-ice-ladder-") {
 			setSignalingRuntimeConfig(mapOf("channels" to mapOf("webrtc" to mapOf("iceLocalHostnamePolicy" to "drop"))))
 			// 普通 host 候选在 `drop` 下也保留，所以第 0 级即成交，不应再换级。
-			val (sent, connectionCount) = runInitiator("candidate:2 1 udp 2130706430 10.0.0.5 54322 typ host")
-			val offers = sent.filter { it["type"] == "description" }
+			val run = runInitiator("candidate:2 1 udp 2130706430 10.0.0.5 54322 typ host")
+			val offers = run.sent.filter { it["type"] == "description" }
 			assertEquals(1, offers.size)
 			assertEquals(0.0, (offers[0]["rung"] as? Number)?.toDouble())
-			// 初始一次 + 第 0 级一次：没有换级。
-			assertEquals(2, connectionCount)
+			// 第 0 级即成交：订阅信令前建的那一个 pc 就是最终这一级，不再重建（fount-p2p#39）。
+			assertEquals(1, run.closeStates.size)
+			assertEquals(0, run.closeStates[0].closeCalls)
 		}
 	}
 }
