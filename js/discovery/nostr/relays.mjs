@@ -103,7 +103,7 @@ let discoveryEnabled = true
 
 /**
  * 规范化 Nostr relay URL（唯一入站入口）。
- * - 仅允许 wss://；`ws://` 仅限回环/私有地址（本地测试/开发）。
+ * - `wss://` 不限地址；`ws://` 只接受本机回环（`localhost` / `::1` / `127.x`），私网与公网一律拒绝。
  * - hostname 小写，去除默认端口，去除尾部斜杠，保留非空 path。
  * @param {unknown} raw 原始 URL
  * @returns {string | null} 规范化字符串，无效返回 null
@@ -250,7 +250,8 @@ function currentTrustedRelayUrls() {
 
 /**
  * 判定该 relay 是否允许作为连接目的地（probe/发布/订阅）。
- * 本机显式配置或 NIP-66 引导集保留信任例外；其余须为公网 hostname 且 DNS 全部解析为公网地址。
+ * 受信 relay（本机显式配置、提供方注册、NIP-66 引导集、pinned，见 [currentTrustedRelayUrls]）不受公网限制；
+ * 其余须为公网 hostname 且 DNS 全部解析为公网地址。
  * @param {string} relayUrl 规范化 relay URL
  * @returns {Promise<boolean>} 允许连接为 true
  */
@@ -262,19 +263,31 @@ export async function isRelayDestinationAllowed(relayUrl) {
 }
 
 /**
+ * 最近一次尝试是否失败。时间戳与 lastSuccess 打平按失败算（同一毫秒内的并发尝试里，成功者会记下更晚的时间戳）。
+ * @param {number} lastFailure 最近一次失败时间戳
+ * @param {number} lastSuccess 最近一次成功时间戳
+ * @returns {boolean} 最近一次尝试失败为 true
+ */
+function latestAttemptFailed(lastFailure, lastSuccess) {
+	return lastFailure >= lastSuccess
+}
+
+/**
  * 计算 relay 健康分（越低越优）。
+ * 最近一次尝试失败（或从未成功过）时 RTT 与失败率都取最差值，分数必定高于任何活着的 relay。
  * @param {Partial<RelayPoolEntry>} entry 条目
  * @returns {number} 健康分
  */
 export function computeRelayHealth(entry) {
-	const { rttMs, successCount, failureCount, lastProbe } = entry
-	const total = (successCount || 0) + (failureCount || 0)
-	const failureRate = total > 0 ? (failureCount || 0) / total : 0
-	let rtt = rttMs !== undefined && rttMs !== null ? Number(rttMs) : DEFAULT_RTT_MS
-	if (!Number.isFinite(rtt)) rtt = DEFAULT_RTT_MS
-	rtt = Math.max(1, Math.min(MAX_RTT_MS, rtt))
+	const { rttMs, successCount = 0, failureCount = 0, lastProbe = 0, lastSuccess = 0, lastFailure = 0 } = entry
+	const failed = failureCount > 0 && (!successCount || latestAttemptFailed(lastFailure, lastSuccess))
+	const total = successCount + failureCount
+	const failureRate = failed ? 1 : total > 0 ? failureCount / total : 0
+	// 失败的 relay 最后一次测量已被作废：没有可信 RTT 可依，按上限算。
+	const measuredRtt = failed ? MAX_RTT_MS : rttMs
+	const rtt = Math.max(1, Math.min(MAX_RTT_MS, Number.isFinite(measuredRtt) && measuredRtt > 0 ? measuredRtt : DEFAULT_RTT_MS))
 	let score = rtt * (1 + failureRate * FAILURE_WEIGHT)
-	if (Date.now() - (lastProbe || 0) > PROBE_STALE_MS) score *= STALE_PENALTY
+	if (Date.now() - lastProbe > PROBE_STALE_MS) score *= STALE_PENALTY
 	return score
 }
 
@@ -512,7 +525,7 @@ export function recordProbeSuccess(url, rttMs) {
 	const entry = ensureEntry(normalized)
 	if (rttMs != null && Number.isFinite(Number(rttMs))) entry.rttMs = Math.max(0, Math.min(MAX_RTT_MS, Math.round(Number(rttMs))))
 	entry.successCount++
-	entry.lastSuccess = entry.lastProbe = entry.lastSeen = Date.now()
+	entry.lastSuccess = entry.lastProbe = entry.lastSeen = Math.max(Date.now(), entry.lastProbe + 1)
 	markDirty()
 }
 
@@ -525,7 +538,8 @@ export function recordProbeFailure(url) {
 	if (!normalized) return
 	const entry = ensureEntry(normalized)
 	entry.failureCount++
-	entry.lastFailure = entry.lastProbe = entry.lastSeen = Date.now()
+	entry.rttMs = null
+	entry.lastFailure = entry.lastProbe = entry.lastSeen = Math.max(Date.now(), entry.lastProbe + 1)
 	markDirty()
 }
 
@@ -583,17 +597,23 @@ export function clearStale() {
 }
 
 /**
- * @returns {RelayPoolEntry[]} 工作集（健康分升序，含全部 pinned）
+ * @returns {RelayPoolEntry[]} 工作集（保留未探测引导项，排除失败或过期项，优先 pinned）
  */
 export function getWorkingRelays() {
-	const sorted = sortByHealth([...poolEntries.values()])
+	const now = Date.now()
+	// 合格项：最近一次尝试成功且没过期，或压根还没探测过的引导项。
+	const eligible = [...poolEntries.values()].filter(entry =>
+		entry.successCount === 0
+			? entry.lastFailure === 0
+			: !latestAttemptFailed(entry.lastFailure, entry.lastSuccess) && now - entry.lastSuccess <= PROBE_STALE_MS)
+	const sorted = sortByHealth(eligible)
 	const pinned = sorted.filter(isPinned)
 	const rest = sorted.filter(entry => !isPinned(entry))
 	return dedupeByUrl([...pinned, ...rest.slice(0, Math.max(0, WORKING_RELAYS_COUNT - pinned.length))])
 }
 
 /**
- * @returns {RelayPoolEntry[]} 监听/发布子集（含全部 public/manual）
+ * @returns {RelayPoolEntry[]} 监听/发布子集（仅含工作集内 public/manual）
  */
 export function getListenRelays() {
 	const working = getWorkingRelays()

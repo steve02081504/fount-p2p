@@ -76,7 +76,7 @@ class NostrRelaysTest {
 		val entry = getPoolByUrl()["wss://probe.example.com"]!!
 		assertEquals(2, entry.successCount)
 		assertEquals(1, entry.failureCount)
-		assertEquals(55.0, entry.rttMs!!, 1e-9)
+		assertNull(entry.rttMs)
 		assertTrue(entry.lastProbe > 0)
 	}
 
@@ -112,6 +112,58 @@ class NostrRelaysTest {
 		assertTrue(listen.any { it.url == manualRelay })
 		assertTrue(listen.size <= maxOf(LISTEN_RELAYS_COUNT, 1))
 		assertTrue(listen.any { it.url == defaultRelay })
+	}
+
+	@Test
+	fun `failed and stale relays stay retryable but leave working and listen sets`() {
+		setupRelayTests(clearSeededRelays = true)
+		val now = System.currentTimeMillis()
+		for (source in listOf("public", "manual", "nip66")) {
+			val url = "wss://$source.example.com"
+			upsertRelay(mapOf("url" to url, "source" to source, "rttMs" to 0))
+			recordProbeFailure(url)
+			assertTrue("failed relay retained for retry", getPoolByUrl().containsKey(url))
+			assertTrue("never-successful relay excluded from working", getWorkingRelays().none { it.url == url })
+			assertTrue("never-successful relay excluded from listen", getListenRelays().none { it.url == url })
+			recordProbeSuccess(url, 42)
+			assertTrue("success restores working relay", getWorkingRelays().any { it.url == url })
+			val entry = getPoolByUrl()[url]!!
+			entry.lastFailure = entry.lastSuccess - 1
+			recordProbeFailure(url)
+			assertTrue("latest failure excludes previously successful relay", getWorkingRelays().none { it.url == url })
+			recordProbeSuccess(url, 40)
+			entry.lastSuccess = now - PROBE_STALE_MS - 1000
+			entry.lastProbe = entry.lastSuccess
+			entry.lastFailure = 0
+			assertTrue("expired success excluded even when pinned", getWorkingRelays().none { it.url == url })
+			assertTrue("expired success not advertised", getListenRelays().none { it.url == url })
+		}
+	}
+
+	@Test
+	fun `stale and newly failed successful pinned relays are excluded`() {
+		setupRelayTests(clearSeededRelays = true)
+		val now = System.currentTimeMillis()
+		upsertRelay(mapOf("url" to manualRelay, "source" to "manual", "rttMs" to 1, "successCount" to 15, "failureCount" to 1, "lastSuccess" to now - 100, "lastFailure" to now, "lastProbe" to now))
+		upsertRelay(mapOf("url" to defaultRelay, "source" to "public", "rttMs" to 1, "successCount" to 15, "lastSuccess" to now - PROBE_STALE_MS - 1000, "lastProbe" to now - PROBE_STALE_MS - 1000))
+		assertTrue("old successes do not make dead pinned relays working", getWorkingRelays().isEmpty())
+		assertTrue("old successes do not make dead pinned relays advertisable", getListenRelays().isEmpty())
+		assertEquals(emptyList<String>(), handshakeTargets("a".repeat(64), 0)["urls"])
+	}
+
+	@Test
+	fun `all failure and invalid RTT values cannot earn the best health score`() {
+		fun entry(rtt: Double?, successes: Int = 0, failures: Int = 0, success: Long = 0, failure: Long = 0, probe: Long = System.currentTimeMillis()) =
+			RelayPoolEntry("wss://health", rtt, successes, failures, success, failure, probe, 0, 0, "nip66", emptyList(), true, 0)
+		// 同一条 relay：最近一次尝试失败后，旧 RTT 被作废，只剩满额失败罚分。
+		val failed = computeRelayHealth(entry(1.0, 15, 1, 1, 2))
+		assertEquals(MAX_RTT_MS.toDouble() * (1 + FAILURE_WEIGHT), failed, 1e-9)
+		assertTrue("the worst live relay must beat a failed one", failed > computeRelayHealth(entry(MAX_RTT_MS.toDouble(), 15)))
+		assertEquals(failed, computeRelayHealth(entry(0.0, failures = 65)), 1e-9)
+		assertEquals(DEFAULT_RTT_MS.toDouble(), computeRelayHealth(entry(0.0)), 1e-9)
+		assertEquals(DEFAULT_RTT_MS.toDouble(), computeRelayHealth(entry(null)), 1e-9)
+		// 纪元起点的 lastProbe（从未探测）一样算过期：不能靠缺省时间戳把罚分绕过去。
+		assertEquals(100.0 * STALE_PENALTY, computeRelayHealth(entry(100.0, 1, probe = 0)), 1e-9)
 	}
 
 	@Test

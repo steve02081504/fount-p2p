@@ -12,7 +12,6 @@ import {
 import {
 	computeRelayHealth,
 	getPeerRoute,
-	getPinnedRelays,
 	getPoolByUrl,
 	getWorkingRelays,
 	recordPublishResult,
@@ -116,7 +115,7 @@ export function expandFromHistory(nodeHash, base, limit) {
 
 /**
  * 计算到指定节点的当前轮路由目标集。
- * Round 0：对端声称前4（无则本机工作集前4，再空则 pinned）。
+ * Round 0：对端声称前4（无则本机工作集前4）。
  * Round ≥1：历史成功 + 对端综合分补足 + 加权采样，附退避；总扇出封顶。
  * @param {string} nodeHash 目标节点
  * @param {number} attempt 当前尝试轮次（0 起）
@@ -139,7 +138,6 @@ export function handshakeTargets(nodeHash, attempt) {
 			for (const entry of working.slice(0, ROUND0_TARGET_COUNT)) push(entry.url)
 			return
 		}
-		for (const url of getPinnedRelays().slice(0, ROUND0_TARGET_COUNT)) push(url)
 	}
 	if (attempt <= 0) {
 		round0()

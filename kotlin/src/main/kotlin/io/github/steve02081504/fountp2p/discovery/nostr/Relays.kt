@@ -305,16 +305,27 @@ suspend fun isRelayDestinationAllowed(relayUrl: String?): Boolean {
 }
 
 /**
+ * 最近一次尝试是否失败。时间戳与 lastSuccess 打平按失败算（同一毫秒内的并发尝试里，成功者会记下更晚的时间戳）。
+ * @param lastFailure 最近一次失败时间戳
+ * @param lastSuccess 最近一次成功时间戳
+ * @return 最近一次尝试失败为 true
+ */
+private fun latestAttemptFailed(lastFailure: Long, lastSuccess: Long): Boolean = lastFailure >= lastSuccess
+
+/**
  * 计算 relay 健康分（越低越优）。
+ * 最近一次尝试失败（或从未成功过）时 RTT 与失败率都取最差值，分数必定高于任何活着的 relay。
  * @param entry 条目
  * @return 健康分
  */
 fun computeRelayHealth(entry: RelayPoolEntry): Double {
+	val failed = entry.failureCount > 0 && (entry.successCount == 0 || latestAttemptFailed(entry.lastFailure, entry.lastSuccess))
 	val total = entry.successCount + entry.failureCount
-	val failureRate = if (total > 0) entry.failureCount.toDouble() / total else 0.0
-	var rtt = entry.rttMs ?: DEFAULT_RTT_MS.toDouble()
-	if (rtt.isNaN() || rtt.isInfinite()) rtt = DEFAULT_RTT_MS.toDouble()
-	rtt = maxOf(1.0, minOf(MAX_RTT_MS.toDouble(), rtt))
+	val failureRate = if (failed) 1.0 else if (total > 0) entry.failureCount.toDouble() / total else 0.0
+	// 失败的 relay 最后一次测量已被作废：没有可信 RTT 可依，按上限算。
+	val measuredRtt = if (failed) MAX_RTT_MS.toDouble() else entry.rttMs
+	val rtt = maxOf(1.0, minOf(MAX_RTT_MS.toDouble(),
+		if (measuredRtt == null || measuredRtt.isNaN() || measuredRtt.isInfinite() || measuredRtt <= 0) DEFAULT_RTT_MS.toDouble() else measuredRtt))
 	var score = rtt * (1 + failureRate * FAILURE_WEIGHT)
 	if (System.currentTimeMillis() - entry.lastProbe > PROBE_STALE_MS) score *= STALE_PENALTY
 	return score
@@ -556,7 +567,7 @@ fun recordProbeSuccess(url: String, rttMs: Any?) {
 	if (rtt != null && !rtt.isNaN() && !rtt.isInfinite())
 		entry.rttMs = maxOf(0.0, minOf(MAX_RTT_MS.toDouble(), Math.round(rtt).toDouble()))
 	entry.successCount++
-	entry.lastSuccess = System.currentTimeMillis()
+	entry.lastSuccess = maxOf(System.currentTimeMillis(), entry.lastProbe + 1)
 	entry.lastProbe = entry.lastSuccess
 	entry.lastSeen = entry.lastSuccess
 	markDirty()
@@ -569,7 +580,8 @@ fun recordProbeFailure(url: String) {
 	val normalized = normalizeNostrRelayUrl(url) ?: return
 	val entry = ensureEntry(normalized)
 	entry.failureCount++
-	entry.lastFailure = System.currentTimeMillis()
+	entry.rttMs = null
+	entry.lastFailure = maxOf(System.currentTimeMillis(), entry.lastProbe + 1)
 	entry.lastProbe = entry.lastFailure
 	entry.lastSeen = entry.lastFailure
 	markDirty()
@@ -621,15 +633,21 @@ fun clearStale() {
 	if (changed) markDirty()
 }
 
-/** @return 工作集（健康分升序，含全部 pinned） */
+/** @return 工作集（保留未探测引导项，排除失败或过期项，优先 pinned） */
 fun getWorkingRelays(): List<RelayPoolEntry> {
-	val sorted = sortByHealth(poolEntries.values.toList())
+	val now = System.currentTimeMillis()
+	// 合格项：最近一次尝试成功且没过期，或压根还没探测过的引导项。
+	val eligible = poolEntries.values.filter { entry ->
+		if (entry.successCount == 0) entry.lastFailure == 0L
+		else !latestAttemptFailed(entry.lastFailure, entry.lastSuccess) && now - entry.lastSuccess <= PROBE_STALE_MS
+	}
+	val sorted = sortByHealth(eligible)
 	val pinned = sorted.filter { isPinned(it) }
 	val rest = sorted.filter { !isPinned(it) }
 	return dedupeByUrl(pinned + rest.take(maxOf(0, WORKING_RELAYS_COUNT - pinned.size)))
 }
 
-/** @return 监听/发布子集（含全部 public/manual） */
+/** @return 监听/发布子集（仅含工作集内 public/manual） */
 fun getListenRelays(): List<RelayPoolEntry> {
 	val working = getWorkingRelays()
 	val pinned = working.filter { isPinned(it) }

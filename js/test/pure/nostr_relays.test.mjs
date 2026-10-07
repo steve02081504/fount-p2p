@@ -1,6 +1,6 @@
 import { afterEach, test } from 'node:test'
 
-import { DEFAULT_RTT_MS, DEFAULT_RELAY_URLS, PROBE_STALE_MS } from '../../discovery/nostr/constants.mjs'
+import { DEFAULT_RTT_MS, DEFAULT_RELAY_URLS, PROBE_STALE_MS, STALE_PENALTY } from '../../discovery/nostr/constants.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
 import { setupRelayTests } from '../helpers/relay_test_setup.mjs'
 
@@ -55,7 +55,7 @@ test('recordProbeSuccess / recordProbeFailure update stats and rtt', async () =>
 	const entry = getPoolByUrl().get('wss://probe.example.com')
 	assertEquals(entry.successCount, 2)
 	assertEquals(entry.failureCount, 1)
-	assertEquals(entry.rttMs, 55, 'latest rtt wins')
+	assertEquals(entry.rttMs, null, 'failure invalidates the previous RTT')
 	assert(entry.lastProbe > 0)
 })
 
@@ -68,6 +68,9 @@ test('computeRelayHealth applies failure weight and stale penalty', async () => 
 	assert(stale > fresh * 1.9, 'stale penalty doubles score')
 	const defaultRtt = computeRelayHealth({ successCount: 0, failureCount: 0, lastProbe: Date.now() })
 	assertEquals(defaultRtt, DEFAULT_RTT_MS, 'missing rtt defaults to 300')
+	// 缺省 lastProbe（从未探测）等同纪元起点：一样算过期，不能靠 NaN 比较把罚分绕过去。
+	assertEquals(computeRelayHealth({ rttMs: 100, successCount: 1 }), 100 * STALE_PENALTY, 'missing lastProbe counts as stale')
+	assertEquals(computeRelayHealth({ rttMs: 100, successCount: 1, lastProbe: 0 }), 100 * STALE_PENALTY, 'epoch lastProbe counts as stale')
 })
 
 test('getWorkingRelays / getListenRelays honor caps and force-include public/manual', async () => {
@@ -84,6 +87,57 @@ test('getWorkingRelays / getListenRelays honor caps and force-include public/man
 	assert(listen.some(entry => entry.url === MANUAL_RELAY), 'manual forced into listen')
 	assert(listen.length <= Math.max(LISTEN_RELAYS_COUNT, 1), 'listen capped')
 	assert(listen.some(entry => entry.url === DEFAULT_RELAY), 'public seed in listen')
+})
+
+test('failed and stale relays stay retryable but leave working and listen sets', async () => {
+	const { upsertRelay, recordProbeFailure, recordProbeSuccess, getPoolByUrl, getWorkingRelays, getListenRelays } = await import('../../discovery/nostr/relays.mjs')
+	await setupRelayTests({ clearSeededRelays: true })
+	const now = Date.now()
+	for (const source of ['public', 'manual', 'nip66']) {
+		const url = `wss://${source}.example.com`
+		upsertRelay({ url, source, rttMs: 0 })
+		recordProbeFailure(url)
+		assert(getPoolByUrl().has(url), 'failed relay retained for retry')
+		assert(!getWorkingRelays().some(entry => entry.url === url), 'never-successful relay excluded from working')
+		assert(!getListenRelays().some(entry => entry.url === url), 'never-successful relay excluded from listen')
+		recordProbeSuccess(url, 42)
+		assert(getWorkingRelays().some(entry => entry.url === url), 'success restores working relay')
+		const entry = getPoolByUrl().get(url)
+		entry.lastFailure = entry.lastSuccess - 1
+		recordProbeFailure(url)
+		assert(!getWorkingRelays().some(entry => entry.url === url), 'latest failure excludes previously successful relay')
+		recordProbeSuccess(url, 40)
+		entry.lastSuccess = entry.lastProbe = now - PROBE_STALE_MS - 1000
+		entry.lastFailure = 0
+		assert(!getWorkingRelays().some(item => item.url === url), 'expired success excluded even when pinned')
+		assert(!getListenRelays().some(item => item.url === url), 'expired success not advertised')
+	}
+})
+
+test('stale and newly failed successful pinned relays are excluded', async () => {
+	const { upsertRelay, getWorkingRelays, getListenRelays } = await import('../../discovery/nostr/relays.mjs')
+	await setupRelayTests({ clearSeededRelays: true })
+	const now = Date.now()
+	upsertRelay({ url: MANUAL_RELAY, source: 'manual', rttMs: 1, successCount: 15, failureCount: 1, lastSuccess: now - 100, lastFailure: now, lastProbe: now })
+	upsertRelay({ url: DEFAULT_RELAY, source: 'public', rttMs: 1, successCount: 15, lastSuccess: now - PROBE_STALE_MS - 1000, lastProbe: now - PROBE_STALE_MS - 1000 })
+	assertEquals(getWorkingRelays(), [], 'old successes do not make dead pinned relays working')
+	assertEquals(getListenRelays(), [], 'old successes do not make dead pinned relays advertisable')
+	const { handshakeTargets } = await import('../../discovery/nostr/selection.mjs')
+	assertEquals(handshakeTargets('a'.repeat(64), 0).urls, [], 'empty working set never falls back to dead pins')
+})
+
+test('all-failure and invalid RTT values cannot earn the best health score', async () => {
+	const { computeRelayHealth } = await import('../../discovery/nostr/relays.mjs')
+	const { MAX_RTT_MS, FAILURE_WEIGHT } = await import('../../discovery/nostr/constants.mjs')
+	// 同一条 relay：最近一次尝试失败后，旧 RTT 被作废，只剩满额失败罚分。
+	const failedAfterSuccess = { rttMs: 1, successCount: 15, failureCount: 1, lastSuccess: 1, lastFailure: 2, lastProbe: Date.now() }
+	const liveWorst = { rttMs: MAX_RTT_MS, successCount: 15, lastProbe: Date.now() }
+	const failed = computeRelayHealth(failedAfterSuccess)
+	assertEquals(failed, MAX_RTT_MS * (1 + FAILURE_WEIGHT), 'a relay whose latest attempt failed ignores its old RTT')
+	assert(failed > computeRelayHealth(liveWorst), `worst live relay ${computeRelayHealth(liveWorst)} must beat a failed one ${failed}`)
+	assertEquals(computeRelayHealth({ rttMs: 0, successCount: 0, failureCount: 65, lastProbe: Date.now() }), failed, 'never-successful relay ranks with the failed ones')
+	assertEquals(computeRelayHealth({ rttMs: 0, lastProbe: Date.now() }), DEFAULT_RTT_MS, 'zero RTT is unknown')
+	assertEquals(computeRelayHealth({ rttMs: null, lastProbe: Date.now() }), DEFAULT_RTT_MS, 'null RTT is unknown')
 })
 
 test('clearStale removes stale non-pinned but keeps public/manual', async () => {

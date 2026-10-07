@@ -125,7 +125,6 @@ fun handshakeTargets(nodeHash: String, attempt: Int): Map<String, Any?> {
 		else {
 			val working = getWorkingRelays()
 			if (working.isNotEmpty()) for (entry in working.take(ROUND0_TARGET_COUNT)) push(entry.url)
-			else for (url in getPinnedRelays().take(ROUND0_TARGET_COUNT)) push(url)
 		}
 		return linkedMapOf("urls" to targets.take(MAX_ROUTING_FANOUT), "backoffDelay" to 0L)
 	}
