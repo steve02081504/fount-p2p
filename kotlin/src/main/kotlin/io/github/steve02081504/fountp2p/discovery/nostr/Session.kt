@@ -385,14 +385,29 @@ private fun scheduleReconnect(session: SharedRelaySession, delayMs: Long = 0) {
 	}
 }
 
-private suspend fun acquireSharedRelay(url: String, connectTarget: RelayConnectTarget?): SharedRelaySession =
+/**
+ * 取（必要时新建）共享 relay 会话，并在同一次持锁内登记 [registerWork]（入队发布或挂上订阅）。
+ *
+ * 登记必须与「登记会话」同锁完成：重连协程也持这把锁，若它先看到会话没有工作，就会把刚建好的
+ * 会话当成无工作直接删掉，请求只能等到入队上限才失败（表现为发布/订阅随机超时）。
+ * @param url 中继 URL
+ * @param connectTarget 钉 IP 用的连接目标
+ * @param registerWork 持锁登记的会话工作
+ * @return 请求归属的会话
+ */
+private suspend fun withSharedRelay(
+	url: String,
+	connectTarget: RelayConnectTarget?,
+	registerWork: (SharedRelaySession) -> Unit,
+): SharedRelaySession =
 	sessionMutex.withLock {
-		val existing = sharedRelaySessions[url]
-		if (existing != null) return@withLock existing
-		val session = SharedRelaySession(url)
-		session.connectTarget = connectTarget
-		sharedRelaySessions[url] = session
-		scheduleReconnect(session)
+		val session = sharedRelaySessions[url] ?: SharedRelaySession(url).also {
+			it.connectTarget = connectTarget
+			sharedRelaySessions[url] = it
+		}
+		registerWork(session)
+		// 无现成 socket 时触发连接；有则交给调用方 flush。
+		if (session.connection == null) scheduleReconnect(session)
 		session
 	}
 
@@ -488,9 +503,9 @@ suspend fun publishViaSharedRelay(
 	connectTarget: RelayConnectTarget? = null,
 ): Boolean {
 	if (signal?.aborted == true) throw IllegalStateException("nostr: aborted")
-	val session = acquireSharedRelay(relayUrl, connectTarget)
-	clearIdleDrop(session)
 	val attempt = PublishAttempt(event, signal, 0, CompletableDeferred())
+	val session = withSharedRelay(relayUrl, connectTarget) { it.pending.add(attempt) }
+	clearIdleDrop(session)
 	if (signal != null)
 		signal.addEventListener {
 			clearQueuedDeadline(attempt)
@@ -501,14 +516,12 @@ suspend fun publishViaSharedRelay(
 				}
 			}
 		}
-	session.pending.add(attempt)
 	val ws = session.connection
 	if (ws?.readyState == WS_OPEN) {
 		flushPending(session)
 		return attempt.deferred.await()
 	}
 	attachQueuedDeadline(session, attempt)
-	scheduleReconnect(session)
 	val deadline = queuedPublishDeadlineMs
 	if (deadline <= 0) return attempt.deferred.await()
 	return try {
@@ -564,8 +577,7 @@ fun subscribeNostrKind(
 	for (relayUrl in urls)
 		sessionScope.launch {
 			val target = resolveConnectTarget?.invoke(relayUrl)
-			val session = acquireSharedRelay(relayUrl, target)
-			session.subs[subscriptionId] = RelaySub(filter, onEvent)
+			val session = withSharedRelay(relayUrl, target) { it.subs[subscriptionId] = RelaySub(filter, onEvent) }
 			clearIdleDrop(session)
 			val ws = session.connection
 			if (ws?.readyState == WS_OPEN) {
@@ -576,7 +588,6 @@ fun subscribeNostrKind(
 					// ignore
 				}
 			}
-			else scheduleReconnect(session)
 		}
 	return {
 		for (relayUrl in urls)
