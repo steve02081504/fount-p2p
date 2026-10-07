@@ -28,6 +28,7 @@ import io.github.steve02081504.fountp2p.node.nodeDebug
 import io.github.steve02081504.fountp2p.utils.LruMap
 import io.github.steve02081504.fountp2p.utils.ms
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -287,6 +288,13 @@ suspend fun createWebRtcLink(options: WebRtcLinkOptions): LinkHandle {
 	}
 
 	/**
+	 * 数据链路是否已完成握手认证（`ready` 成功完成）。取消或异常完成不算：那时 `isCompleted` 也是真，
+	 * 但握手从未成功，链路仍该按建链失败处理。
+	 * @return 已就绪为 true
+	 */
+	fun linkReady(): Boolean = pipe.ready.isCompleted && pipe.ready.getCompletionExceptionOrNull() == null
+
+	/**
 	 * 处理入站信令。
 	 *
 	 * 当前这一级的 pc 在订阅信令前就已建好并挂过回调，所以这里不必补建；只有 offer 点名了别的级
@@ -328,7 +336,19 @@ suspend fun createWebRtcLink(options: WebRtcLinkOptions): LinkHandle {
 				// 与 offer 同样保持信令外壳：`{ type: "description", rung, description: <本地描述> }`。
 				val payload = linkedMapOf<String, Any?>("type" to "description", "rung" to rungIndex.toDouble())
 				payload["description"] = peerConnection.localDescription ?: answer
-				sendSignal(payload)
+				try {
+					sendSignal(payload)
+				}
+				catch (error: Exception) {
+					if (error is CancellationException) throw error
+					// 已认证的数据链路不应被后续信令发送失败关闭。
+					// ready 失败（取消/异常完成）不算就绪：isCompleted 为真但握手从未成功过。
+					if (!linkReady()) throw error
+					nodeDebug(
+						"p2p:webrtc answer signal send failed after link ready",
+						mapOf("reason" to formatErrorReason(error)),
+					)
+				}
 				pipe.maybeSendAuth()
 			}
 			return

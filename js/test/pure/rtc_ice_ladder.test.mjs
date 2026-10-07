@@ -161,14 +161,21 @@ class FakeRtcBackend {
 /**
  * 造一个不会自己完成的 pipe 替身：被测代码只用到它的回调与 close。
  * close 照真实 pipe 做两件事——只认第一次关闭原因、并关掉底层传输（否则旧连接的关闭通知影响不到 pc 层）。
+ * `ready` 按真实 pipe 的结算方式给出：握手成功才 resolve，建链失败则被异常结算（见 fount-p2p#39 的教训）。
  * @param {object} pipeOptions 传给 pipe 工厂的配置
+ * @param {'pending' | 'ready' | 'failed'} readyState ready 的结算状态
  * @returns {object} pipe 替身
  */
-function createStubPipe(pipeOptions) {
+function createStubPipe(pipeOptions, readyState = 'pending') {
 	/** @type {string[]} */
 	const closedReasons = []
+	/** 被异常结算的 ready：取值必抛，故先挂一个空 catch 免掉 unhandled rejection。 */
+	const rejectedReady = Promise.reject(new Error('p2p: link closed before ready'))
+	void rejectedReady.catch(() => { })
 	const pipe = {
-		ready: new Promise(() => { }),
+		ready: readyState === 'ready' ? Promise.resolve()
+			: readyState === 'failed' ? rejectedReady
+				: new Promise(() => { }),
 		nodeHash: null,
 		initiator: false,
 		/** @returns {void} */		handleInbound() { },
@@ -200,7 +207,7 @@ function createStubPipe(pipeOptions) {
 
 /**
  * 搭一次建链的测试装置：假后端按 [FakeRtcBackend.candidateSdp] 产出候选，pipe 替身只记录关闭原因。
- * @param {{ initiator?: boolean, candidateSdp?: string | null, handshakeTimeoutMs?: number, iceCandidateSettleMs?: number, iceGatheringStallMs?: number }} options 测试参数
+ * @param {{ initiator?: boolean, candidateSdp?: string | null, handshakeTimeoutMs?: number, iceCandidateSettleMs?: number, iceGatheringStallMs?: number, readyState?: 'pending' | 'ready' | 'failed', failAnswerSend?: boolean }} options 测试参数
  * @returns {{ backend: FakeRtcBackend, sent: object[], pipeStub: object, linking: Promise<object>, sendInbound: (message: object) => void, stop: () => void }} 装置；`stop` 停掉 gathering 推进
  */
 function createLadderHarness(options) {
@@ -222,7 +229,10 @@ function createLadderHarness(options) {
 			 * @param {object} message 出站信令
 			 * @returns {void}
 			 */
-			send(message) { sent.push(message) },
+			send(message) {
+				if (options.failAnswerSend && message.description?.type === 'answer') throw new Error('signal unavailable')
+				sent.push(message)
+			},
 			/**
 			 * @param {(message: object) => void} handler 入站处理器
 			 * @returns {() => void} 取消订阅
@@ -249,7 +259,7 @@ function createLadderHarness(options) {
 		 * @returns {object} pipe 替身
 		 */
 		createPipe(pipeOptions) {
-			pipeStub = createStubPipe(pipeOptions)
+			pipeStub = createStubPipe(pipeOptions, options.readyState ?? 'pending')
 			pipeStub.initiator = !!pipeOptions.initiator
 			return pipeStub
 		},
@@ -306,6 +316,15 @@ async function runWebRtcLink(options = {}) {
  */
 function offerFor(rung) {
 	return { type: 'description', rung, description: { type: 'offer', sdp: 'v=0\r\no=- remote-offer\r\n' } }
+}
+
+/** 答复发不出去的响应方：只看 ready 状态怎么决定收尾。 */
+const responderWithFailingAnswer = {
+	initiator: false,
+	candidateSdp: PLAIN_HOST_CANDIDATE,
+	handshakeTimeoutMs: 2_000,
+	failAnswerSend: true,
+	inboundSignals: [offerFor(0)],
 }
 
 test('iceLocalHostnameLadder escalates from drop to none and honours an explicit start', () => {
@@ -384,6 +403,20 @@ test('responder stays on rung 0 when the offer does not name a rung', async () =
 	const answers = result.sent.filter(message => message.type === 'description')
 	assertEquals(answers.length, 1)
 	assertEquals(answers[0].rung, 0)
+})
+
+test('responder signal send failure does not close an already ready link', async () => {
+	const result = await runWebRtcLink({ ...responderWithFailingAnswer, readyState: 'ready' })
+	assertEquals(result.closedReasons, [])
+})
+
+test('responder signal send failure still closes a link whose ready never succeeded', async () => {
+	// 未结算与被异常结算的 ready 都不算「已就绪」：握手从未成功，链路仍该按建链失败处理。
+	for (const readyState of ['pending', 'failed']) {
+		const result = await runWebRtcLink({ ...responderWithFailingAnswer, readyState })
+		assertEquals(result.closedReasons.length, 1, `readyState=${readyState} closedReasons=${JSON.stringify(result.closedReasons)}`)
+		assertEquals(result.closedReasons[0].startsWith('signal-error:'), true, `readyState=${readyState}`)
+	}
 })
 
 test('closing a rebuilt-away connection never closes the live one', async () => {

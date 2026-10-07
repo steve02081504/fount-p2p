@@ -15,7 +15,7 @@ import {
 	createNostrDiscoveryProvider,
 	resolveNostrRelayUrls,
 } from '../discovery/nostr/index.mjs'
-import { getListenRelays, getWorkingRelays, loadRelayPool, startNostrRelayDiscovery } from '../discovery/nostr/relays.mjs'
+import { getWorkingRelays, loadRelayPool, startNostrRelayDiscovery } from '../discovery/nostr/relays.mjs'
 import { createBleGattLinkProvider } from '../link/providers/ble_gatt.mjs'
 import {
 	listLinkProviders,
@@ -188,7 +188,7 @@ export function createRuntimeBootstrap(deps) {
 						.filter(entry => entry.rttMs != null)
 						.slice(0, MAX_ADVERT_RELAY_POOL)
 						.map(entry => ({ url: entry.url, rttMs: entry.rttMs })),
-					listen: getListenRelays().map(entry => entry.url),
+					listen: resolveNostrRelayUrls(),
 				}
 				: { pool: [], listen: [] },
 		)

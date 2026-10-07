@@ -142,6 +142,7 @@ export async function createWebRtcLink(options) {
 	let bulkChannel = null
 	let unlistenRemote = null
 	let sendQueues = null
+	let linkReady = false
 	let controlLowEvents = 0
 	let bulkLowEvents = 0
 	let reconnectCount = 0
@@ -216,6 +217,8 @@ export async function createWebRtcLink(options) {
 			}
 		},
 	})
+	// 数据链路是否已完成握手认证：完成后，发不出去的重协商答复不该再拆掉这条活链路。
+	void pipe.ready.then(() => { linkReady = true }, () => { })
 
 	/**
 	 * @param {RTCDataChannel} channel RTC 数据通道
@@ -420,11 +423,18 @@ export async function createWebRtcLink(options) {
 					candidates: localCandidateCount,
 					hasCandidates,
 				})
-				await sendSignal({
-					type: 'description',
-					rung: rungIndex,
-					description: peerConnection.localDescription?.toJSON?.() ?? peerConnection.localDescription ?? answer,
-				})
+				try {
+					await sendSignal({
+						type: 'description',
+						rung: rungIndex,
+						description: peerConnection.localDescription?.toJSON?.() ?? peerConnection.localDescription ?? answer,
+					})
+				}
+				catch (error) {
+					// 已认证的数据链路不应被后续信令发送失败关闭。
+					if (!linkReady) throw error
+					nodeDebug('p2p:webrtc answer signal send failed after link ready', { reason: formatErrorReason(error) })
+				}
 				await pipe.maybeSendAuth()
 			}
 			return

@@ -11,7 +11,6 @@ import io.github.steve02081504.fountp2p.discovery.listDiscoveryProviders
 import io.github.steve02081504.fountp2p.discovery.listenNodeSignals
 import io.github.steve02081504.fountp2p.discovery.nostr.MAX_ADVERT_RELAY_POOL
 import io.github.steve02081504.fountp2p.discovery.nostr.createNostrDiscoveryProvider
-import io.github.steve02081504.fountp2p.discovery.nostr.getListenRelays
 import io.github.steve02081504.fountp2p.discovery.nostr.getWorkingRelays
 import io.github.steve02081504.fountp2p.discovery.nostr.loadRelayPool
 import io.github.steve02081504.fountp2p.discovery.nostr.resolveNostrRelayUrls
@@ -206,7 +205,7 @@ private class DefaultRuntimeBootstrap(private val deps: RuntimeBootstrapDeps) : 
 					.filter { it.rttMs != null }
 					.take(MAX_ADVERT_RELAY_POOL)
 					.map { linkedMapOf<String, Any?>("url" to it.url, "rttMs" to it.rttMs) },
-				"listen" to getListenRelays().map { it.url },
+				"listen" to resolveNostrRelayUrls(),
 			)
 		}
 		else linkedMapOf<String, Any?>("pool" to emptyList<Any?>(), "listen" to emptyList<Any?>())

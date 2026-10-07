@@ -1,6 +1,7 @@
 package io.github.steve02081504.fountp2p.transport
 
 import io.github.steve02081504.fountp2p.identity
+import io.github.steve02081504.fountp2p.discovery.clearDiscoveryProviders
 import io.github.steve02081504.fountp2p.link.providers.LinkHandle
 import io.github.steve02081504.fountp2p.link.providers.LinkProvider
 import io.github.steve02081504.fountp2p.link.providers.clearLinkProviders
@@ -198,6 +199,33 @@ class RuntimeLifecycleTest {
 			}
 			finally {
 				registry.shutdown()
+			}
+		}
+	}
+
+	@Test
+	fun `network advert advertises configured Nostr listen relays`() = runBlocking {
+		withTempNode("fount-p2p-runtime-advert-relays-") {
+			val relayUrls = listOf("wss://configured-a.example.com", "wss://configured-b.example.com")
+			setSignalingRuntimeConfig(
+				mapOf("channels" to mapOf("nostr" to mapOf("relay" to relayUrls), "lan" to false, "bt" to false, "webrtc" to false)),
+			)
+			val bootstrap = createRuntimeBootstrap(
+				RuntimeBootstrapDeps(
+					localIdentity = localIdentityMap(),
+					autoRegisterDiscoveryProviders = false,
+					autoRegisterLinkProviders = false,
+					onInboundLink = { },
+					handleIncomingSignal = { },
+				),
+			)
+			try {
+				val advert = bootstrap.buildLocalAdvert("network")
+				assertEquals(relayUrls, advert["listenNostrRelays"])
+			}
+			finally {
+				bootstrap.shutdown()
+				clearDiscoveryProviders()
 			}
 		}
 	}

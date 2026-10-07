@@ -111,6 +111,37 @@ test('reload attaches listening to every enabled link provider, not just the own
 	}
 })
 
+test('network advert advertises configured Nostr listen relays', async () => {
+	const self = identity(105)
+	const nodeDir = await mkTestNodeDir('fount-p2p-runtime-advert-relays-')
+	const relayUrls = ['wss://configured-a.example.com', 'wss://configured-b.example.com']
+	try {
+		initTestP2pNode({ nodeDir })
+		setSignalingRuntimeConfig({
+			channels: { nostr: { relay: relayUrls }, lan: false, bt: false, webrtc: false },
+		})
+		const registry = createLinkRegistry({
+			localIdentity: self,
+			autoRegisterDiscoveryProviders: false,
+			autoRegisterLinkProviders: false,
+			meshKeepalive: false,
+		})
+		try {
+			await registry.ensureRuntime()
+			const advert = await registry.buildLocalAdvert('network')
+			assertEquals(advert.listenNostrRelays, relayUrls)
+		}
+		finally {
+			await registry.shutdown()
+		}
+	}
+	finally {
+		clearLinkProviders()
+		clearDiscoveryProviders()
+		await teardownTestNodeDir(nodeDir)
+	}
+})
+
 test('disable then re-enable nostr keeps the newly registered provider answering inbound link-open', async () => {
 	clearLinkProviders()
 	clearDiscoveryProviders()

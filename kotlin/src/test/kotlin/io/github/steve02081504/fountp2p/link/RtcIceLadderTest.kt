@@ -10,7 +10,9 @@ import io.github.steve02081504.fountp2p.node.iceLocalHostnameLadder
 import io.github.steve02081504.fountp2p.node.setSignalingRuntimeConfig
 import io.github.steve02081504.fountp2p.node.withTempNode
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -67,19 +69,18 @@ class RtcIceLadderTest {
 
 		override suspend fun addIceCandidate(candidate: Map<String, Any?>) { }
 
-		override fun createDataChannel(label: String): RtcDataChannel =
-			object : RtcDataChannel {
-				override val label: String = label
-				override val readyState: String = "open"
-				override var bufferedAmount: Double = 0.0
-				override var bufferedAmountLowThreshold: Double = 0.0
-				override var onBufferedAmountLow: (() -> Unit)? = null
-				override var onOpen: (() -> Unit)? = null
-				override var onClose: (() -> Unit)? = null
-				override var onMessage: ((Any?) -> Unit)? = null
-				override fun send(bytes: ByteArray) { }
-				override fun close() { }
-			}
+		override fun createDataChannel(label: String): RtcDataChannel = object : RtcDataChannel {
+			override val label: String = label
+			override val readyState: String = "open"
+			override var bufferedAmount: Double = 0.0
+			override var bufferedAmountLowThreshold: Double = 0.0
+			override var onBufferedAmountLow: (() -> Unit)? = null
+			override var onOpen: (() -> Unit)? = null
+			override var onClose: (() -> Unit)? = null
+			override var onMessage: ((Any?) -> Unit)? = null
+			override fun send(bytes: ByteArray) { }
+			override fun close() { }
+		}
 
 		override suspend fun close() {
 			closeCalls++
@@ -204,5 +205,86 @@ class RtcIceLadderTest {
 			assertEquals(1, run.closeStates.size)
 			assertEquals(0, run.closeStates[0].closeCalls)
 		}
+	}
+
+	/** 建链前把句柄 `ready` 结算成的状态。 */
+	private enum class ReadyState { SUCCEEDED, CANCELLED, FAILED }
+
+	/**
+	 * 失败信令装置：`send` 遇到 answer 时记录一次并抛错，模拟订阅已断的响应方。
+	 */
+	private class FailingAnswerSignal {
+		var remoteHandler: ((Map<String, Any?>) -> Unit)? = null
+		val answerSendAttempted = CompletableDeferred<Unit>()
+		val signal = object : RtcSignal {
+			override suspend fun send(message: Map<String, Any?>) {
+				if ((message["description"] as? Map<*, *>)?.get("type") != "answer") return
+				answerSendAttempted.complete(Unit)
+				throw IllegalStateException("signal unavailable")
+			}
+
+			override fun onRemote(handler: (Map<String, Any?>) -> Unit): () -> Unit {
+				remoteHandler = handler
+				return { remoteHandler = null }
+			}
+		}
+
+		/** @param rung offer 的级号 */
+		fun deliverOffer(rung: Int) {
+			remoteHandler?.invoke(
+				linkedMapOf("type" to "description", "rung" to rung.toDouble(), "description" to mapOf("type" to "offer", "sdp" to "v=0\r\n")),
+			)
+		}
+	}
+
+	/**
+	 * 跑一次「答复信令发不出去」的响应方建链：answer 发送已发生，随后信令层抛错。
+	 * @param ready 建链前把句柄的 ready 结算成什么状态；null 表示保持未结算
+	 * @return 该链路是否被拆掉（建链失败路径会关掉底层 peer connection）
+	 */
+	private suspend fun runFailedAnswerSignal(ready: ReadyState?): Boolean {
+		var tornDown = false
+		withTempNode("fount-p2p-webrtc-answer-signal-") {
+			val rtc = FakeRtcProvider("candidate:2 1 udp 2130706430 10.0.0.5 54322 typ host")
+			val failing = FailingAnswerSignal()
+			val link = createWebRtcLink(WebRtcLinkOptions(signal = failing.signal, rtc = rtc, iceServers = emptyList(), iceCandidateSettleMs = 5, iceGatheringStallMs = 20))
+			try {
+				val connection = rtc.connections.single()
+				when (ready) {
+					ReadyState.SUCCEEDED -> assertEquals(true, link.ready.complete(Unit))
+					ReadyState.CANCELLED -> link.ready.cancel()
+					ReadyState.FAILED -> link.ready.completeExceptionally(IllegalStateException("p2p: link closed before ready"))
+					null -> Unit
+				}
+				failing.deliverOffer(0)
+				withTimeout(1_000) { failing.answerSendAttempted.await() }
+				// 关闭是 fire-and-forget 的：等它一整个建链窗口，等到就说明被拆了。
+				tornDown = withTimeoutOrNull(500) { while (connection.connectionState != "closed") delay(5) } != null
+			}
+			finally {
+				link.close("test-done")
+			}
+		}
+		return tornDown
+	}
+
+	@Test
+	fun `failed renegotiation signal leaves a ready link open`() = runBlocking {
+		assertEquals(false, runFailedAnswerSignal(ReadyState.SUCCEEDED))
+	}
+
+	@Test
+	fun `failed renegotiation signal does not treat a cancelled ready as ready`() = runBlocking {
+		assertEquals(true, runFailedAnswerSignal(ReadyState.CANCELLED))
+	}
+
+	@Test
+	fun `failed renegotiation signal does not treat a failed ready as ready`() = runBlocking {
+		assertEquals(true, runFailedAnswerSignal(ReadyState.FAILED))
+	}
+
+	@Test
+	fun `failed answer signal still closes a link before ready`() = runBlocking {
+		assertEquals(true, runFailedAnswerSignal(null))
 	}
 }
