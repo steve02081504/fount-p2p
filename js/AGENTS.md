@@ -54,6 +54,7 @@ Deno / native / BT: [runtime.md](docs/runtime.md).
 - Assertions: `test/helpers/assert.mjs`
 - Fixed-seed identity: `test/helpers/identity.mjs`
 - Mock discovery: `test/helpers/mock_discovery.mjs`
+- Transport fakes must mirror the backend's failure signalling: a fake `RTCPeerConnection` whose `close()` stays silent (no `connectionstatechange`) hides re-entrancy bugs where a replaced connection closes the live one (fount-p2p#39, `link/providers/webrtc.mjs`).
 
 ## Static checks (`scripts/checks/`, ported from fount's check standard)
 

@@ -37,6 +37,10 @@ Details: [kotlin/AGENTS.md](kotlin/AGENTS.md) and [js/AGENTS.md](js/AGENTS.md).
 
 `git worktree add` is handy for running a single commit's tests, but never leave a `node_modules` directory junction/symlink inside a worktree that `git worktree remove --force` will delete: git follows the link and empties the real `js/node_modules` (observed here). Delete the link first (`cmd /c rmdir <worktree>\js\node_modules`) or run `npm ci --prefer-offline` inside the worktree instead.
 
+### Proving a regression test catches its bug
+
+A test written after a fix silently passes on the broken code more often than it looks. Verify it the same way every time: create a detached worktree at `HEAD`, copy the new test files into it, `git checkout HEAD -- <the files the fix touched>` to revert the fix, point `js/node_modules` at the main checkout with a junction, and run the suite. Every test that claims to guard the bug must fail; note *which assertion* fails, because a test that only fails on an unrelated earlier assertion is not guarding anything.
+
 ## Docs language
 
 Every `AGENTS.md` and each `.md` reachable from it through local links is written in English (a non-`AGENTS.md` doc in that closure lives under a `docs/` directory), and source JSDoc summaries are Chinese. Both rules are enforced by the static checks described in [js/AGENTS.md](js/AGENTS.md); run `cd js; npm run test:checks`.

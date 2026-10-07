@@ -49,6 +49,7 @@ File names use PascalCase; one `.mjs` maps to one `.kt` (same-directory related 
 - **Async:** I/O (files, network) uses `suspend`; pure computation (crypto, schema validation) stays synchronous. Concurrency uses `kotlinx.coroutines`; tests use `runBlocking`.
 - **crypto:** Ed25519/X25519 via BouncyCastle (`bcprov-jdk18on`), SHA/HMAC/AES-GCM via JCA. Platform-incompatible equivalents of `node:crypto` are forbidden; Android compatibility comes first.
 - **Error messages:** keep them as close to the JS text as possible so the paired tests can compare.
+- **Test fakes mirror the backend's failure signalling:** a fake `RtcPeerConnectionLike.close()` must set `connectionState = "closed"` and call `onConnectionStateChange`, otherwise a replaced connection that closes the live one passes unnoticed (fount-p2p#39).
 - **Comments / docs:** keep the JS KDoc/Chinese explanations; do not write meaningless comments.
 - **JSONL read-modify-write:** `rewriteJsonlKeeping` / `appendJsonlSynced` / `writeJsonlSynced` take the shared `jsonlMutexKey` lock themselves and are **not reentrant** — never call them while already holding the same key (use the lock-free `writeJsonl` / `writeJsonlLines` instead). Rewrites preserve the original raw line (a `sanitize` passed to `rewriteJsonlKeeping` / `readJsonlEntries` only affects the value handed to the predicate) and skip the rename when nothing is dropped.
 - **Do not commit:** subagents only change code; the main flow commits.
