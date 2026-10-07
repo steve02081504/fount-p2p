@@ -15,6 +15,20 @@ import { startFakeRelay } from '../helpers/fake_relay.mjs'
 import { identity } from '../helpers/identity.mjs'
 
 /**
+ * 轮询等待发布结果落盘到 relay 池：本地假 relay 的 OK 延迟可能晚于 `sendNodeSignal` 返回。
+ * @param {() => boolean} condition 满足即返回
+ * @param {number} timeoutMs 等待上限
+ * @returns {Promise<void>}
+ */
+async function waitForPublishOutcome(condition, timeoutMs = 2_000) {
+	const deadline = Date.now() + timeoutMs
+	while (!condition()) {
+		if (Date.now() >= deadline) throw new Error('timed out waiting for relay publish outcome')
+		await new Promise(resolve => setTimeout(resolve, 10))
+	}
+}
+
+/**
  * 启动一个「接受 TCP 连接但永不完 WebSocket 握手」的假 relay：
  * 复现 DNS 能解析、WS 却永远连不上的 relay（fount-p2p#37）。
  * @returns {Promise<{ url: string, stop: () => Promise<void> }>} 悬挂 relay
@@ -77,6 +91,66 @@ test('publishEvent rejects when relay OK false', async () => {
 	finally {
 		provider.dispose?.()
 		await relay.stop()
+	}
+})
+
+test('publish succeeds when a fast rejection races a slower accepting relay and records both outcomes', async () => {
+	const peer = identity(91)
+	const rejecting = await startFakeRelay(() => false)
+	const accepting = await startFakeRelay(() => true, { okDelayMs: 80 })
+	const rejectUrl = `ws://127.0.0.1:${rejecting.port}`
+	const acceptUrl = `ws://127.0.0.1:${accepting.port}`
+	const provider = createNostrDiscoveryProvider({ relayUrls: [rejectUrl, acceptUrl] })
+	const { getPoolByUrl } = await import('../../discovery/nostr/relays.mjs')
+	try {
+		await provider.sendNodeSignal(peer.nodeHash, new Uint8Array([4, 5, 6]))
+		const pool = getPoolByUrl()
+		assertEquals(pool.get(rejectUrl).lastPublishFailure > 0, true, 'fast rejection is recorded')
+		assertEquals(pool.get(acceptUrl).lastPublishSuccess > 0, true, 'slower acceptance is recorded')
+	}
+	finally {
+		provider.dispose?.()
+		await rejecting.stop()
+		await accepting.stop()
+	}
+})
+
+test('configured publish timeout demotes the relay', async () => {
+	const peer = identity(92)
+	const relay = await startFakeRelay(() => true, { okDelayMs: 3_500 })
+	const relayUrl = `ws://127.0.0.1:${relay.port}`
+	const provider = createNostrDiscoveryProvider({ relayUrls: [relayUrl] })
+	const { getPoolByUrl } = await import('../../discovery/nostr/relays.mjs')
+	try {
+		await assert.rejects(provider.sendNodeSignal(peer.nodeHash, new Uint8Array([1])))
+		assertEquals(getPoolByUrl().get(relayUrl).lastPublishFailure > 0, true)
+	}
+	finally {
+		provider.dispose?.()
+		await relay.stop()
+	}
+})
+
+test('publish records a late rejection after an earlier relay already accepted', async () => {
+	const peer = identity(93)
+	const accepting = await startFakeRelay(() => true)
+	// 慢的中继必须真的慢过本机到快中继那一趟：否则「提前返回」无从证明。
+	const rejecting = await startFakeRelay(() => false, { okDelayMs: 300 })
+	const acceptUrl = `ws://127.0.0.1:${accepting.port}`
+	const rejectUrl = `ws://127.0.0.1:${rejecting.port}`
+	const provider = createNostrDiscoveryProvider({ relayUrls: [acceptUrl, rejectUrl] })
+	const { getPoolByUrl } = await import('../../discovery/nostr/relays.mjs')
+	try {
+		await provider.sendNodeSignal(peer.nodeHash, new Uint8Array([2]))
+		assertEquals(getPoolByUrl().get(acceptUrl).lastPublishSuccess > 0, true)
+		assertEquals(getPoolByUrl().get(rejectUrl)?.lastPublishFailure ?? 0, 0, 'the slow relay is still pending when publish already returned')
+		await waitForPublishOutcome(() => (getPoolByUrl().get(rejectUrl)?.lastPublishFailure ?? 0) > 0, 5_000)
+		assertEquals(getPoolByUrl().get(rejectUrl).lastPublishFailure > 0, true, 'the background attempt settles its own health')
+	}
+	finally {
+		provider.dispose?.()
+		await accepting.stop()
+		await rejecting.stop()
 	}
 })
 

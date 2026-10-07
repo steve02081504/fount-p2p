@@ -26,6 +26,7 @@ import {
 	getPoolByUrl,
 	isRelayDestinationAllowed,
 	probeRelay,
+	recordPublishResult,
 	registerProviderTrustedRelayUrls,
 	resolveRelayConnectTarget,
 	setPeerRoute,
@@ -203,6 +204,20 @@ async function signNostrEvent(kind, tags, content, secretKey) {
 }
 
 /**
+ * 记录一次发布结果并回报同一个布尔值，供 `Promise.any` 直接消费。
+ * 调用方已取消时不记：那不是 relay 的过错，不该压它的健康分。
+ * @param {string} relayUrl 中继 URL
+ * @param {boolean} ok 是否成功
+ * @param {AbortSignal} [signal] 取消信号
+ * @returns {boolean} ok
+ */
+function recordPublishOutcome(relayUrl, ok, signal) {
+	if (signal?.aborted) return ok
+	recordPublishResult(relayUrl, ok)
+	return ok
+}
+
+/**
  * 全量发布到给定 relay：任一成功即返回，其余 relay 的发布留在后台自行结算。
  * 每个 relay 尝试都有界（连接超时 / OK 超时 / 入队等待上限），故后台不会永久悬挂。
  * @param {string[]} relayUrls 中继 URL 列表
@@ -213,29 +228,36 @@ async function signNostrEvent(kind, tags, content, secretKey) {
 async function publishEvent(relayUrls, event, signal) {
 	const urls = dedupeRelayUrls(relayUrls)
 	if (!urls.length) throw new Error('nostr: no relay')
-	const targets = (await Promise.all(urls.map(async relayUrl => {
+	/** @type {Map<string, { hostname: string, addresses: string[] }>} */
+	const targets = new Map()
+	await Promise.all(urls.map(async relayUrl => {
 		try {
-			return { relayUrl, connectTarget: await resolveRelayConnectTarget(relayUrl) }
+			const connectTarget = await resolveRelayConnectTarget(relayUrl)
+			if (connectTarget) targets.set(relayUrl, connectTarget)
+			else recordPublishOutcome(relayUrl, false, signal)
 		}
-		catch {
-			return { relayUrl, connectTarget: null }
+		catch (error) {
+			recordPublishOutcome(relayUrl, false, signal)
+			nodeDebug('p2p:nostr relay target resolve fail', { relay: relayUrl, err: String(error?.message || error) })
 		}
-	}))).filter(target => target.connectTarget)
+	}))
+	if (!targets.size) throw new Error('nostr: no relay')
 	let lastError = null
-	if (!targets.length) throw new Error('nostr: no relay')
-	const attempts = targets.map(target => publishViaSharedRelay(target.relayUrl, event, signal, target.connectTarget)
-		.then(ok => {
-			if (ok) return true
-			lastError = new Error(`nostr: relay rejected publish (${target.relayUrl})`)
-			return false
-		}, error => {
+	const accepted = await Promise.any([...targets].map(async ([relayUrl, connectTarget]) => {
+		let ok = false
+		try {
+			ok = await publishViaSharedRelay(relayUrl, event, signal, connectTarget)
+			if (!ok) lastError = new Error(`nostr: relay rejected publish (${relayUrl})`)
+		}
+		catch (error) {
+			if (error?.message === 'nostr: aborted') throw error
 			lastError = error
-			return false
-		}))
-	// 首个成功的 relay 即结算调用方；其余尝试继续在后台跑（失败已就地吞掉，不会变成 unhandled rejection）。
-	const accepted = await Promise.race(attempts.map((attempt, index) => attempt.then(ok => ok ? index : -1)))
-	if (accepted >= 0) return
-	await Promise.all(attempts)
+		}
+		// 快速失败不掩盖稍后成功的 relay：全部尝试各自结算并更新健康度，任一成功即视为发布成功。
+		if (!recordPublishOutcome(relayUrl, ok, signal)) throw new Error('nostr: relay rejected publish')
+		return relayUrl
+	})).catch(() => null)
+	if (accepted) return
 	throw lastError || new Error('nostr: no relay accepted publish')
 }
 

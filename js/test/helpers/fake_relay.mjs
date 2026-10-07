@@ -7,7 +7,7 @@ import { WebSocketServer } from 'ws'
  * `options.broadcast` 为 true 时向全部已连接 socket 扇出 EVENT（模拟真实中继）。
  * `options.store` 为 true 时存储已接受事件并在新 REQ 上回放匹配事件 + EOSE（模拟 store-and-forward 中继）。
  * @param {(eventId: string) => boolean} [accept] 是否接受 EVENT
- * @param {{ broadcast?: boolean, store?: boolean }} [options] 中继选项
+ * @param {{ broadcast?: boolean, store?: boolean, okDelayMs?: number }} [options] 中继选项
  * @returns {Promise<{
  *   port: number,
  *   connectionCount: () => number,
@@ -22,7 +22,7 @@ import { WebSocketServer } from 'ws'
  * }>} fake relay
  */
 export async function startFakeRelay(accept = () => true, options = {}) {
-	const { broadcast = false, store = false } = options
+	const { broadcast = false, store = false, okDelayMs = 0 } = options
 	const server = createServer((request, response) => {
 		// NIP-11 relay info：响应 JSON，避免 HTTP 探测等待超时；Connection: close 规避 Windows undici keep-alive 退出断言。
 		if (request.method === 'GET') {
@@ -107,7 +107,11 @@ export async function startFakeRelay(accept = () => true, options = {}) {
 			const event = parsed[1]
 			const eventId = String(event?.id || '')
 			const ok = accept(eventId)
-			socket.send(JSON.stringify(['OK', eventId, ok, ok ? '' : 'blocked: test']))
+			const sendOk = () => {
+				if (socket.readyState === 1) socket.send(JSON.stringify(['OK', eventId, ok, ok ? '' : 'blocked: test']))
+			}
+			if (okDelayMs > 0) setTimeout(sendOk, okDelayMs)
+			else sendOk()
 			if (!ok) return
 			publishedEvents.push(event)
 			if (store) storedEvents.push(event)

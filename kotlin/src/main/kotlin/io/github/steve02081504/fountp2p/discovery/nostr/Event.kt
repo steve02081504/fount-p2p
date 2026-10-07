@@ -7,6 +7,7 @@ import io.github.steve02081504.fountp2p.crypto.randomBytes
 import io.github.steve02081504.fountp2p.crypto.schnorrPublicKey
 import io.github.steve02081504.fountp2p.crypto.schnorrSign
 import io.github.steve02081504.fountp2p.crypto.sha256Hex
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +65,20 @@ fun signNostrEvent(
 }
 
 /**
+ * 记录一次发布结果并回报同一个布尔值，供调用方直接消费。
+ * 调用方已取消时不记：那不是 relay 的过错，不该压它的健康分。
+ * @param url 中继 URL
+ * @param ok 是否成功
+ * @param signal 取消信号
+ * @return ok
+ */
+private fun recordPublishOutcome(url: String, ok: Boolean, signal: AbortSignalLike?): Boolean {
+	if (signal?.aborted == true) return ok
+	recordPublishResult(url, ok)
+	return ok
+}
+
+/**
  * 向全部中继并行发布事件：任一成功即返回，其余 relay 的发布留在后台自行结算。
  * 每个 relay 尝试都有界（连接超时 / OK 超时 / 入队等待上限），故后台不会永久悬挂。
  * @param relayUrls 中继 URL 列表
@@ -78,14 +93,19 @@ suspend fun publishEvent(
 ) {
 	val urls = dedupeRelayUrls(relayUrls)
 	if (urls.isEmpty()) throw IllegalStateException("nostr: no relay")
-	val targets = urls.mapNotNull { url ->
+	val targets = LinkedHashMap<String, RelayConnectTarget>()
+	for (url in urls) {
 		val connectTarget = try {
 			resolveRelayConnectTarget(url)
+		}
+		catch (error: CancellationException) {
+			throw error
 		}
 		catch (_: Throwable) {
 			null
 		}
-		if (connectTarget == null) null else url to connectTarget
+		if (connectTarget == null) recordPublishOutcome(url, false, signal)
+		else targets[url] = connectTarget
 	}
 	if (targets.isEmpty()) throw IllegalStateException("nostr: no relay")
 	val lastError = AtomicReference<Throwable?>(null)
@@ -95,7 +115,9 @@ suspend fun publishEvent(
 	for ((url, connectTarget) in targets) {
 		nostrPublishScope.launch {
 			try {
-				if (publishViaSharedRelay(url, event, signal, connectTarget)) {
+				// 快速失败不掩盖稍后成功的 relay：全部尝试各自结算并更新健康度，任一成功即视为发布成功。
+				val ok = recordPublishOutcome(url, publishViaSharedRelay(url, event, signal, connectTarget), signal)
+				if (ok) {
 					acceptedAny.set(true)
 					settled.complete(Unit)
 				}
@@ -103,6 +125,7 @@ suspend fun publishEvent(
 			}
 			catch (error: Throwable) {
 				lastError.set(error)
+				recordPublishOutcome(url, false, signal)
 			}
 			finally {
 				if (pendingCount.decrementAndGet() == 0 && !settled.isCompleted) settled.complete(Unit)
