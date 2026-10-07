@@ -16,8 +16,10 @@ Source layout (`discovery/nostr/`):
 
 `relayPool` (all known) → `workingRelays` (top-`WORKING_RELAYS_COUNT` by health) → `listenRelays` (top-`LISTEN_RELAYS_COUNT` working subset used for publish/listen).
 
-- `public`/`manual` entries are **pinned**: always in `working`/`listen` and never evicted by `clearStale` or pool-cap. Pin count may exceed the nominal caps.
+- `public`/`manual` entries are **pinned**: preferred in `working`/`listen` when eligible and never evicted by `clearStale` or pool-cap. Failed or stale pins remain in the pool for retry, but leave the working/listen sets. Pin count may exceed the nominal caps.
 - `nip66`/`peer` entries are disposable: evicted when stale (`PROBE_STALE_MS`) or when the pool exceeds `POOL_CAP`.
+- A relay leaves the working/listen sets when it is **not eligible**: never probed but already failed, or its latest attempt failed, or its last success is older than `PROBE_STALE_MS`. Untested bootstrap entries stay eligible; exclusion never evicts from the pool, so dead relays keep getting retried.
+- Configured `relayUrls` override the automatic listen subset; adverts publish this resolved subscription set as `listenNostrRelays`.
 - Fresh nodes are seeded with `DEFAULT_RELAY_URLS` (`source: 'public'`) so `listenRelays` is never empty at cold start.
 - Persistent connections stay bounded by `workingRelays` (`WORKING_RELAYS_COUNT`, max 32); pins influence selection, not simultaneous connections.
 
@@ -25,20 +27,22 @@ Source layout (`discovery/nostr/`):
 
 `normalizeNostrRelayUrl` (in `relays.mjs`) is the only entry for every inbound URL (NIP-66 `d` tag, manual config, peer advert):
 
-- `wss://` always; `ws://` only for loopback/private hosts (local dev/tests).
+- `wss://` to any host; `ws://` to loopback only (`localhost` / `::1` / `127.x` — local dev/tests). Private and public `ws://` are rejected outright.
+- `isRelayDestinationAllowed` then gates dialling: a **trusted** relay (local config, provider registration, the NIP-66 bootstrap set, or any pinned `public`/`manual` entry) may be private; every other relay must be a public hostname whose DNS resolves entirely to public addresses. So a private `wss://` is only reachable when something pinned or configured it.
 - hostname lowercased, default port removed, trailing slashes removed, non-empty path kept.
 - Invalid → `null` → dropped with an audit log (`nodeDebug('invalidRelayUrl', { url, reason })`), never silently cleaned.
 
 ## Health score
 
 ```text
-failureRate = failureCount / (successCount + failureCount)
-rtt         = clamp(rttMs ?? DEFAULT_RTT_MS, 1, MAX_RTT_MS)
-score       = rtt * (1 + failureRate * FAILURE_WEIGHT)     // FAILURE_WEIGHT = 4
-score      *= STALE_PENALTY                                 // ×2 if lastProbe older than PROBE_STALE_MS
+dead        = latest attempt failed, or the entry never succeeded   // ties count as failed
+failureRate = dead ? 1 : failureCount / (successCount + failureCount)
+rtt         = clamp(dead ? MAX_RTT_MS : rttMs, 1, MAX_RTT_MS)      // DEFAULT_RTT_MS when unknown, zero or invalid
+score       = rtt * (1 + failureRate * FAILURE_WEIGHT)             // FAILURE_WEIGHT = 4
+score      *= STALE_PENALTY                                        // ×2 if lastProbe older than PROBE_STALE_MS
 ```
 
-Lower is better. `recordProbeSuccess` / `recordProbeFailure` / `recordPublishResult` share the same counters. Writes to `nodeDir/nostr/relays.json` are **throttled** (2s debounce).
+Lower is better. A dead entry (`failureCount > 0` and either no successes or a latest failure) scores with `MAX_RTT_MS`, `failureRate = 1`, and its stale RTT discarded, so it can never outrank a live one. `recordProbeSuccess` / `recordProbeFailure` / `recordPublishResult` share the same counters; attempt timestamps advance monotonically so success/failure ordering survives same-millisecond attempts. Writes to `nodeDir/nostr/relays.json` are **throttled** (2s debounce).
 
 ## Persistence
 
@@ -74,7 +78,7 @@ Lower is better. `recordProbeSuccess` / `recordProbeFailure` / `recordPublishRes
 
 `handshakeTargets(nodeHash, attempt)`:
 
-- **Round 0**: peer-claimed `listenRelays` top 4 by composite score (own health + peer rtt); else local `workingRelays` top 4; else pinned top 4.
+- **Round 0**: peer-claimed `listenRelays` top 4 by composite score (own health + peer rtt); else local `workingRelays` top 4. Empty working sets do not fall back to failed pins.
 - **Round ≥1**: backoff `min(2000 · 2^(attempt−1), 60000)`; base on `lastGoodNostrRelays` (expanded via `expandFromHistory` ≤ 16), or weighted-random sample of `workingRelays` (weight `1/score`); round-0 core always included; fanout capped at `MAX_ROUTING_FANOUT` (64).
 - Retries ≤ `MAX_ROUTING_ATTEMPTS` (4).
 
