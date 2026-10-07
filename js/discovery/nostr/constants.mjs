@@ -26,6 +26,8 @@ export const STALE_PENALTY = 2
 export const NIP66_REFRESH_MS = 6 * 3600 * 1000
 /** 超过此时间未探测视为 stale。 */
 export const PROBE_STALE_MS = 24 * 3600 * 1000
+/** 发布失败后暂时避开 relay，冷却结束后允许再次尝试。 */
+export const PUBLISH_FAILURE_COOLDOWN_MS = 30 * 60 * 1000
 /** 路由退避基数。 */
 export const BACKOFF_BASE_MS = 2000
 /** 路由退避上限。 */

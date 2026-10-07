@@ -18,7 +18,9 @@ Source layout (`discovery/nostr/`):
 
 - `public`/`manual` entries are **pinned**: preferred in `working`/`listen` when eligible and never evicted by `clearStale` or pool-cap. Failed or stale pins remain in the pool for retry, but leave the working/listen sets. Pin count may exceed the nominal caps.
 - `nip66`/`peer` entries are disposable: evicted when stale (`PROBE_STALE_MS`) or when the pool exceeds `POOL_CAP`.
-- A relay leaves the working/listen sets when it is **not eligible**: never probed but already failed, or its latest attempt failed, or its last success is older than `PROBE_STALE_MS`. Untested bootstrap entries stay eligible; exclusion never evicts from the pool, so dead relays keep getting retried.
+- A relay leaves the working/listen sets when it is **not eligible**: never probed but already failed, or its latest attempt failed, or its last success is older than `PROBE_STALE_MS`. Untested bootstrap entries stay eligible for the working set; exclusion never evicts from the pool, so dead relays keep getting retried.
+- A **publish** outcome is tracked separately from probes (`lastPublishSuccess`/`lastPublishFailure`): a rejected publish keeps the relay out of the working set for `PUBLISH_FAILURE_COOLDOWN_MS` (30min) even if a later connectivity probe succeeds, and a later accepted publish clears it — a relay that answers a WebSocket probe but refuses our events must not keep advertising capacity.
+- The `NIP66_BOOTSTRAP_RELAYS` set is discovery-only: those URLs are `nip66` entries and are not publish/listen targets until one of our publishes is accepted (`lastPublishSuccess > 0`). Ordinary NIP-66 discoveries stay eligible for publish testing.
 - Configured `relayUrls` override the automatic listen subset; adverts publish this resolved subscription set as `listenNostrRelays`.
 - Fresh nodes are seeded with `DEFAULT_RELAY_URLS` (`source: 'public'`) so `listenRelays` is never empty at cold start.
 - Persistent connections stay bounded by `workingRelays` (`WORKING_RELAYS_COUNT`, max 32); pins influence selection, not simultaneous connections.
@@ -42,7 +44,7 @@ score       = rtt * (1 + failureRate * FAILURE_WEIGHT)             // FAILURE_WE
 score      *= STALE_PENALTY                                        // ×2 if lastProbe older than PROBE_STALE_MS
 ```
 
-Lower is better. A dead entry (`failureCount > 0` and either no successes or a latest failure) scores with `MAX_RTT_MS`, `failureRate = 1`, and its stale RTT discarded, so it can never outrank a live one. `recordProbeSuccess` / `recordProbeFailure` / `recordPublishResult` share the same counters; attempt timestamps advance monotonically so success/failure ordering survives same-millisecond attempts. Writes to `nodeDir/nostr/relays.json` are **throttled** (2s debounce).
+Lower is better. A dead entry (`failureCount > 0` and either no successes or a latest failure) scores with `MAX_RTT_MS`, `failureRate = 1`, and its stale RTT discarded, so it can never outrank a live one. `recordProbeSuccess` / `recordProbeFailure` / `recordPublishResult` share the same counters; attempt timestamps advance monotonically so success/failure ordering survives same-millisecond attempts. The health score itself does not look at publish outcomes — the publish-failure cooldown above is a separate eligibility gate. Writes to `nodeDir/nostr/relays.json` are **throttled** (2s debounce).
 
 ## Persistence
 
@@ -51,7 +53,7 @@ Lower is better. A dead entry (`failureCount > 0` and either no successes or a l
 ```text
 {
   "updatedAt": 1234567890,
-  "nostrRelays": [{ "url", "rttMs", "successCount", "failureCount", "lastSuccess", "lastFailure", "lastProbe", "firstSeen", "lastSeen", "source", "nips", "clearnet", "monitorCount" }],
+  "nostrRelays": [{ "url", "rttMs", "successCount", "failureCount", "lastSuccess", "lastFailure", "lastProbe", "lastPublishSuccess", "lastPublishFailure", "firstSeen", "lastSeen", "source", "nips", "clearnet", "monitorCount" }],
   "peerRoutes": { "<nodeHash64>": { "listenRelays", "peerPool", "lastGoodNostrRelays", "lastSeen" } }
 }
 ```

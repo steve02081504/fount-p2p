@@ -29,6 +29,8 @@ private const val MAX_NIP66_PROBES_PER_ROUND = 48
 /** NIP-66 候选 probe 并发批大小。 */
 private const val NIP66_PROBE_BATCH_SIZE = 8
 
+private val nip66BootstrapRelayUrls = NIP66_BOOTSTRAP_RELAYS.mapNotNull(::normalizeNostrRelayUrl).toSet()
+
 /** relay 来源。 */
 typealias RelaySource = String
 
@@ -47,6 +49,8 @@ class RelayPoolEntry(
 	var nips: List<String>,
 	var clearnet: Boolean,
 	var monitorCount: Int,
+	var lastPublishSuccess: Long = 0L,
+	var lastPublishFailure: Long = 0L,
 ) {
 	/** @return 可序列化的 JSON 对象 */
 	fun toJson(): Map<String, Any?> = linkedMapOf(
@@ -63,6 +67,8 @@ class RelayPoolEntry(
 		"nips" to nips,
 		"clearnet" to clearnet,
 		"monitorCount" to monitorCount.toDouble(),
+		"lastPublishSuccess" to lastPublishSuccess.toDouble(),
+		"lastPublishFailure" to lastPublishFailure.toDouble(),
 	)
 }
 
@@ -424,6 +430,7 @@ fun loadRelayPool(): List<RelayPoolEntry> {
 }
 
 private fun toRelayEntry(raw: Map<*, *>?, url: String): RelayPoolEntry {
+	// 失败作废的 RTT 落盘为 null：非数字一律落到 NaN，避免把「没有可信 RTT」读成「0ms 最快」。
 	val rtt = (raw?.get("rttMs") as? Number)?.toDouble() ?: Double.NaN
 	val source = raw?.get("source")?.toString() ?: ""
 	return RelayPoolEntry(
@@ -440,6 +447,8 @@ private fun toRelayEntry(raw: Map<*, *>?, url: String): RelayPoolEntry {
 		nips = (raw?.get("nips") as? List<*>)?.mapNotNull { it?.toString()?.takeIf { s -> s.isNotEmpty() } } ?: emptyList(),
 		clearnet = raw?.get("clearnet") == true,
 		monitorCount = maxOf(0, ((raw?.get("monitorCount") as? Number)?.toDouble() ?: 0.0).toInt()),
+		lastPublishSuccess = (raw?.get("lastPublishSuccess") as? Number)?.toLong() ?: 0L,
+		lastPublishFailure = (raw?.get("lastPublishFailure") as? Number)?.toLong() ?: 0L,
 	)
 }
 
@@ -532,6 +541,8 @@ fun upsertRelay(input: Map<String, Any?>) {
 		if (incoming.lastSuccess != 0L) existing.lastSuccess = incoming.lastSuccess
 		if (incoming.lastFailure != 0L) existing.lastFailure = incoming.lastFailure
 		if (incoming.lastProbe != 0L) existing.lastProbe = incoming.lastProbe
+		if (incoming.lastPublishSuccess != 0L) existing.lastPublishSuccess = incoming.lastPublishSuccess
+		if (incoming.lastPublishFailure != 0L) existing.lastPublishFailure = incoming.lastPublishFailure
 		if (incoming.rttMs != null) existing.rttMs = incoming.rttMs
 		if (incoming.nips.isNotEmpty()) existing.nips = incoming.nips
 		existing.clearnet = existing.clearnet || incoming.clearnet
@@ -589,11 +600,21 @@ fun recordProbeFailure(url: String) {
 
 /**
  * 记录一次发布结果（与探测共用统计）。
+ * 成功/失败时间戳必须严格递增：同一毫秒内的并发发布否则无法分出先后，会误判 relay 是否已恢复。
  * @param url relay URL
  * @param ok 是否成功
  */
 fun recordPublishResult(url: String, ok: Boolean) {
-	if (ok) recordProbeSuccess(url, null) else recordProbeFailure(url)
+	val normalized = normalizeNostrRelayUrl(url) ?: return
+	val entry = ensureEntry(normalized)
+	if (ok) {
+		entry.lastPublishSuccess = maxOf(System.currentTimeMillis(), entry.lastPublishFailure + 1)
+		recordProbeSuccess(normalized, null)
+	}
+	else {
+		entry.lastPublishFailure = maxOf(System.currentTimeMillis(), entry.lastPublishSuccess + 1)
+		recordProbeFailure(normalized)
+	}
 }
 
 private fun ensureEntry(url: String): RelayPoolEntry {
@@ -638,8 +659,9 @@ fun getWorkingRelays(): List<RelayPoolEntry> {
 	val now = System.currentTimeMillis()
 	// 合格项：最近一次尝试成功且没过期，或压根还没探测过的引导项。
 	val eligible = poolEntries.values.filter { entry ->
-		if (entry.successCount == 0) entry.lastFailure == 0L
-		else !latestAttemptFailed(entry.lastFailure, entry.lastSuccess) && now - entry.lastSuccess <= PROBE_STALE_MS
+		(entry.lastPublishFailure <= entry.lastPublishSuccess || now - entry.lastPublishFailure >= PUBLISH_FAILURE_COOLDOWN_MS) &&
+			if (entry.successCount == 0) entry.lastFailure == 0L
+			else !latestAttemptFailed(entry.lastFailure, entry.lastSuccess) && now - entry.lastSuccess <= PROBE_STALE_MS
 	}
 	val sorted = sortByHealth(eligible)
 	val pinned = sorted.filter { isPinned(it) }
@@ -647,11 +669,13 @@ fun getWorkingRelays(): List<RelayPoolEntry> {
 	return dedupeByUrl(pinned + rest.take(maxOf(0, WORKING_RELAYS_COUNT - pinned.size)))
 }
 
-/** @return 监听/发布子集（仅含工作集内 public/manual） */
+/** @return 监听/发布子集（NIP-66 引导 relay 需先成功发布） */
 fun getListenRelays(): List<RelayPoolEntry> {
 	val working = getWorkingRelays()
 	val pinned = working.filter { isPinned(it) }
-	val rest = working.filter { !isPinned(it) }
+	val rest = working.filter { !isPinned(it) &&
+		(it.url !in nip66BootstrapRelayUrls || it.lastPublishSuccess > 0L)
+	}
 	return dedupeByUrl(pinned + rest.take(maxOf(0, LISTEN_RELAYS_COUNT - pinned.size)))
 }
 

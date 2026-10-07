@@ -25,6 +25,7 @@ import {
 	NIP66_REFRESH_MS,
 	POOL_CAP,
 	PROBE_STALE_MS,
+	PUBLISH_FAILURE_COOLDOWN_MS,
 	STALE_PENALTY,
 	WORKING_RELAYS_COUNT,
 } from './constants.mjs'
@@ -40,6 +41,8 @@ const NIP66_REQ_LIMIT = 500
 const MAX_NIP66_PROBES_PER_ROUND = 48
 /** NIP-66 候选 probe 并发批大小（有界，避免同轮瞬时打满连接）。 */
 const NIP66_PROBE_BATCH_SIZE = 8
+/** 规范化后的 NIP-66 引导集：它们先当发现源，只有发布成功过才进监听/发布子集。 */
+const NIP66_BOOTSTRAP_RELAY_URLS = new Set(NIP66_BOOTSTRAP_RELAYS.map(normalizeNostrRelayUrl).filter(Boolean))
 
 /** @typedef {'nip66' | 'public' | 'manual' | 'peer'} RelaySource */
 
@@ -52,6 +55,8 @@ const NIP66_PROBE_BATCH_SIZE = 8
  *   lastSuccess: number,
  *   lastFailure: number,
  *   lastProbe: number,
+ *   lastPublishSuccess: number,
+ *   lastPublishFailure: number,
  *   firstSeen: number,
  *   lastSeen: number,
  *   source: RelaySource,
@@ -388,7 +393,8 @@ export function loadRelayPool() {
  * @returns {RelayPoolEntry | null} 规范化条目或 null
  */
 function toRelayEntry(raw, url) {
-	const rttMs = Number(raw?.rttMs)
+	// 失败作废的 RTT 落盘为 null：`Number(null)` 是 0，直接取数会把「没有可信 RTT」变成「0ms 最快」。
+	const rttMs = raw?.rttMs == null ? null : Number(raw.rttMs)
 	return {
 		url,
 		rttMs: Number.isFinite(rttMs) ? Math.round(rttMs) : null,
@@ -397,6 +403,8 @@ function toRelayEntry(raw, url) {
 		lastSuccess: Number(raw?.lastSuccess) || 0,
 		lastFailure: Number(raw?.lastFailure) || 0,
 		lastProbe: Number(raw?.lastProbe) || 0,
+		lastPublishSuccess: Number(raw?.lastPublishSuccess) || 0,
+		lastPublishFailure: Number(raw?.lastPublishFailure) || 0,
 		firstSeen: Number(raw?.firstSeen) || Date.now(),
 		lastSeen: Number(raw?.lastSeen) || Date.now(),
 		source: SOURCE_PRIORITY[String(raw?.source || '')] !== undefined ? raw.source : 'nip66',
@@ -459,6 +467,8 @@ function seedPublicDefaults() {
 			lastSuccess: 0,
 			lastFailure: 0,
 			lastProbe: 0,
+			lastPublishSuccess: 0,
+			lastPublishFailure: 0,
 			firstSeen: now,
 			lastSeen: now,
 			source: 'public',
@@ -489,6 +499,8 @@ export function upsertRelay(input) {
 		if (incoming.lastSuccess) existing.lastSuccess = incoming.lastSuccess
 		if (incoming.lastFailure) existing.lastFailure = incoming.lastFailure
 		if (incoming.lastProbe) existing.lastProbe = incoming.lastProbe
+		if (incoming.lastPublishSuccess) existing.lastPublishSuccess = incoming.lastPublishSuccess
+		if (incoming.lastPublishFailure) existing.lastPublishFailure = incoming.lastPublishFailure
 		if (incoming.rttMs != null) existing.rttMs = incoming.rttMs
 		if (incoming.nips.length) existing.nips = incoming.nips
 		existing.clearnet = existing.clearnet || incoming.clearnet
@@ -545,13 +557,23 @@ export function recordProbeFailure(url) {
 
 /**
  * 记录一次发布结果（与探测共用统计）。
+ * 成功/失败时间戳必须严格递增：同一毫秒内的并发发布否则无法分出先后，会误判 relay 是否已恢复。
  * @param {string} url relay URL
  * @param {boolean} ok 是否成功
  * @returns {void}
  */
 export function recordPublishResult(url, ok) {
-	if (ok) recordProbeSuccess(url, null)
-	else recordProbeFailure(url)
+	const normalized = normalizeNostrRelayUrl(url)
+	if (!normalized) return
+	const entry = ensureEntry(normalized)
+	if (ok) {
+		entry.lastPublishSuccess = Math.max(Date.now(), entry.lastPublishFailure + 1)
+		recordProbeSuccess(normalized, null)
+	}
+	else {
+		entry.lastPublishFailure = Math.max(Date.now(), entry.lastPublishSuccess + 1)
+		recordProbeFailure(normalized)
+	}
 }
 
 /**
@@ -571,6 +593,8 @@ function ensureEntry(url) {
 		lastSuccess: 0,
 		lastFailure: 0,
 		lastProbe: 0,
+		lastPublishSuccess: 0,
+		lastPublishFailure: 0,
 		firstSeen: now,
 		lastSeen: now,
 		source: 'nip66',
@@ -601,11 +625,13 @@ export function clearStale() {
  */
 export function getWorkingRelays() {
 	const now = Date.now()
-	// 合格项：最近一次尝试成功且没过期，或压根还没探测过的引导项。
+	// 合格项：最近一次尝试成功且没过期，或压根还没探测过的引导项；发布失败在冷却期内一律避开。
 	const eligible = [...poolEntries.values()].filter(entry =>
-		entry.successCount === 0
+		(entry.lastPublishFailure <= entry.lastPublishSuccess
+			|| now - entry.lastPublishFailure >= PUBLISH_FAILURE_COOLDOWN_MS)
+		&& (entry.successCount === 0
 			? entry.lastFailure === 0
-			: !latestAttemptFailed(entry.lastFailure, entry.lastSuccess) && now - entry.lastSuccess <= PROBE_STALE_MS)
+			: !latestAttemptFailed(entry.lastFailure, entry.lastSuccess) && now - entry.lastSuccess <= PROBE_STALE_MS))
 	const sorted = sortByHealth(eligible)
 	const pinned = sorted.filter(isPinned)
 	const rest = sorted.filter(entry => !isPinned(entry))
@@ -613,12 +639,13 @@ export function getWorkingRelays() {
 }
 
 /**
- * @returns {RelayPoolEntry[]} 监听/发布子集（仅含工作集内 public/manual）
+ * @returns {RelayPoolEntry[]} 监听/发布子集（NIP-66 引导 relay 需先成功发布）
  */
 export function getListenRelays() {
 	const working = getWorkingRelays()
 	const pinned = working.filter(isPinned)
-	const rest = working.filter(entry => !isPinned(entry))
+	const rest = working.filter(entry => !isPinned(entry)
+		&& (!NIP66_BOOTSTRAP_RELAY_URLS.has(entry.url) || entry.lastPublishSuccess > 0))
 	return dedupeByUrl([...pinned, ...rest.slice(0, Math.max(0, LISTEN_RELAYS_COUNT - pinned.length))])
 }
 

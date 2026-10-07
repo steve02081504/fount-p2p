@@ -40,6 +40,8 @@ const val NIP66_REFRESH_MS: Long = 6L * 3600 * 1000
 
 /** 超过此时间未探测视为 stale。 */
 const val PROBE_STALE_MS: Long = 24L * 3600 * 1000
+/** 发布失败后的暂时避让窗口；到期后允许重新尝试发布。 */
+const val PUBLISH_FAILURE_COOLDOWN_MS: Long = 30L * 60 * 1000
 
 /** 路由退避基数。 */
 const val BACKOFF_BASE_MS = 2000

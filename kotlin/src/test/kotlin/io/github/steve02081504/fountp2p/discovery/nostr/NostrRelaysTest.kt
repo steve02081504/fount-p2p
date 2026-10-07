@@ -115,6 +115,28 @@ class NostrRelaysTest {
 	}
 
 	@Test
+	fun `publish rejection survives later probes and bootstrap needs a successful publish`() {
+		setupRelayTests(clearSeededRelays = true)
+		val url = "wss://relay.nostr.watch"
+		upsertRelay(mapOf("url" to url, "source" to "nip66"))
+		recordProbeSuccess(url, 20)
+		assertTrue("unverified bootstrap is not a publish target", getListenRelays().none { it.url == url })
+		val discoveredUrl = "wss://ordinary-discovery.example.com"
+		upsertRelay(mapOf("url" to discoveredUrl, "source" to "nip66"))
+		recordProbeSuccess(discoveredUrl, 25)
+		assertTrue("ordinary NIP-66 discoveries remain eligible for publish testing", getListenRelays().any { it.url == discoveredUrl })
+		recordPublishResult(url, true)
+		assertTrue("accepted bootstrap enters listen set", getListenRelays().any { it.url == url })
+		recordPublishResult(url, false)
+		recordProbeSuccess(url, 15)
+		assertTrue("connectivity probe cannot undo a publish rejection", getWorkingRelays().none { it.url == url })
+		getPoolByUrl()[url]!!.lastPublishFailure = System.currentTimeMillis() - PUBLISH_FAILURE_COOLDOWN_MS - 1
+		assertTrue("cooldown permits bounded retry", getWorkingRelays().any { it.url == url })
+		recordPublishResult(url, true)
+		assertTrue("later accepted publish restores listen eligibility", getListenRelays().any { it.url == url })
+	}
+
+	@Test
 	fun `failed and stale relays stay retryable but leave working and listen sets`() {
 		setupRelayTests(clearSeededRelays = true)
 		val now = System.currentTimeMillis()
@@ -185,12 +207,21 @@ class NostrRelaysTest {
 		loadRelayPool()
 		upsertRelay(mapOf("url" to "wss://persist.example.com", "rttMs" to 60, "source" to "nip66", "monitorCount" to 2))
 		recordProbeSuccess("wss://persist.example.com", 33)
+		recordPublishResult("wss://persist.example.com", true)
+		recordPublishResult("wss://persist.example.com", false)
+		// A later connectivity probe restores RTT without erasing publish outcome timestamps.
+		recordProbeSuccess("wss://persist.example.com", 34)
 		flushRelayStateNow()
 		assertNotNull(storage.data)
 		val relays = (storage.data as Map<*, *>)["nostrRelays"] as List<*>
-		assertTrue(relays.any { (it as Map<*, *>)["url"] == "wss://persist.example.com" })
+		val persisted = relays.first { (it as Map<*, *>)["url"] == "wss://persist.example.com" } as Map<*, *>
+		assertTrue((persisted["lastPublishSuccess"] as Number).toLong() > 0)
+		assertTrue((persisted["lastPublishFailure"] as Number).toLong() > 0)
 		val reloaded = loadRelayPool()
-		assertTrue(reloaded.any { it.url == "wss://persist.example.com" && it.rttMs == 33.0 })
+		val restored = reloaded.first { it.url == "wss://persist.example.com" }
+		assertEquals(34.0, restored.rttMs)
+		assertTrue(restored.lastPublishSuccess > 0)
+		assertTrue(restored.lastPublishFailure > 0)
 	}
 
 	@Test
