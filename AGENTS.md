@@ -33,13 +33,11 @@ $env:JAVA_HOME = 'E:\Android Studio\jbr'
 
 Details: [kotlin/AGENTS.md](kotlin/AGENTS.md) and [js/AGENTS.md](js/AGENTS.md).
 
-### Verifying one commit in isolation
-
-`git worktree add` is handy for running a single commit's tests, but never leave a `node_modules` directory junction/symlink inside a worktree that `git worktree remove --force` will delete: git follows the link and empties the real `js/node_modules` (observed here). Delete the link first (`cmd /c rmdir <worktree>\js\node_modules`) or run `npm ci --prefer-offline` inside the worktree instead.
-
 ### Proving a regression test catches its bug
 
-A test written after a fix silently passes on the broken code more often than it looks. Verify it the same way every time: create a detached worktree at `HEAD`, copy the new test files into it, `git checkout HEAD -- <the files the fix touched>` to revert the fix, point `js/node_modules` at the main checkout with a junction, and run the suite. Every test that claims to guard the bug must fail; note *which assertion* fails, because a test that only fails on an unrelated earlier assertion is not guarding anything.
+A test written after a fix silently passes on the broken code more often than it looks. Run `node js/scripts/check-regression-guard.mjs --revert <fixed file> --tests <test file> --base <commit before the fix>` and it does the whole dance in a throwaway worktree: it copies the test file in, restores the fixed files from `--base` (default `HEAD~1`), runs the tests, and exits non-zero if any of them still passes. Always read *which* assertion failed — a test that only fails on an unrelated earlier assertion is not guarding anything.
+
+The manual version of that flow, if you ever need it: `git worktree add --detach <dir> HEAD`, copy the new test files in, revert the fixed files with `git restore --source=<base> -- <path>` (never `git checkout <commit> -- <path>`, which also rewrites the working tree), point `js/node_modules` at the main checkout with a junction, run the suite, then delete the junction *before* `git worktree remove --force`: git follows the link and empties the real `js/node_modules` (observed here).
 
 ## Docs language
 
