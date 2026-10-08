@@ -1,7 +1,6 @@
 package io.github.steve02081504.fountp2p.discovery.nostr
 
 import io.github.steve02081504.fountp2p.core.Json
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
@@ -79,21 +78,22 @@ class NostrDirectedReachabilityTest {
 		val hashes = listOf("ab".repeat(32), "cd".repeat(32))
 		val providers = listOf(createNostrDiscoveryProvider(mapOf("relayUrls" to listOf(urls[0]))),
 			createNostrDiscoveryProvider(mapOf("getRelayUrls" to { listOf(urls[1]) })))
-		val received = listOf(CompletableDeferred<ByteArray>(), CompletableDeferred<ByteArray>())
+		val received = listOf(ArrayList<ByteArray>(), ArrayList<ByteArray>())
 		try {
 			for (index in 0..1) {
 				setPeerRoute(hashes[index], mapOf("listenRelays" to listOf(urls[index])))
-				providers[index].listenNodeSignals(hashes[index]) { bytes -> received[index].complete(bytes) }
+				providers[index].listenNodeSignals(hashes[index]) { bytes -> received[index].add(bytes) }
 			}
 			withTimeout(2_000) { while (sockets.size != 2 || sockets.values.any { it.requests.isEmpty() }) delay(5) }
 			val sends = listOf(async { providers[0].sendNodeSignal(hashes[1], byteArrayOf(1)) }, async { providers[1].sendNodeSignal(hashes[0], byteArrayOf(2)) })
-			withTimeout(2_000) {
-				while (sockets.values.sumOf { it.events.size } < 4) delay(5)
-				for (socket in sockets.values) socket.acceptAll()
-				sends.awaitAll()
-				assertEquals(listOf(2.toByte()), received[0].await().toList())
-				assertEquals(listOf(1.toByte()), received[1].await().toList())
-			}
+			// 先等接收侧拿到对端的数据包（假 relay 收到 EVENT 即回灌给本 socket 上匹配的 REQ），再统一回 OK 让发送结算。
+			// 刻意不先断言「两个 relay 各收到两边的 EVENT」：那会在两套 relay 无交集时以等待超时收场，判定落在前置条件而不是「谁都没收到」。
+			val deadline = System.currentTimeMillis() + 2_000
+			while (received.any { it.isEmpty() } && System.currentTimeMillis() < deadline) delay(5)
+			for (socket in sockets.values) socket.acceptAll()
+			withTimeout(2_000) { sends.awaitAll() }
+			assertEquals(listOf(listOf(2.toByte())), received[0].map { it.toList() })
+			assertEquals(listOf(listOf(1.toByte())), received[1].map { it.toList() })
 		}
 		finally { providers.forEach { it.dispose() } }
 	}
