@@ -480,6 +480,8 @@ function registerSharedRelaySub(session, subscriptionId, filter, onEvent) {
 function flushPendingPublishes(relayUrl, session, socket) {
 	const pending = session.pendingPublishes
 	session.pendingPublishes = []
+	// 每个请求各自挂一个 message 监听；一次性按本批实际在途数抬高上限，避免运行中超出建连时的快照。
+	socket.setMaxListeners(session.inflightPublishes.length + pending.length + 8)
 	for (const publishRequest of pending) {
 		publishRequest.removeAbort?.()
 		publishRequest.onAbort = null

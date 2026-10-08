@@ -17,6 +17,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.coroutineContext
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 
 /** WebSocket readyState 常量（与浏览器/ws 一致）。 */
 const val WS_CONNECTING = 0
@@ -132,21 +134,31 @@ class AbortSignalLike {
 
 	/** 触发取消并回调监听器。 */
 	fun abort() {
-		if (aborted) return
-		aborted = true
-		for (listener in listeners.toList()) listener()
-		listeners.clear()
+		val callbacks = synchronized(listeners) {
+			if (aborted) return
+			aborted = true
+			listeners.toList().also { listeners.clear() }
+		}
+		for (listener in callbacks) listener()
 	}
 
 	/**
 	 * @param listener 取消回调
 	 */
 	fun addEventListener(listener: () -> Unit) {
-		if (aborted) {
-			listener()
-			return
+		val alreadyAborted = synchronized(listeners) {
+			if (aborted) true
+			else {
+				listeners.add(listener)
+				false
+			}
 		}
-		listeners.add(listener)
+		if (alreadyAborted) listener()
+	}
+
+	/** 移除已完成请求的取消回调。 */
+	fun removeEventListener(listener: () -> Unit) {
+		synchronized(listeners) { listeners.remove(listener) }
 	}
 }
 
@@ -177,6 +189,7 @@ private class SharedRelaySession(val url: String) {
 	val subs = LinkedHashMap<String, RelaySub>()
 	val pending = ArrayList<PublishAttempt>()
 	val inflight = ArrayList<PublishAttempt>()
+	val publishAcks = ConcurrentHashMap<Pair<WebSocketConnection, String>, CopyOnWriteArrayList<CompletableDeferred<Boolean>>>()
 
 	fun hasPendingWork(): Boolean = subs.isNotEmpty() || pending.isNotEmpty() || inflight.isNotEmpty()
 }
@@ -282,11 +295,16 @@ private fun scheduleIdleDrop(session: SharedRelaySession) {
 	}
 }
 
-private fun handleMessage(session: SharedRelaySession, text: String) {
+private fun handleMessage(session: SharedRelaySession, ws: WebSocketConnection, text: String) {
 	val parsed = try {
 		Json.parse(text) as? List<*>
 	}
 	catch (_: Exception) {
+		return
+	}
+	if (parsed?.getOrNull(0) == "OK") {
+		val key = ws to (parsed.getOrNull(1)?.toString() ?: "")
+		for (waiter in session.publishAcks[key] ?: emptyList()) waiter.complete(parsed.getOrNull(2) == true)
 		return
 	}
 	if (parsed == null || parsed.getOrNull(0) != "EVENT") return
@@ -303,7 +321,7 @@ private fun handleMessage(session: SharedRelaySession, text: String) {
 
 private fun attachSocket(session: SharedRelaySession, ws: WebSocketConnection) {
 	session.connection = ws
-	ws.onMessage = { handleMessage(session, it) }
+	ws.onMessage = { handleMessage(session, ws, it) }
 	ws.onClose = {
 		sessionScope.launch {
 			sessionMutex.withLock {
@@ -419,45 +437,37 @@ private fun flushPending(session: SharedRelaySession) {
 		clearQueuedDeadline(attempt)
 		session.inflight.add(attempt)
 		sessionScope.launch {
-			val ok = try {
-				val result = publishEventOnRelay(ws, attempt)
-				result
-			}
-			catch (error: Exception) {
-				false
-			}
+			val outcome = runCatching { publishEventOnRelay(session, ws, attempt) }
 			sessionMutex.withLock {
 				if (!session.inflight.remove(attempt)) return@withLock
-				if (!attempt.deferred.isCompleted) attempt.deferred.complete(ok)
+				if (!attempt.deferred.isCompleted) outcome.fold(
+					{ attempt.deferred.complete(it) }, { attempt.deferred.completeExceptionally(it) },
+				)
 				if (!session.hasPendingWork()) scheduleIdleDrop(session)
 			}
 		}
 	}
 }
 
-private suspend fun publishEventOnRelay(ws: WebSocketConnection, attempt: PublishAttempt): Boolean {
+private suspend fun publishEventOnRelay(session: SharedRelaySession, ws: WebSocketConnection, attempt: PublishAttempt): Boolean {
 	if (attempt.signal?.aborted == true) throw IllegalStateException("nostr: aborted")
 	return withTimeoutOrNull(NOSTR_PUBLISH_OK_TIMEOUT_MS) {
 		val result = CompletableDeferred<Boolean>()
-		val previousOnMessage = ws.onMessage
-		ws.onMessage = { text ->
-			previousOnMessage?.invoke(text)
-			val parsed = try {
-				Json.parse(text) as? List<*>
-			}
-			catch (_: Exception) {
-				null
-			}
-			if (parsed?.getOrNull(0) == "OK" && parsed.getOrNull(1) == attempt.event["id"]) {
-				if (!result.isCompleted) result.complete(parsed.getOrNull(2) == true)
-			}
-		}
+		// 按 (socket, event id) 登记等待者：共享 socket 的单一 onMessage 分发 OK，多个并发发布各等各的回执。
+		val key = ws to (attempt.event["id"]?.toString() ?: "")
+		session.publishAcks.compute(key) { _, waiters -> (waiters ?: CopyOnWriteArrayList()).also { it.add(result) } }
+		val onAbort: () -> Unit = { result.completeExceptionally(IllegalStateException("nostr: aborted")) }
+		attempt.signal?.addEventListener(onAbort)
 		try {
 			ws.send(Json.stringify(listOf("EVENT", attempt.event)) ?: "")
 			result.await()
 		}
 		finally {
-			ws.onMessage = previousOnMessage
+			attempt.signal?.removeEventListener(onAbort)
+			session.publishAcks.computeIfPresent(key) { _, waiters ->
+				waiters.remove(result)
+				waiters.takeIf { it.isNotEmpty() }
+			}
 		}
 	} ?: false
 }
@@ -506,26 +516,35 @@ suspend fun publishViaSharedRelay(
 	val attempt = PublishAttempt(event, signal, 0, CompletableDeferred())
 	val session = withSharedRelay(relayUrl, connectTarget) { it.pending.add(attempt) }
 	clearIdleDrop(session)
-	if (signal != null)
-		signal.addEventListener {
-			clearQueuedDeadline(attempt)
-			sessionScope.launch {
-				sessionMutex.withLock {
-					if (!session.pending.remove(attempt)) return@withLock
+	// 入队和派发共用互斥锁，防止多个宿主线程同时取走同一批 pending。
+	val queued = sessionMutex.withLock {
+		if (session.connection?.readyState == WS_OPEN) {
+			flushPending(session)
+			false
+		}
+		else {
+			attachQueuedDeadline(session, attempt)
+			true
+		}
+	}
+	if (!queued) return attempt.deferred.await()
+	/** 尚未发出去就被取消：出队并结算；已 flush 到 socket 时出队失败，改由本次发送的 abort 分支结算。 */
+	val onQueuedAbort: () -> Unit = {
+		if (sessionMutex.tryLock()) {
+			try {
+				if (session.pending.remove(attempt)) {
+					clearQueuedDeadline(attempt)
 					if (!attempt.deferred.isCompleted) attempt.deferred.completeExceptionally(IllegalStateException("nostr: aborted"))
 				}
 			}
+			finally { sessionMutex.unlock() }
 		}
-	val ws = session.connection
-	if (ws?.readyState == WS_OPEN) {
-		flushPending(session)
-		return attempt.deferred.await()
 	}
-	attachQueuedDeadline(session, attempt)
+	signal?.addEventListener(onQueuedAbort)
 	val deadline = queuedPublishDeadlineMs
-	if (deadline <= 0) return attempt.deferred.await()
-	return try {
-		withTimeout(deadline) { attempt.deferred.await() }
+	try {
+		if (deadline <= 0) return attempt.deferred.await()
+		return withTimeout(deadline) { attempt.deferred.await() }
 	}
 	catch (_: TimeoutCancellationException) {
 		// 兜底等待上限：僵尸请求（连不上的 relay + 无限退避重连）必须结算，而不是让调用方永久悬挂。
@@ -533,6 +552,7 @@ suspend fun publishViaSharedRelay(
 		closeQueuedAttempt(session, attempt)
 		throw IllegalStateException("nostr: connect timeout for $relayUrl")
 	}
+	finally { signal?.removeEventListener(onQueuedAbort) }
 }
 
 /**
