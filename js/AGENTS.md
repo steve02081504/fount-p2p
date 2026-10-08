@@ -56,6 +56,7 @@ Deno / native / BT: [runtime.md](docs/runtime.md).
 - Fixed-seed identity: `test/helpers/identity.mjs`
 - Mock discovery: `test/helpers/mock_discovery.mjs`
 - Transport fakes must mirror the backend's failure signalling: a fake `RTCPeerConnection` whose `close()` stays silent (no `connectionstatechange`) hides re-entrancy bugs where a replaced connection closes the live one (fount-p2p#39, `link/providers/webrtc.mjs`).
+- **Tests stay off the public network.** A suite that lets the runtime dial the default relays measures the relay latency, not the code: `shutdown_exit.test.mjs` asserts its child's `shutdown→exit` budget, which drifted past it on a live network, so the child now pins its nostr channel to a fake relay started by the parent and the test asserts the child never touched another relay. Register `initTestP2pNode` (disables NIP-66 discovery and census) and pass `setSignalingRuntimeConfig({ channels: { nostr: { relay: [localRelayUrl] } } })` instead of relying on `DEFAULT_RELAY_URLS`.
 
 ## Static checks (`scripts/checks/`, ported from fount's check standard)
 
