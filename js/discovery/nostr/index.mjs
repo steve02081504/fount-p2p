@@ -535,12 +535,13 @@ export function createNostrDiscoveryProvider(options = {}) {
 				bytesToBase64(bytes),
 				secretKey,
 			)
-			// 显式 relay 覆盖（测试/用户 pin）时直接全量发布；否则走握手路由。
-			if (hasExplicitRelay) {
-				await publishEvent(resolveRelayUrls(), event)
-				return
-			}
-			await routePublishEvent(hash, event)
+			// 显式配置只描述本机中继集；对端订阅的是它自己的监听集，两者可以不相交，
+			// 故定向发送要并上对端广告的监听集，否则事件发出去也没人听。
+			if (hasExplicitRelay) return void await publishEvent(
+				[...new Set([...resolveRelayUrls(), ...getPeerRoute(hash)?.listenRelays || []])],
+				event,
+			)
+			if (!await routePublishEvent(hash, event)) throw new Error('nostr: no relay accepted directed signal')
 		},
 		/**
 		 * @param {string} localNodeHash 本机 nodeHash

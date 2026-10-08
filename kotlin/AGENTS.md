@@ -81,7 +81,7 @@ Because the host owns connect, a provider `connect` that ignores cancellation wo
   `link/`, `discovery/`, `transport/` (including link_registry, rooms, node_scope),
   `overlay/`, `infra/`
 - Facade: `FountP2p.kt` (`startNode` + the `FountP2p` aggregate entry point)
-- 546 tests, all green (`.\gradlew.bat test --offline`).
+- 563 tests, all green (`.\gradlew.bat test --offline`).
 
 ## Platform-specific (Android must inject)
 

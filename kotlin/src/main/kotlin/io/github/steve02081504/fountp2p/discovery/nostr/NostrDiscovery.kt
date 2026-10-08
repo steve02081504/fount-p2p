@@ -323,12 +323,13 @@ fun createNostrDiscoveryProvider(options: Map<String, Any?> = emptyMap()): Disco
 				bytesToBase64(bytes),
 				secretKey,
 			)
-			// 有显式 relay 配置（测试/用户 pin）时直接全量发布，否则走路由。
+			// 显式配置只描述本机中继集；对端订阅的是它自己的监听集，两者可以不相交，
+			// 故定向发送要并上对端广告的监听集，否则事件发出去也没人听。
 			if (hasExplicitRelay) {
-				publishEvent(resolveRelayUrlsLocal(), event)
+				publishEvent((resolveRelayUrlsLocal() + (getPeerRoute(hash)?.listenRelays ?: emptyList())).distinct(), event)
 				return true
 			}
-			routePublishEvent(hash, event)
+			if (!routePublishEvent(hash, event)) throw IllegalStateException("nostr: no relay accepted directed signal")
 			return true
 		}
 

@@ -84,7 +84,7 @@ Lower is better. A dead entry (`failureCount > 0` and either no successes or a l
 - **Round ≥1**: backoff `min(2000 · 2^(attempt−1), 60000)`; base on `lastGoodNostrRelays` (expanded via `expandFromHistory` ≤ 16), or weighted-random sample of `workingRelays` (weight `1/score`); round-0 core always included; fanout capped at `MAX_ROUTING_FANOUT` (64).
 - Retries ≤ `MAX_ROUTING_ATTEMPTS` (4).
 
-`routePublishEvent(toNodeHash, event, signal)`: publishes to the current round's targets in parallel via shared sessions; any `OK` records `lastGoodNostrRelays` (last 16) + success; all-fail records failures and backs off. `sendNodeSignal` uses routing; an explicit relay override (test/user pin) publishes directly.
+`routePublishEvent(toNodeHash, event, signal)`: publishes to the current round's targets in parallel via shared sessions; any `OK` records `lastGoodNostrRelays` (last 16) + success; all-fail records failures and backs off. `sendNodeSignal` rejects when routing finds no accepting relay. With an explicit relay override (including the runtime's `getRelayUrls` callback), directed signals publish to the union of local relays and the peer's advertised listen relays. Every destination still passes the public-address/configured-relay gate and uses the validated DNS target. Each receiver subscribes on its own set, so the two local sets need not intersect when both peers advertise their listen relays.
 
 ## Census (population estimate)
 
