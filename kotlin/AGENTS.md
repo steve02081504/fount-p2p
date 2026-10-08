@@ -61,6 +61,7 @@ File names use PascalCase; one `.mjs` maps to one `.kt` (same-directory related 
 3. **Write one Kotlin equivalent test per JS test** (`@Test` method names may drop illegal `.` `/` characters).
 4. Get `.\gradlew.bat test --offline` green.
 5. Record behavioral differences (when a deviation from JS is unavoidable, write it in the file-header KDoc).
+6. Prove the new test catches its bug. `js/scripts/check-regression-guard.mjs` only drives Node tests, so do the Kotlin half by hand in a throwaway worktree: `git worktree add --detach <dir> HEAD`, copy the new test file in, `git restore --source=<pre-fix commit> -- <fixed .kt paths>`, then run `.\gradlew.bat test --offline --tests '<the new test class>'` there and require it to fail on the reverted code (read *which* assertion failed — an earlier one failing is not a guard). `git worktree remove --force` on a Kotlin worktree is safe; the `node_modules` junction hazard in the root [AGENTS.md](../AGENTS.md) is a JS-only concern.
 
 ## Platform abstraction conventions (network layer)
 
