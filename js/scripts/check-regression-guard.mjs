@@ -12,19 +12,21 @@
  *  3. 把 `--tests` 指定的测试文件按仓库内相对路径复制进 worktree（未跟踪的新测试也在其中）。
  *  4. 用 `git restore --source=<--base> -- <--revert 的文件>` 退回修复。刻意不用
  *     `git checkout HEAD -- <path>`：那条命令同时写工作区，一旦在别处误用就会抹掉未暂存的改动。
- *  5. 在 worktree 里跑这些测试，要求**每一个都失败**（每个都打印失败断言）。
+ *  5. 在 worktree 里跑这些测试，要求**每一个叶子用例都因断言失败**：跑通（exit 0）、加载/语法错误、
+ *     有用例通过或被跳过，都不算反证成立——判据是「失败」必须来自断言本身，而不是前置条件先炸。
  *  6. 先删掉目录联接，再删 worktree；`--keep` 时保留现场供人工查看。
  *
  * `--base` 要指向**还没有该修复**的提交（默认 `HEAD~1`；修复跨多个提交时给它更早的提交）。
  *
- * 退出码：0 = 每个测试都在退回去的代码上失败（反证成立）；1 = 有测试仍然通过或跑不起来。
+ * 退出码：0 = 每个测试都在退回去的代码上、且仅因断言失败而失败（反证成立）；1 = 退回后仍通过、
+ * 失败不是断言、用例被跳过/取消，或测试文件根本跑不起来（会在 stderr 打印计数便于核对）。
  *
  * 用法（在 `js/` 或仓库根下都能跑）：
  *   node js/scripts/check-regression-guard.mjs --revert js/discovery/nostr/session.mjs \
  *     --tests js/test/pure/nostr_publish_listeners.test.mjs --base HEAD~1
  */
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, rmdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -94,7 +96,8 @@ function linkNodeModules(worktree, root) {
 function unlinkNodeModules(worktree) {
 	const linkPath = join(worktree, 'js', 'node_modules')
 	if (!existsSync(linkPath)) return
-	if (process.platform === 'win32') spawnSync('cmd', ['/c', 'rmdir', linkPath], { stdio: 'inherit' })
+	if (!lstatSync(linkPath).isSymbolicLink()) throw new Error(`refusing to remove non-link ${linkPath}`)
+	if (process.platform === 'win32') rmdirSync(linkPath)
 	else rmSync(linkPath, { force: true })
 }
 
@@ -149,13 +152,34 @@ try {
 		const env = { ...process.env }
 		delete env.NODE_TEST_CONTEXT
 		delete env.NODE_TEST_WORKER_ID
-		const result = spawnSync(process.execPath, ['--test', '--test-force-exit', packageRelative(relative)], {
+		const result = spawnSync(process.execPath, ['--test', '--test-force-exit', '--test-reporter=tap', packageRelative(relative)], {
 			cwd: join(worktree, 'js'),
 			env,
-			stdio: 'inherit',
+			encoding: 'utf8',
+			// TAP 会带上每个失败用例的诊断与堆栈：留足缓冲，别让大输出变成 ENOBUFS 的假阴性。
+			maxBuffer: 64 * 1024 * 1024,
 		})
-		if (result.status === 0) {
-			console.error(`!! ${relative} still passes on the pre-fix code — it does not guard the fix`)
+		process.stdout.write(result.stdout || '')
+		process.stderr.write(result.stderr || '')
+		// 只有每个叶子用例都因断言失败才算反证成立；加载/语法错误和混合通过不能冒充回归断言。
+		const report = result.stdout || ''
+		const count = name => Number(report.match(new RegExp(`^# ${name} (\\d+)$`, 'm'))?.[1] || 0)
+		const total = count('tests')
+		const passed = count('pass')
+		const failed = count('fail')
+		const notRun = count('skipped') + count('cancelled') + count('todo')
+		const assertions = [...report.matchAll(/^\s+code: 'ERR_ASSERTION'$/gm)].length
+		const summary = `tests=${total} pass=${passed} fail=${failed} skipped/cancelled/todo=${notRun} assertionFailures=${assertions} exit=${result.status}`
+		if (result.error) {
+			console.error(`!! ${relative} could not be run: ${result.error.message}`)
+			failures++
+		}
+		else if (result.status === 0) {
+			console.error(`!! ${relative} still passes on the pre-fix code — it does not guard the fix (${summary})`)
+			failures++
+		}
+		else if (result.status !== 1 || failed === 0 || passed || notRun || total !== failed || assertions !== failed) {
+			console.error(`!! ${relative} did not fail exclusively through regression assertions (${summary})`)
 			failures++
 		}
 	}

@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -28,8 +29,8 @@ function git(args) {
  * @param {string[]} args 额外参数
  * @returns {{ status: number, stdout: string, stderr: string }} 运行结果
  */
-function runGuard(args) {
-	const result = spawnSync(process.execPath, [tool, '--revert', FIXED_FILE, '--tests', FIXED_TEST, ...args], {
+function runGuard(args, testFile = FIXED_TEST) {
+	const result = spawnSync(process.execPath, [tool, '--revert', FIXED_FILE, '--tests', testFile, ...args], {
 		cwd: repoRoot,
 		encoding: 'utf8',
 	})
@@ -50,4 +51,20 @@ test('regression guard reports a test that passes on the code it claims to guard
 	const result = runGuard(['--base', fixCommit])
 	assertEquals(result.status, 1, `a non-guarding test must fail the tool: ${result.stdout}${result.stderr}`)
 	assert(result.stderr.includes('still passes on the pre-fix code'), result.stderr)
+})
+
+test('regression guard rejects broken test loading and mixed passing and failing cases', { skip: !fixCommit }, () => {
+	const directory = mkdtempSync(join(packageRoot, 'test/helpers/regression-guard-'))
+	try {
+		const fixture = join(directory, 'fixture.test.mjs')
+		// 两个 fixture 都以单个 LF 结尾：它们在仓库内生成，静态检查（text_lf）若撞见残留文件不该被牵连。
+		for (const source of ['this is invalid JavaScript!\n',
+			"import { test } from 'node:test'\nimport assert from 'node:assert/strict'\ntest('passes', () => {})\ntest('fails', () => assert.fail('regression'))\n"]) {
+			writeFileSync(fixture, source)
+			const result = runGuard(['--base', fixCommit], fixture)
+			assertEquals(result.status, 1, result.stdout + result.stderr)
+			assert(result.stderr.includes('did not fail exclusively through regression assertions'), result.stderr)
+		}
+	}
+	finally { rmSync(directory, { recursive: true, force: true }) }
 })

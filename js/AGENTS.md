@@ -51,7 +51,7 @@ Deno / native / BT: [runtime.md](docs/runtime.md).
 - `npm run check:text_lf:fix` — rewrite line-ending violations (the suites themselves never write)
 - `node scripts/check-imports.mjs` — relative import check
 - `node scripts/find-unused-exports.mjs` — dead-export scan (`--fount <path>` optional)
-- `node scripts/check-regression-guard.mjs --revert <fixed file> --tests <test file> [--base <commit>]` — proves a new test catches its bug by running it in a throwaway worktree with the fix reverted; see the root [AGENTS.md](../AGENTS.md), and `test/pure/regression_guard_tool.test.mjs` covers both its verdicts
+- `node scripts/check-regression-guard.mjs --revert <fixed file> --tests <test file> [--base <commit>]` — proves a new test catches its bug by running it in a throwaway worktree with the fix reverted; it accepts only "every leaf case failed through its own assertion" (a load error or a mixed pass/fail run is rejected, with the TAP counts printed); see the root [AGENTS.md](../AGENTS.md), and `test/pure/regression_guard_tool.test.mjs` covers the guarding, still-passes and not-exclusively-assertions verdicts
 - Assertions: `test/helpers/assert.mjs`
 - Fixed-seed identity: `test/helpers/identity.mjs`
 - Mock discovery: `test/helpers/mock_discovery.mjs`
