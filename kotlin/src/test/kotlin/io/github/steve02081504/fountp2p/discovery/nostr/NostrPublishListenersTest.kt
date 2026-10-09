@@ -6,9 +6,12 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
 import org.junit.Before
 import org.junit.Test
@@ -73,6 +76,42 @@ class NostrPublishListenersTest {
 		clearSharedRelaySessionsForTests()
 		setWebSocketProvider(null)
 		releaseTrust?.invoke()
+	}
+
+	@Test fun `queued abort survives contention on the session mutex`() = runBlocking {
+		val socket = object : WebSocketConnection {
+			override val readyState = WS_CONNECTING
+			override var onMessage: ((String) -> Unit)? = null
+			override var onClose: (() -> Unit)? = null
+			override var onError: (() -> Unit)? = null
+			override fun send(text: String) = Unit
+			override fun close() = Unit
+			override fun terminate() = Unit
+		}
+		setWebSocketProvider(object : WebSocketProvider {
+			override suspend fun connect(url: String, target: RelayConnectTarget?) = socket
+		})
+		val stop = subscribeNostrKind(listOf(urls[0]), 20787, "test", "signal", { _, _ -> })
+		withTimeout(2_000) { while (socket.onMessage == null) delay(5) }
+		val signal = AbortSignalLike()
+		val attempt = async(Dispatchers.Default) {
+			runCatching { publishViaSharedRelay(urls[0], mapOf("id" to "queued-abort"), signal) }
+		}
+		val listeners = AbortSignalLike::class.java.getDeclaredField("listeners").apply { isAccessible = true }
+		withTimeout(2_000) {
+			while (synchronized(listeners.get(signal)) { (listeners.get(signal) as Set<*>).isEmpty() }) delay(5)
+		}
+		val mutex = Class.forName("io.github.steve02081504.fountp2p.discovery.nostr.SessionKt")
+			.getDeclaredField("sessionMutex").apply { isAccessible = true }.get(null) as Mutex
+		mutex.lock()
+		try { signal.abort() }
+		finally { mutex.unlock() }
+		try {
+			val result = withTimeoutOrNull(1_000) { attempt.await() }
+			assertNotNull("the queued abort must settle after the mutex becomes available", result)
+			assertEquals("nostr: aborted", result?.exceptionOrNull()?.message)
+		}
+		finally { attempt.cancel(); stop() }
 	}
 
 	@Test fun `late shared publish burst keeps a constant callback and cleans abort and OK waiters`() = runBlocking {

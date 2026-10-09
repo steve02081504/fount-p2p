@@ -530,14 +530,14 @@ suspend fun publishViaSharedRelay(
 	if (!queued) return attempt.deferred.await()
 	/** 尚未发出去就被取消：出队并结算；已 flush 到 socket 时出队失败，改由本次发送的 abort 分支结算。 */
 	val onQueuedAbort: () -> Unit = {
-		if (sessionMutex.tryLock()) {
-			try {
+		// 锁暂时被占用时也保留取消工作，不能把一次性 abort 通知丢掉。
+		sessionScope.launch {
+			sessionMutex.withLock {
 				if (session.pending.remove(attempt)) {
 					clearQueuedDeadline(attempt)
 					if (!attempt.deferred.isCompleted) attempt.deferred.completeExceptionally(IllegalStateException("nostr: aborted"))
 				}
 			}
-			finally { sessionMutex.unlock() }
 		}
 	}
 	signal?.addEventListener(onQueuedAbort)
