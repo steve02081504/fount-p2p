@@ -186,9 +186,11 @@ private class SharedRelaySession(val url: String) {
 
 	/** 进行中的连接协程（持 sessionMutex 等宿主 connect；清理时必须取消它，否则锁被一直占住）。 */
 	var connectJob: Job? = null
-	val subs = LinkedHashMap<String, RelaySub>()
-	val pending = ArrayList<PublishAttempt>()
-	val inflight = ArrayList<PublishAttempt>()
+	// 三张表都可能被锁外线程碰到：socket 回调线程读 subs，
+	// 锁外的 closeQueuedAttempt 改 pending、clearSharedRelaySessionsForTests 快照全部会话，故都用并发容器。
+	val subs = ConcurrentHashMap<String, RelaySub>()
+	val pending = CopyOnWriteArrayList<PublishAttempt>()
+	val inflight = CopyOnWriteArrayList<PublishAttempt>()
 	val publishAcks = ConcurrentHashMap<Pair<WebSocketConnection, String>, CopyOnWriteArrayList<CompletableDeferred<Boolean>>>()
 
 	fun hasPendingWork(): Boolean = subs.isNotEmpty() || pending.isNotEmpty() || inflight.isNotEmpty()
@@ -196,23 +198,32 @@ private class SharedRelaySession(val url: String) {
 
 private val sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 private val sessionMutex = Mutex()
-private val sharedRelaySessions = LinkedHashMap<String, SharedRelaySession>()
+
+/**
+ * 会话表：会被锁外线程碰（[closeQueuedAttempt] 的锁外删除、socket 回调线程的读），故用并发容器，
+ * 让 [clearSharedRelaySessionsForTests] 的遍历不必持锁也不会撞上别的线程正在改名。
+ */
+private val sharedRelaySessions = ConcurrentHashMap<String, SharedRelaySession>()
 
 /**
  * 清空共享 relay 会话（测试用：避免上一个用例的退避重连循环泄漏到下一个用例）。
  *
  * 不取 [sessionMutex]：重连循环会持锁等宿主 connect，测试收尾不该被它拖住。
  * 取消重连/空闲定时器并让残留的入队请求结算即可。
+ *
+ * 快照一律用 `ArrayList(collection)`（走 `toArray()`）而不是 `toList()`：后台协程会在本函数跑的同时
+ * 删除条目，而 Kotlin 的 `toList()` 对 size==1 的集合走 `iterator().next()` 快路径，
+ * 正好最后一条被删掉时会抛 `NoSuchElementException`（此处实测撞到过）。快照之后新加入的会话留给下一次清理。
  */
 fun clearSharedRelaySessionsForTests() {
-	val sessions = sharedRelaySessions.values.toList()
+	val sessions = ArrayList(sharedRelaySessions.values)
 	sharedRelaySessions.clear()
 	for (session in sessions) {
 		clearReconnect(session)
 		session.idleJob?.cancel()
 		session.idleJob = null
-		for (attempt in session.pending.toList()) closeQueuedAttempt(session, attempt)
-		for (attempt in session.inflight.toList()) {
+		for (attempt in ArrayList(session.pending)) closeQueuedAttempt(session, attempt)
+		for (attempt in ArrayList(session.inflight)) {
 			session.inflight.remove(attempt)
 			clearQueuedDeadline(attempt)
 			if (!attempt.deferred.isCompleted) attempt.deferred.complete(false)
@@ -431,7 +442,8 @@ private suspend fun withSharedRelay(
 
 private fun flushPending(session: SharedRelaySession) {
 	val ws = session.connection ?: return
-	val pending = session.pending.toList()
+	// 同样避开 toList()：锁外的 closeQueuedAttempt 会同时从 pending 里删条目（size==1 时的快路径会炸）。
+	val pending = ArrayList(session.pending)
 	session.pending.clear()
 	for (attempt in pending) {
 		clearQueuedDeadline(attempt)

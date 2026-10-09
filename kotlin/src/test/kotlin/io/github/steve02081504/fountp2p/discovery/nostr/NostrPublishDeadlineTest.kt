@@ -45,7 +45,7 @@ class NostrPublishDeadlineTest {
 		override var onMessage: ((String) -> Unit)? = null
 		override var onClose: (() -> Unit)? = null
 		override var onError: (() -> Unit)? = null
-		var sentTexts: MutableList<String> = ArrayList()
+		val sentTexts: MutableList<String> = java.util.concurrent.CopyOnWriteArrayList()
 
 		override fun send(text: String) {
 			sentTexts.add(text)
@@ -132,7 +132,7 @@ class NostrPublishDeadlineTest {
 			val startedAt = System.currentTimeMillis()
 			withTimeout(6_000) { provider.sendNodeSignal(peer.nodeHash, byteArrayOf(7, 7, 7)) }
 			val elapsedMs = System.currentTimeMillis() - startedAt
-			assertEquals(1, ws.accepting[healthyUrl]?.sentTexts?.size)
+			assertEquals("frames sent to the healthy relay: ${ws.accepting[healthyUrl]?.sentTexts?.map { it.take(90) }}", 1, ws.accepting[healthyUrl]?.sentTexts?.size)
 			assertTrue("publish waited ${elapsedMs}ms for an unreachable pooled relay", elapsedMs < 6_000)
 		}
 		finally {
