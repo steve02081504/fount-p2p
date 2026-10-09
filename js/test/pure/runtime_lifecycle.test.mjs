@@ -83,7 +83,12 @@ function createListeningProbe() {
 		 */
 		isListening() { return listening },
 	}
-	return { provider, listenCalls: () => listenCalls }
+	return { provider,
+		/**
+		 * 读取 `ensureListening` 被调用的次数。
+		 * @returns {number} 监听调用次数
+		 */
+		listenCalls: () => listenCalls }
 }
 
 test('reload attaches listening to every enabled link provider, not just the owned lan/bt ones', async () => {
@@ -164,6 +169,10 @@ test('disable then re-enable nostr keeps the newly registered provider answering
 			setSignalingRuntimeConfig({ channels: nostrOnly(relayUrl) })
 			await registry.ensureRuntime()
 			await relay.waitReqs(1)
+			/**
+			 * 从当前注册表里找出 nostr link provider（关开一次后实例会换新）。
+			 * @returns {object | undefined} 找到的 provider，未注册时为 undefined
+			 */
 			const findNostrLink = () => listLinkProviders().find(provider => provider.id.split(':')[0] === 'nostr')
 			assertEquals(!!findNostrLink(), true, 'nostr link provider is registered')
 
@@ -219,13 +228,13 @@ test('registry restarts peer health tracking after shutdown and re-init', async 
 			initiator: true,
 			/** @returns {Promise<void>} */
 			async close() { },
-			/** @returns {() => void} */
+			/** @returns {() => void} 取消订阅函数 */
 			onEnvelope() { return () => { } },
-			/** @returns {() => void} */
+			/** @returns {() => void} 取消订阅函数 */
 			onDown() { return () => { } },
-			/** @returns {() => void} */
+			/** @returns {() => void} 取消订阅函数 */
 			onRtt() { return () => { } },
-			/** @returns {{ rttMs: number }} */
+			/** @returns {{ rttMs: number }} 链路统计（健康探测只读 rttMs） */
 			stats() { return { rttMs: 5 } },
 		}
 		const unregister = registerLinkProvider({

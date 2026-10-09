@@ -40,6 +40,7 @@ Deno / native / BT: [runtime.md](docs/runtime.md).
 - **No scattered `trim` / `toLowerCase`:** hex IDs must already be lowercase and without a `0x` prefix — a `0x`-prefixed, mixed-case, or whitespace value is rejected by `isHex64`/`isEntityHash128`, never cleaned. Exceptions: JSONL blank lines, SDP fingerprint, CLI/`scripts` parsing.
 - **No `String(x)` / `x || ''` on typed `string`:** if `@param {string}`, use it directly; `String(...)` / `|| ''` / `?? ''` only at optional / `unknown` / disk / inbound boundaries, or number→string.
 - **Optional methods:** `if (fn) return await fn(...)` / `if (fn) …` — never `typeof x === 'function'`.
+- **`eslint --fix` does half the lint job:** `jsdoc/require-jsdoc` inserts an empty `/** */` stub (with a bare `@param name` where the function takes arguments) above every function it covers — object-literal properties and `const` callbacks in `scripts/` and tests included — and `no-extra-parens` strips the parentheses a JSDoc type cast needs. Those stubs then fail `jsdoc_no_english`, and `require-param-type` / `require-param-description` / `require-returns*` survive the run, so a lint pass only ends when the Chinese summary, types and descriptions are written by hand. `eslint.config.mjs` ignores `kotlin/build*/**` because `-PbuildDirName` renames that output directory (`kotlin/.gitignore` ignores `build-*/`).
 
 ## Tests / tools
 

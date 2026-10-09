@@ -107,6 +107,9 @@ export async function startFakeRelay(accept = () => true, options = {}) {
 			const event = parsed[1]
 			const eventId = String(event?.id || '')
 			const ok = accept(eventId)
+			/**
+			 * 回 `OK`：`okDelayMs` 用来复现「发布已发出但确认还没回来」的窗口。
+			 */
 			const sendOk = () => {
 				if (socket.readyState === 1) socket.send(JSON.stringify(['OK', eventId, ok, ok ? '' : 'blocked: test']))
 			}

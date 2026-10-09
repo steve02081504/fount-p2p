@@ -27,6 +27,7 @@ function git(args) {
 /**
  * 跑反证器。
  * @param {string[]} args 额外参数
+ * @param {string} testFile 要跑的测试文件（相对仓库根）
  * @returns {{ status: number, stdout: string, stderr: string }} 运行结果
  */
 function runGuard(args, testFile = FIXED_TEST) {
@@ -59,7 +60,7 @@ test('regression guard rejects broken test loading and mixed passing and failing
 		const fixture = join(directory, 'fixture.test.mjs')
 		// 两个 fixture 都以单个 LF 结尾：它们在仓库内生成，静态检查（text_lf）若撞见残留文件不该被牵连。
 		for (const source of ['this is invalid JavaScript!\n',
-			"import { test } from 'node:test'\nimport assert from 'node:assert/strict'\ntest('passes', () => {})\ntest('fails', () => assert.fail('regression'))\n"]) {
+			'import { test } from \'node:test\'\nimport assert from \'node:assert/strict\'\ntest(\'passes\', () => {})\ntest(\'fails\', () => assert.fail(\'regression\'))\n']) {
 			writeFileSync(fixture, source)
 			const result = runGuard(['--base', fixCommit], fixture)
 			assertEquals(result.status, 1, result.stdout + result.stderr)

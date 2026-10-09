@@ -74,7 +74,12 @@ class FakePeerConnection extends globalThis.EventTarget {
 	 * @returns {Promise<void>}
 	 */
 	async setRemoteDescription(description) {
-		this.remoteDescription = { ...description, toJSON: () => ({ type: description.type, sdp: description.sdp }) }
+		this.remoteDescription = { ...description,
+			/**
+			 * 让假描述像真 RTCSessionDescription 一样可序列化。
+			 * @returns {{ type: string, sdp: string }} 只含 type/sdp 的普通对象
+			 */
+			toJSON: () => ({ type: description.type, sdp: description.sdp }) }
 	}
 	/**
 	 * @returns {Promise<void>}
@@ -96,7 +101,11 @@ class FakePeerConnection extends globalThis.EventTarget {
 	 */
 	createDataChannel(label) {
 		this.channelLabels.push(label)
-		return { label, onmessage: null, send() { }, close() { } }
+		return { label, onmessage: null,
+			/** 假数据通道的发送端点：不真的发数据。 */
+			send() { },
+			/** 假数据通道的关闭端点：不真的关资源。 */
+			close() { } }
 	}
 	/**
 	 * 推进一次 gathering：第二次被观测时派发一次候选，之后不再产出（模拟候选收齐后安静下来）。
@@ -142,7 +151,13 @@ class FakeRtcBackend {
 		this.policies.push(policy)
 		const connections = this.connections
 		const candidateSdp = this.candidateSdp
+		/**
+		 * 记录每一级新建的连接，用例据此检查各级的关闭情况。
+		 */
 		class TrackedPeerConnection extends FakePeerConnection {
+			/**
+			 * @param {object} config 传给 RTCPeerConnection 的配置
+			 */
 			constructor(config) {
 				super(candidateSdp)
 				this.config = config
@@ -150,8 +165,8 @@ class FakeRtcBackend {
 			}
 		}
 		const Wrapped = wrapRtcPeerConnectionForIceLocalHostname(
-			/** @type {typeof RTCPeerConnection} */ /** @type {unknown} */ (TrackedPeerConnection),
-			/** @type {typeof RTCIceCandidate} */ /** @type {unknown} */ (FakeIceCandidate),
+			/** @type {typeof RTCPeerConnection} */ /** @type {unknown} */ TrackedPeerConnection,
+			/** @type {typeof RTCIceCandidate} */ /** @type {unknown} */ FakeIceCandidate,
 			policy,
 		)
 		return { RTCPeerConnection: Wrapped, RTCIceCandidate: FakeIceCandidate, backend: 'fake' }
@@ -179,11 +194,11 @@ function createStubPipe(pipeOptions, readyState = 'pending') {
 		nodeHash: null,
 		initiator: false,
 		/** @returns {void} */		handleInbound() { },
-		/** @returns {() => void} */
+		/** @returns {() => void} 取消订阅函数 */
 		onEnvelope() { return () => { } },
-		/** @returns {() => void} */
+		/** @returns {() => void} 取消订阅函数 */
 		onDown() { return () => { } },
-		/** @returns {() => void} */
+		/** @returns {() => void} 取消订阅函数 */
 		onRtt() { return () => { } },
 		/**
 		 * @param {string} reason 关闭原因
@@ -198,7 +213,10 @@ function createStubPipe(pipeOptions, readyState = 'pending') {
 		async startHandshake() { },
 		/** @returns {Promise<void>} */
 		async maybeSendAuth() { },
-		/** `closed` 供重试逻辑判断链路是否已被换掉/关闭。@returns {object} 统计 */
+		/**
+		 * 链路统计；`closed` 供重试逻辑判断链路是否已被换掉/关闭。
+		 * @returns {{ rttMs: number | null, avgRttMs: number | null, ready: boolean, closed: boolean }} 统计快照
+		 */
 		stats() { return { rttMs: null, avgRttMs: null, ready: readyState === 'ready', closed: closedReasons.length > 0 } },
 		closedReasons,
 	}
@@ -273,11 +291,16 @@ function createLadderHarness(options) {
 	return {
 		backend,
 		sent,
+		/**
+		 * answer 的发送尝试次数（含失败与重试）。
+		 * @returns {number} 目前为止的发送次数
+		 */
 		get answerSendAttempts() { return answerSendAttempts },
-		/** @type {object} */ pipeStub: /** @type {object} */ (pipeStub),
+		/** @type {object} */ pipeStub: /** @type {object} */ pipeStub,
 		linking,
 		/** @param {object} message 入站信令 */
-		sendInbound(message) { /** @type {(message: object) => void} */ (inbound)(message) },
+		sendInbound(message) { /** @type {(message: object) => void} */ inbound(message) },
+		/** 停掉 gathering 推进定时器。 */
 		stop() { clearInterval(advance) },
 	}
 }
@@ -296,15 +319,15 @@ async function runWebRtcLink(options = {}) {
 		await harness.linking
 	}
 	catch (error) {
-		rejected = /** @type {Error} */ (error)
+		rejected = /** @type {Error} */ error
 	}
-	if (options.inboundSignals?.length) {
+	if (options.inboundSignals?.length)
 		for (const message of options.inboundSignals) {
 			harness.sendInbound(message)
 			// 入站处理是 fire-and-forget，只能按停滞/超时窗口等待。
 			await new Promise(resolve => setTimeout(resolve, 2_500))
 		}
-	}
+
 	harness.stop()
 	const { backend, pipeStub } = harness
 	return {
@@ -314,7 +337,7 @@ async function runWebRtcLink(options = {}) {
 		connections: backend.connections,
 		closeStates: backend.closeStates(),
 		rejected,
-		closedReasons: /** @type {{ closedReasons: string[] }} */ (pipeStub).closedReasons,
+		closedReasons: /** @type {{ closedReasons: string[] }} */ pipeStub.closedReasons,
 	}
 }
 
@@ -459,7 +482,10 @@ test('responder stops answer retries after its pipe closes', async () => {
 test('a stale answer failure during a rung switch does not close the link', async () => {
 	/** @type {((error: Error) => void) | null} */
 	let failPendingSend = null
-	/** 首个 answer 的发布悬挂到测试放行为止：此时 rung 0 的 answer 就是「已经过期但还没失败」的那一个。 */
+	/**
+	 * 首个 answer 的发布悬挂到测试放行为止：此时 rung 0 的 answer 就是「已经过期但还没失败」的那一个。
+	 * @returns {Promise<never>} 永不自行结算的发布 Promise，等测试手动拒绝
+	 */
 	const seedPendingAnswer = () => new Promise((_resolve, reject) => { failPendingSend = reject })
 	const harness = createLadderHarness({
 		initiator: false,
@@ -477,7 +503,7 @@ test('a stale answer failure during a rung switch does not close the link', asyn
 		// 换级：rungIndex 同步跳到 1，新 pc 要等 loadRtc 与旧连接收尾后才装上，rung 0 的 answer 此刻过期。
 		harness.sendInbound(offerFor(1))
 		await Promise.resolve()
-		const pendingAnswer = /** @type {(error: Error) => void} */ (failPendingSend)
+		const pendingAnswer = /** @type {(error: Error) => void} */ failPendingSend
 		pendingAnswer(new Error('stale answer publish failed'))
 		// 等过第一次重试延迟（200ms）：过期 answer 的失败不该再被重试，更不该拆掉活链路。
 		await new Promise(resolve => setTimeout(resolve, 400))

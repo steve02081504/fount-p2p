@@ -163,6 +163,11 @@ try {
 		process.stderr.write(result.stderr || '')
 		// 只有每个叶子用例都因断言失败才算反证成立；加载/语法错误和混合通过不能冒充回归断言。
 		const report = result.stdout || ''
+		/**
+		 * 取 TAP 报告里某个计数行（`# tests 3`、`# pass 2` …）。
+		 * @param {string} name 计数项名（tests / pass / fail / skipped / cancelled / todo）
+		 * @returns {number} 该项计数，缺失时为 0
+		 */
 		const count = name => Number(report.match(new RegExp(`^# ${name} (\\d+)$`, 'm'))?.[1] || 0)
 		const total = count('tests')
 		const passed = count('pass')

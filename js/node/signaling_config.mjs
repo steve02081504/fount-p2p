@@ -45,9 +45,9 @@ const DEFAULT_CHANNEL_CONFIG = {
  */
 export function iceLocalHostnameLadder(from) {
 	if (from === 'rewrite-loopback') return ['rewrite-loopback']
-	if (!ICE_LOCAL_HOSTNAME_LADDER.includes(/** @type {IceLocalHostnamePolicy} */ (from)))
+	if (!ICE_LOCAL_HOSTNAME_LADDER.includes(/** @type {IceLocalHostnamePolicy} */ from))
 		return [...ICE_LOCAL_HOSTNAME_LADDER]
-	const startIndex = ICE_LOCAL_HOSTNAME_LADDER.indexOf(/** @type {IceLocalHostnamePolicy} */ (from))
+	const startIndex = ICE_LOCAL_HOSTNAME_LADDER.indexOf(/** @type {IceLocalHostnamePolicy} */ from)
 	return ICE_LOCAL_HOSTNAME_LADDER.slice(startIndex)
 }
 

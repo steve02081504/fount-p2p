@@ -1,14 +1,14 @@
 import { createServer } from 'node:http'
 import { test } from 'node:test'
 
+import { clearDiscoveryProviders, registerDiscoveryProvider } from '../../discovery/index.mjs'
 import {
 	NOSTR_ADVERT_KIND,
 	createNostrDiscoveryProvider,
 } from '../../discovery/nostr/index.mjs'
-import { clearDiscoveryProviders, registerDiscoveryProvider } from '../../discovery/index.mjs'
 import { setQueuedPublishDeadlineMsForTests } from '../../discovery/nostr/session.mjs'
-import { createNostrLinkProvider } from '../../link/providers/nostr/index.mjs'
 import { clearLinkProviders, registerLinkProvider } from '../../link/providers/index.mjs'
+import { createNostrLinkProvider } from '../../link/providers/nostr/index.mjs'
 import { createLinkRegistry, setLinkDialDeadlineMsForTests } from '../../transport/link_registry.mjs'
 import { assert, assertEquals } from '../helpers/assert.mjs'
 import { startFakeRelay } from '../helpers/fake_relay.mjs'

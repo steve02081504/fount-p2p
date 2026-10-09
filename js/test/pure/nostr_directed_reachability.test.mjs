@@ -12,7 +12,12 @@ test('directed signals reach disjoint advertised listen relays in both direction
 	const nodes = [identity(101).nodeHash, identity(102).nodeHash]
 	const releaseTrust = registerProviderTrustedRelayUrls(urls)
 	const providers = [createNostrDiscoveryProvider({ relayUrls: [urls[0]] }),
-		createNostrDiscoveryProvider({ getRelayUrls: () => [urls[1]] })]
+		createNostrDiscoveryProvider({
+			/**
+			 * 用回调给出 relay 列表，覆盖另一条（不相交的）监听 relay。
+			 * @returns {string[]} 本 provider 当前使用的 relay 列表
+			 */
+			getRelayUrls: () => [urls[1]] })]
 	const received = [[], []]
 	try {
 		for (let index = 0; index < 2; index++) {

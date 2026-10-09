@@ -17,7 +17,15 @@ function createGatheringProbe(options = {}) {
 	let candidateIndex = 0
 	return {
 		options: {
+			/**
+			 * 读取当前 gathering 状态；序列用完后一直复用最后一个值。
+			 * @returns {string} 预置序列里的当前状态
+			 */
 			iceGatheringState: () => states[Math.min(stateIndex, states.length - 1)],
+			/**
+			 * 读取当前候选数；序列用完后一直复用最后一个值。
+			 * @returns {number} 预置序列里的当前候选数
+			 */
 			candidateCount: () => candidateSteps[Math.min(candidateIndex, candidateSteps.length - 1)],
 			handshakeTimeoutMs: 30_000,
 		},
@@ -50,11 +58,16 @@ test('collectIceGathering treats a quiet candidate stream as gathered even when 
 
 test('collectIceGathering gives up on a stalled gathering instead of hanging forever', async () => {
 	const probe = createGatheringProbe()
-	/** @type {Array<{ elapsedMs: number }>} */
+	/** @type {number[]} */
 	const stalls = []
 	const startedAt = Date.now()
 	const result = await collectIceGathering({
 		...probe.options,
+		/**
+		 * 收下停滞回报，用例据此断言只报一次。
+		 * @param {number} info 已无候选的毫秒数
+		 * @returns {number} 入栈后的数组长度（调用方忽略）
+		 */
 		onStall: info => stalls.push(info),
 	})
 	assertEquals(result, 'stalled')

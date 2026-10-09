@@ -1,6 +1,7 @@
 import { toBytes } from '../../core/bytes_codec.mjs'
 import { getSignalingRuntimeConfig } from '../../node/instance.mjs'
 import { nodeDebug } from '../../node/log.mjs'
+import { iceLocalHostnameLadder } from '../../node/signaling_config.mjs'
 import { ms } from '../../utils/duration.mjs'
 import { createLruMap } from '../../utils/lru.mjs'
 import {
@@ -12,7 +13,6 @@ import {
 	onBufferedAmountLow,
 } from '../channel_mux.mjs'
 import { asLinkHandle, createLinkPipe } from '../pipe.mjs'
-import { iceLocalHostnameLadder } from '../../node/signaling_config.mjs'
 import { loadNodeRtcPolyfill, waitForChannelState } from '../rtc/index.mjs'
 import { extractDtlsFingerprint } from '../sdp_fingerprint.mjs'
 
@@ -44,10 +44,19 @@ export async function collectIceGathering(options) {
 	const stallMs = options.stallMs ?? ICE_GATHERING_STALL_MS
 	const startedAt = Date.now()
 	const deadline = startedAt + handshakeTimeoutMs
+	/**
+	 * 超过握手预算就抛错（每轮轮询都要复查一次）。
+	 * @returns {void}
+	 */
 	const failIfOverdue = () => {
 		if (Date.now() >= deadline)
 			throw new Error(`p2p: ice gathering incomplete after ${handshakeTimeoutMs}ms`)
 	}
+	/**
+	 * 睡指定毫秒，给 gathering 状态推进留时间。
+	 * @param {number} ms 等待的毫秒数
+	 * @returns {Promise<void>} 到点后 resolve
+	 */
 	const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 	while (true) {
 		if (iceGatheringState() === 'complete') return 'complete'
@@ -331,6 +340,11 @@ export async function createWebRtcLink(options) {
 	function attachPeerConnection(connection) {
 		// 候选随 description 一次性带出（对端要先有 remoteDescription 才吃候选），故这里只计数、不外发。
 		// 事件 API 由后端提供（W3C 是 addEventListener）；缺失时退化为 onicecandidate，摘的时候看 candidateCountHandler 在不在。
+		/**
+		 * 记一次本地候选；候选随 description 一次性发出，这里只计数。
+		 * @param {RTCPeerConnectionIceEvent} event 候选事件
+		 * @returns {void}
+		 */
 		const countCandidate = event => {
 			if (event?.candidate) localCandidateCount++
 		}
@@ -340,16 +354,30 @@ export async function createWebRtcLink(options) {
 		}
 		else {
 			const previousHandler = connection.onicecandidate
+			/**
+			 * 退化为 `onicecandidate` 时先计数、再把事件转交后端原有 handler。
+			 * @param {RTCPeerConnectionIceEvent} event 候选事件
+			 * @returns {void}
+			 */
 			connection.candidateCountHandler = event => {
 				countCandidate(event)
 				previousHandler?.(event)
 			}
 			connection.onicecandidate = connection.candidateCountHandler
 		}
+		/**
+		 * 对端开出数据通道时挂上它。
+		 * @param {RTCDataChannelEvent} event 数据通道事件
+		 * @returns {void}
+		 */
 		connection.ondatachannel = event => {
 			attachChannel(event.channel)
 			void maybeStartPostOpenFlow().catch(error => pipe.close(`channel-attach-failed:${formatErrorReason(error)}`))
 		}
+		/**
+		 * 连接状态转坏就计数并拆掉这条链路（换级重建由上层接手）。
+		 * @returns {void}
+		 */
 		connection.onconnectionstatechange = () => {
 			if (['failed', 'closed', 'disconnected'].includes(connection.connectionState)) {
 				reconnectCount++
@@ -378,11 +406,24 @@ export async function createWebRtcLink(options) {
 	async function waitForIceGatheringComplete() {
 		try {
 			await collectIceGathering({
+				/**
+				 * 观测当前 gathering 状态。
+				 * @returns {string} 后端报出的 gathering 状态
+				 */
 				iceGatheringState: () => peerConnection.iceGatheringState,
+				/**
+				 * 观测已收到的本地候选数。
+				 * @returns {number} 目前为止的候选总数
+				 */
 				candidateCount: () => localCandidateCount,
 				handshakeTimeoutMs,
 				settleMs: options.iceCandidateSettleMs,
 				stallMs: options.iceGatheringStallMs,
+				/**
+				 * 一个候选都没收到时记一条诊断日志（放行由 [ICE_GATHERING_STALL_MS] 决定）。
+				 * @param {number} elapsedMs 从开始收集到停滞的毫秒数
+				 * @returns {void}
+				 */
 				onStall: elapsedMs => nodeDebug('p2p:webrtc ice gathering stalled without candidates', {
 					elapsedMs,
 					rung: rungIndex,

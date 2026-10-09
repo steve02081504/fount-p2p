@@ -16,6 +16,11 @@ async function listViaGit(repoRoot) {
 		run('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: repoRoot, encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 }),
 		run('git', ['ls-files', '-z', '--deleted'], { cwd: repoRoot, encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 }),
 	])
+	/**
+	 * 把 `git ls-files -z` 的 NUL 分隔输出拆成路径数组。
+	 * @param {Buffer} chunk git 的原始输出
+	 * @returns {string[]} 拆出的路径
+	 */
 	const parse = chunk => String(chunk).split('\0').filter(Boolean)
 	const deletedPaths = new Set(parse(deleted.stdout))
 	return parse(listed.stdout).filter(path => !deletedPaths.has(path)).map(path => path.replaceAll('\\', '/')).sort()
